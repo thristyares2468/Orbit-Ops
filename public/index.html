@@ -10,10 +10,13 @@
 </head>
 <body>
   <div id="loading-screen" class="screen loading-screen">
-    <div class="anomaly anomaly-a"></div>
-    <div class="anomaly anomaly-b"></div>
+    <div class="space-menu-drifters" aria-hidden="true">
+      <canvas class="menu-drifter drifter-left-top" width="165" height="211" data-colour="coral" data-visor="#aaf7ff"></canvas>
+      <canvas class="menu-drifter drifter-right-mid" width="165" height="211" data-colour="lime" data-visor="#d7fbff"></canvas>
+      <canvas class="menu-drifter drifter-left-bottom" width="165" height="211" data-colour="blue" data-visor="#b8f4ff"></canvas>
+    </div>
     <main class="loading-card" aria-live="polite">
-      <div class="brand-lockup brand-lockup-large" aria-label="Orbit Ops">
+      <div class="brand-lockup brand-lockup-large space-menu-brand" aria-label="Orbit Ops">
         <span class="brand-orbit">ORBIT</span><span class="brand-ops">OPS</span>
         <span class="brand-kicker">O.S.V. MERIDIAN // KX-71</span>
       </div>
@@ -43,8 +46,14 @@
 
     <section id="auth-screen" class="screen menu-screen">
       <div class="menu-backdrop"></div>
+      <div class="space-menu-drifters" aria-hidden="true">
+        <canvas class="menu-drifter drifter-left-top" width="165" height="211" data-colour="amber" data-visor="#b9f8ff"></canvas>
+        <canvas class="menu-drifter drifter-right-mid" width="165" height="211" data-colour="lime" data-visor="#d7fbff"></canvas>
+        <canvas class="menu-drifter drifter-left-bottom" width="165" height="211" data-colour="violet" data-visor="#a9efff"></canvas>
+        <canvas class="menu-drifter drifter-right-bottom" width="165" height="211" data-colour="coral" data-visor="#c9f7ff"></canvas>
+      </div>
       <main class="menu-shell auth-shell">
-        <div class="brand-lockup brand-lockup-large">
+        <div class="brand-lockup brand-lockup-large space-menu-brand">
           <span class="brand-orbit">ORBIT</span><span class="brand-ops">OPS</span>
           <span class="brand-kicker">Deep-space operations // KX-71</span>
         </div>
@@ -78,13 +87,19 @@
 
     <section id="main-menu" class="screen menu-screen is-hidden">
       <div class="menu-backdrop"></div>
+      <div class="space-menu-drifters" aria-hidden="true">
+        <canvas class="menu-drifter drifter-left-top" width="165" height="211" data-colour="coral" data-visor="#bff7ff"></canvas>
+        <canvas class="menu-drifter drifter-right-top" width="165" height="211" data-colour="amber" data-visor="#d8faff"></canvas>
+        <canvas class="menu-drifter drifter-left-bottom" width="165" height="211" data-colour="blue" data-visor="#a9efff"></canvas>
+        <canvas class="menu-drifter drifter-right-bottom" width="165" height="211" data-colour="lime" data-visor="#d9ffff"></canvas>
+      </div>
       <main class="menu-shell command-shell">
         <header class="command-header">
-          <div class="brand-lockup"><span class="brand-orbit">ORBIT</span><span class="brand-ops">OPS</span></div>
+          <div class="brand-lockup space-menu-brand"><span class="brand-orbit">ORBIT</span><span class="brand-ops">OPS</span><span class="brand-kicker">O.S.V. MERIDIAN</span></div>
           <div class="identity-chip"><span id="menu-display-name">Explorer</span><small id="menu-account-type">Guest clearance</small></div>
         </header>
-        <p class="eyebrow">OPERATIONS DIRECTIVE 71-A</p>
-        <h1>Return the Meridian to operational control.</h1>
+        <p class="eyebrow">MERIDIAN OPERATIONS</p>
+        <h1>Choose an operation.</h1>
         <div class="menu-actions">
           <button id="join-public" class="mission-card" type="button"><b>Public Match</b><span>Find an available crew in the sector.</span></button>
           <button id="create-private" class="mission-card" type="button"><b>Create Private Room</b><span>Open a secured Meridian channel.</span></button>

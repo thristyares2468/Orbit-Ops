@@ -4,6 +4,7 @@ import { DEFAULT_MAP_ID, getMapDefinition } from "../shipData.js";
 import {
   PHASER_ASSETS,
   PLAYER_MODEL_ASSETS,
+  worldDetailScale,
   worldMetrics,
   worldToScreen
 } from "./assets.js";
@@ -49,6 +50,7 @@ export class MeridianScene extends Phaser.Scene {
     this.mapId = map.id;
     this.map = map;
     this.metrics = worldMetrics(map);
+    this.detailScale = worldDetailScale(map);
     this.cameras.main.setBounds(0, 0, this.metrics.width, this.metrics.height);
     this.mapBuilder = new MapBuilder(this, map).build();
     this.stationMarkers = this.mapBuilder.stationMarkers;
@@ -115,7 +117,7 @@ export class MeridianScene extends Phaser.Scene {
       if (this.incidentMarkers.has(incident.id)) continue;
       const point = this.mapPoint(incident.x, incident.z);
       const glow = this.add.image(point.x, point.y, "incidentMarker")
-        .setDisplaySize(72, 72)
+        .setDisplaySize(72 * this.detailScale, 72 * this.detailScale)
         .setTint(0xff5369)
         .setAlpha(0.78)
         .setDepth(440);

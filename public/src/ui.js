@@ -1,4 +1,5 @@
 import { ART_CATALOG } from "./artCatalog.js";
+import { PLAYER_COLOUR_PALETTES } from "./game2d/assets.js";
 import { mapShapePolygon, pointInMapShape } from "./mapSchema.js";
 import { getRoleDefinition } from "./roleData.js";
 import { getMapDefinition } from "./shipData.js";
@@ -8,6 +9,51 @@ const COLOURS = Object.freeze({ cyan: "#27bad8", amber: "#e2a238", violet: "#805
 function byId(id) { return document.getElementById(id); }
 function setVisible(element, visible) { element?.classList.toggle("is-hidden", !visible); }
 function titleCase(value) { return String(value ?? "").replaceAll("-", " ").replace(/\b\w/gu, (character) => character.toUpperCase()); }
+function hexRgb(value, fallback = "#9defff") {
+  const match = /^#?([0-9a-f]{6})$/iu.exec(String(value ?? "")) ?? /^#?([0-9a-f]{6})$/iu.exec(fallback);
+  return [0, 2, 4].map((offset) => Number.parseInt(match[1].slice(offset, offset + 2), 16));
+}
+
+async function paintMenuCrew() {
+  const canvases = [...document.querySelectorAll(".menu-drifter")];
+  if (!canvases.length) return;
+  const source = new Image();
+  source.src = "/assets/player-models/base/idle/idle.png";
+  await source.decode();
+  for (const canvas of canvases) {
+    const palette = PLAYER_COLOUR_PALETTES[canvas.dataset.colour] ?? PLAYER_COLOUR_PALETTES.cyan;
+    const main = hexRgb(palette.main, "#27bad8");
+    const shadow = hexRgb(palette.shadow, "#126a83");
+    const visor = hexRgb(canvas.dataset.visor, "#9defff");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(source, 0, 0, canvas.width, canvas.height);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    for (let offset = 0; offset < pixels.data.length; offset += 4) {
+      const red = pixels.data[offset];
+      const green = pixels.data[offset + 1];
+      const blue = pixels.data[offset + 2];
+      if (pixels.data[offset + 3] === 0) continue;
+      let target = null;
+      let intensity = 1;
+      if (red - green > 12 && red - blue > 12) {
+        target = main;
+        intensity = red / 255;
+      } else if (blue - red > 12 && blue - green > 12) {
+        target = shadow;
+        intensity = blue / 255;
+      } else if (green - red > 12 && green - blue > 12) {
+        target = visor;
+        intensity = green / 255;
+      }
+      if (!target) continue;
+      pixels.data[offset] = Math.round(target[0] * intensity);
+      pixels.data[offset + 1] = Math.round(target[1] * intensity);
+      pixels.data[offset + 2] = Math.round(target[2] * intensity);
+    }
+    context.putImageData(pixels, 0, 0);
+  }
+}
 
 export class GameUI {
   constructor() {
@@ -23,6 +69,7 @@ export class GameUI {
       minimap: byId("minimap"), task: byId("task-modal"), meeting: byId("meeting-modal"), sabotage: byId("sabotage-modal"), security: byId("security-modal"),
       pause: byId("pause-modal"), settings: byId("settings-modal"), howto: byId("howto-modal"), profile: byId("profile-modal"), assets: byId("assets-modal")
     };
+    paintMenuCrew().catch(() => {});
     this.bindStaticEvents();
   }
 

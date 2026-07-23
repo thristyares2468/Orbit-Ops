@@ -97,7 +97,7 @@ export const THE_AIRSHIP = createMapDefinition({
   ],
   corridorWidth: 5,
   theme: {
-    worldScale: 39,
+    worldScale: 36,
     corridorFill: 0x4c3340,
     corridorStroke: 0xa2765e,
     frame: 0xe0ad87,

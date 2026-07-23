@@ -14,6 +14,7 @@ import {
   isWalkable,
   stationById
 } from "../public/src/shipData.js";
+import { worldDetailScale, worldMetrics } from "../public/src/game2d/assets.js";
 
 test("all four maps have isolated, valid server geometry and interactions", () => {
   assert.deepEqual(MAP_IDS, ["the-skeld", "mira-hq", "polus", "the-airship"]);
@@ -80,6 +81,24 @@ test("map silhouettes follow the supplied canonical reference layouts", () => {
   assert.equal(room("the-airship", "vault").shape, "ellipse");
   assert.equal(room("the-airship", "records").shape, "ellipse");
   assert.ok(getMapDefinition("the-airship").bounds.maxX - getMapDefinition("the-airship").bounds.minX > 170);
+});
+
+test("world rendering details and padding scale with each map", () => {
+  const expectedScales = new Map([
+    ["the-skeld", 42],
+    ["mira-hq", 41],
+    ["polus", 39],
+    ["the-airship", 36]
+  ]);
+  for (const [mapId, expectedScale] of expectedScales) {
+    const map = getMapDefinition(mapId);
+    const metrics = worldMetrics(map);
+    assert.equal(metrics.scale, expectedScale, map.name);
+    assert.equal(metrics.padding, expectedScale * 6.5, map.name);
+    assert.equal(worldDetailScale(map), expectedScale / 46, map.name);
+    assert.equal(metrics.width, (map.bounds.maxX - map.bounds.minX) * expectedScale + metrics.padding * 2, map.name);
+    assert.equal(metrics.height, (map.bounds.maxZ - map.bounds.minZ) * expectedScale + metrics.padding * 2, map.name);
+  }
 });
 
 test("the reusable map schema builder generates orthogonal corridor transforms", () => {

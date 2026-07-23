@@ -91,7 +91,7 @@ export const THE_SKELD = createMapDefinition({
     { id: "skeld-storage-crates", kind: "cargo", roomId: "storage", x: 11, z: 27, width: 3.8, depth: 3.4 }
   ],
   theme: {
-    worldScale: 46,
+    worldScale: 42,
     corridorFill: 0x142a30,
     corridorStroke: 0x6b8b8f,
     frame: 0xa6d7d9,

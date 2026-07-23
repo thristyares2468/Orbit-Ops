@@ -93,7 +93,7 @@ export const POLUS = createMapDefinition({
   ],
   corridorWidth: 5,
   theme: {
-    worldScale: 43,
+    worldScale: 39,
     corridorFill: 0x46506c,
     corridorStroke: 0xa8b5dd,
     zoneFill: 0x4d406c,

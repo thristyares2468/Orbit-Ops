@@ -12,6 +12,10 @@ export function worldMetrics(map = getMapDefinition()) {
   });
 }
 
+export function worldDetailScale(map = getMapDefinition()) {
+  return worldMetrics(map).scale / 46;
+}
+
 export function worldToScreen(x, z, map = getMapDefinition()) {
   const metrics = worldMetrics(map);
   return {

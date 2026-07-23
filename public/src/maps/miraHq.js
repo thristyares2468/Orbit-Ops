@@ -82,7 +82,7 @@ export const MIRA_HQ = createMapDefinition({
     { id: "mira-launch-crates", kind: "cargo", roomId: "launchpad", x: -51, z: 32, width: 3.6, depth: 3.2 }
   ],
   theme: {
-    worldScale: 45,
+    worldScale: 41,
     corridorFill: 0x203641,
     corridorStroke: 0x75b5b3,
     frame: 0x86f0d0,

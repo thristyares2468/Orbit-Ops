@@ -78,6 +78,8 @@ export function createMapDefinition({
   ]);
   const frozenSpawns = Object.freeze(spawnPoints.map((spawn) => Object.freeze([...spawn])));
   const frozenCollisions = freezeItems(collisionRects);
+  const worldScale = theme.worldScale ?? 60;
+  const worldPadding = theme.worldPadding ?? worldScale * 6.5;
   const objectGroups = Object.freeze([
     Object.freeze({ id: "collisions", kind: "collision", visible: false, objects: frozenCollisions }),
     Object.freeze({ id: "stations", kind: "interaction", visible: false, objects: allStations }),
@@ -107,8 +109,8 @@ export function createMapDefinition({
     spawnPoints: frozenSpawns,
     objectGroups,
     render: Object.freeze({
-      worldScale: theme.worldScale ?? 60,
-      worldPadding: theme.worldPadding ?? 300,
+      worldScale,
+      worldPadding,
       camera: Object.freeze({ clampToBounds: true, roundPixels: true }),
       layers: DEFAULT_LAYERS,
       backgrounds: DEFAULT_BACKGROUNDS,
