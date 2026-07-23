@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildOrthogonalCorridors,
+  buildRoutedCorridors,
   pointInCollisionRect,
   validateMapDefinition,
   visibleMapLayers
@@ -20,12 +21,18 @@ test("all four maps have isolated, valid server geometry and interactions", () =
   for (const mapId of MAP_IDS) {
     const map = getMapDefinition(mapId);
     assert.deepEqual(validateMapDefinition(map), { valid: true, errors: [] }, map.name);
-    assert.equal(map.corridors.length, map.connections.length * 2, map.name);
+    assert.ok(map.corridors.length >= map.connections.length, map.name);
+    assert.ok(map.corridors.every((corridor) => ["x", "z"].includes(corridor.axis)), map.name);
+    assert.ok(map.connections.every(([from, to]) =>
+      map.corridorRoutes.some((route) =>
+        (route.from === from && route.to === to) || (route.from === to && route.to === from)
+      )
+    ), `${map.name} routed topology`);
     assert.ok(map.spawnPoints.every(([x, z]) => isWalkable(mapId, x, z, 0)), map.name);
     assert.ok(stationById(mapId, "meeting-console"), `${map.name} emergency button`);
     assert.equal(map.objectGroups.find((group) => group.id === "collisions")?.objects, map.collisionRects);
     assert.deepEqual(visibleMapLayers(map).map((layer) => layer.id), [
-      "backgrounds", "corridors", "rooms", "stations"
+      "backgrounds", "zones", "corridors", "rooms", "props", "stations"
     ]);
     assert.ok(map.taskDefinitions.every((task) => map.rooms.some((room) => room.id === task.roomId)));
     assert.ok(map.sabotageDefinitions.every((sabotage) =>
@@ -38,10 +45,17 @@ test("all four maps have isolated, valid server geometry and interactions", () =
   }
 });
 
-test("room artwork never crosses map asset namespaces", () => {
-  for (const mapId of ["the-skeld", "mira-hq", "polus"]) {
-    const prefix = mapId === "the-skeld" ? "skeld-" : mapId === "mira-hq" ? "mira-" : "polus-";
-    assert.ok(getMapDefinition(mapId).rooms.every((room) => !room.assetKey || room.assetKey.startsWith(prefix)), mapId);
+test("room artwork uses only verified whole-room images or deliberate crops", () => {
+  const allowedAssets = new Map([
+    ["the-skeld", new Set(["skeld-cafeteria", "skeld-engine", "skeld-medbay", "skeld-weapons", "skeld-navigation"])],
+    ["mira-hq", new Set(["mira-launchpad"])],
+    ["polus", new Set(["polus-o2", "polus-broadcast", "polus-science", "polus-specimen", "polus-tunnel", "polus-weapons", "polus-storage"])],
+    ["the-airship", new Set()]
+  ]);
+  for (const [mapId, allowed] of allowedAssets) {
+    for (const room of getMapDefinition(mapId).rooms) {
+      assert.ok(!room.assetKey || allowed.has(room.assetKey), `${mapId}:${room.id}:${room.assetKey}`);
+    }
   }
   assert.ok(getMapDefinition("the-airship").rooms.every((room) => !room.assetKey), "Airship uses its own procedural deck treatment");
 });
@@ -54,6 +68,20 @@ test("canonical room sets are kept on their original maps", () => {
   assert.ok(["cockpit", "vault", "gap-room", "meeting-room", "cargo-bay"].every((id) => roomIds("the-airship").has(id)));
 });
 
+test("map silhouettes follow the supplied canonical reference layouts", () => {
+  const room = (mapId, roomId) => getMapDefinition(mapId).rooms.find(({ id }) => id === roomId);
+  assert.ok(room("the-skeld", "cafeteria").z < room("the-skeld", "storage").z);
+  assert.ok(room("the-skeld", "reactor").x < room("the-skeld", "navigation").x);
+  assert.ok(room("mira-hq", "greenhouse").z < room("mira-hq", "cafeteria").z);
+  assert.ok(room("mira-hq", "launchpad").x < room("mira-hq", "laboratory").x);
+  assert.ok(room("polus", "dropship").z < room("polus", "office").z);
+  assert.ok(room("polus", "specimen-room").x > room("polus", "office").x);
+  assert.ok(getMapDefinition("polus").zones.length >= 4);
+  assert.equal(room("the-airship", "vault").shape, "ellipse");
+  assert.equal(room("the-airship", "records").shape, "ellipse");
+  assert.ok(getMapDefinition("the-airship").bounds.maxX - getMapDefinition("the-airship").bounds.minX > 170);
+});
+
 test("the reusable map schema builder generates orthogonal corridor transforms", () => {
   const rooms = [
     { id: "alpha", x: 0, z: 0, width: 8, depth: 8 },
@@ -64,6 +92,22 @@ test("the reusable map schema builder generates orthogonal corridor transforms",
     { id: "alpha:beta:x", axis: "x", x: 6, z: 0, width: 16, depth: 4 },
     { id: "alpha:beta:z", axis: "z", x: 12, z: 5, width: 4, depth: 14 }
   ]);
+});
+
+test("reference routes generate only axis-aligned corridor segments", () => {
+  const rooms = [
+    { id: "alpha", x: 0, z: 0, width: 8, depth: 8 },
+    { id: "beta", x: 20, z: 16, width: 8, depth: 8 }
+  ];
+  const corridors = buildRoutedCorridors(rooms, [{
+    id: "alpha-beta",
+    from: "alpha",
+    to: "beta",
+    via: [{ x: 12, z: 0 }, { x: 12, z: 16 }]
+  }], 4);
+  assert.equal(corridors.length, 3);
+  assert.deepEqual(corridors.map(({ axis }) => axis), ["x", "z", "x"]);
+  assert.ok(corridors.every(({ routeId }) => routeId === "alpha-beta"));
 });
 
 test("the map validator rejects broken station references", () => {

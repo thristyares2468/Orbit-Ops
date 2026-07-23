@@ -1,5 +1,5 @@
 import {
-  buildOrthogonalCorridors,
+  buildRoutedCorridors,
   pointInCollisionRect,
   pointInMapRect,
   pointInMapShape,
@@ -8,8 +8,10 @@ import {
 
 const DEFAULT_LAYERS = Object.freeze([
   Object.freeze({ id: "backgrounds", kind: "backgrounds", visible: true, order: 0, depth: -1000 }),
+  Object.freeze({ id: "zones", kind: "zones", visible: true, order: 0.5, depth: -360 }),
   Object.freeze({ id: "corridors", kind: "corridors", visible: true, order: 1, depth: -300 }),
   Object.freeze({ id: "rooms", kind: "rooms", visible: true, order: 2, depth: -250 }),
+  Object.freeze({ id: "props", kind: "props", visible: true, order: 2.5, depth: -180 }),
   Object.freeze({ id: "stations", kind: "stations", visible: true, order: 3, depth: 210 })
 ]);
 
@@ -38,6 +40,8 @@ export function createMapDefinition({
   bounds,
   rooms,
   connections,
+  corridorRoutes,
+  zones = [],
   tasks,
   sabotages,
   stations = [],
@@ -48,7 +52,17 @@ export function createMapDefinition({
 }) {
   const frozenRooms = freezeItems(rooms);
   const frozenConnections = Object.freeze(connections.map((connection) => Object.freeze([...connection])));
-  const corridors = Object.freeze(buildOrthogonalCorridors(frozenRooms, frozenConnections, corridorWidth));
+  const frozenRoutes = Object.freeze((corridorRoutes ?? connections.map(([from, to]) => ({ from, to }))).map((route, index) =>
+    Object.freeze({
+      id: route.id ?? `${route.from}:${route.to}:${index}`,
+      from: route.from,
+      to: route.to,
+      width: route.width ?? corridorWidth,
+      via: Object.freeze((route.via ?? []).map((point) => Object.freeze({ x: Number(point.x), z: Number(point.z) })))
+    })
+  ));
+  const corridors = Object.freeze(buildRoutedCorridors(frozenRooms, frozenRoutes, corridorWidth));
+  const frozenZones = freezeItems(zones);
   const frozenTasks = freezeItems(tasks);
   const frozenSabotages = freezeItems(sabotages);
   const allStations = freezeItems([
@@ -82,7 +96,9 @@ export function createMapDefinition({
     schemaVersion: 2,
     bounds: Object.freeze(bounds),
     rooms: frozenRooms,
+    zones: frozenZones,
     connections: frozenConnections,
+    corridorRoutes: frozenRoutes,
     corridors,
     taskDefinitions: frozenTasks,
     sabotageDefinitions: frozenSabotages,
@@ -111,6 +127,15 @@ export function createMapDefinition({
         frameAlpha: 0.34,
         radius: 24
       }),
+      zone: Object.freeze({
+        depth: -360,
+        fill: theme.zoneFill ?? 0x2f344d,
+        fillAlpha: theme.zoneAlpha ?? 0.92,
+        stroke: theme.zoneStroke ?? theme.corridorStroke ?? 0x5d6487,
+        strokeAlpha: 0.42,
+        radius: 30
+      }),
+      prop: Object.freeze({ depth: -180 }),
       station: Object.freeze({ depth: 210, iconSize: 34 })
     })
   });
@@ -122,6 +147,7 @@ export function createMapDefinition({
 export function mapIsWalkable(map, x, z, margin = 0.55) {
   if (!map || !Number.isFinite(x) || !Number.isFinite(z)) return false;
   const insideFloor = map.rooms.some((room) => pointInMapShape(x, z, room, margin))
+    || map.zones.some((zone) => pointInMapShape(x, z, zone, Math.min(margin, 0.25)))
     || map.corridors.some((corridor) => pointInMapRect(x, z, corridor, Math.min(margin, 0.35)));
   if (!insideFloor) return false;
   return !map.collisionRects.some((rect) => pointInCollisionRect(x, z, rect, margin));
@@ -130,4 +156,3 @@ export function mapIsWalkable(map, x, z, margin = 0.55) {
 export function mapRoomAt(map, x, z) {
   return map?.rooms.find((room) => pointInMapShape(x, z, room, 0)) ?? null;
 }
-

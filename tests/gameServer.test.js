@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { MAP_IDS, stationById } from "../public/src/shipData.js";
+import { MAP_IDS, getMapDefinition, isWalkable, stationById } from "../public/src/shipData.js";
 import { GameServer } from "../server/gameServer.js";
 import { PHASES } from "../server/constants.js";
 
@@ -209,5 +209,18 @@ test("every map emergency button starts a meeting and consumes the caller allowa
     assert.ok(io.events.some((entry) => entry.event === "meetingStarted" && entry.payload.incidentRoom === null), mapId);
     for (const timer of room.timers) clearTimeout(timer);
     room.timers.clear();
+  }
+});
+
+test("bot routes follow every authored corridor without targeting blocked room centres", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  for (const mapId of MAP_IDS) {
+    const map = getMapDefinition(mapId);
+    for (const route of map.corridorRoutes) {
+      const waypoints = server.buildBotPath(mapId, route.from, route.to);
+      assert.ok(waypoints.length > 0, `${mapId}:${route.id}`);
+      assert.ok(waypoints.every(({ x, z }) => isWalkable(mapId, x, z, 0.2)), `${mapId}:${route.id}`);
+    }
   }
 });

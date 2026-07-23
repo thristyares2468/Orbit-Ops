@@ -1434,11 +1434,46 @@ export class GameServer {
     for (let index = 0; index < roomPath.length - 1; index += 1) {
       const currentId = roomPath[index];
       const nextId = roomPath[index + 1];
-      const connection = map.connections.find(([from, to]) => (from === currentId && to === nextId) || (from === nextId && to === currentId));
-      const fromRoom = map.rooms.find((room) => room.id === connection[0]);
-      const toRoom = map.rooms.find((room) => room.id === connection[1]);
+      const currentRoom = map.rooms.find((room) => room.id === currentId);
       const destination = map.rooms.find((room) => room.id === nextId);
-      waypoints.push({ x: toRoom.x, z: fromRoom.z }, { x: destination.x, z: destination.z });
+      const route = map.corridorRoutes?.find(({ from, to }) =>
+        (from === currentId && to === nextId) || (from === nextId && to === currentId)
+      );
+      if (!route) {
+        waypoints.push({ x: destination.x, z: currentRoom.z }, { x: destination.x, z: destination.z });
+        continue;
+      }
+
+      const routePoints = [
+        { x: map.rooms.find((room) => room.id === route.from).x, z: map.rooms.find((room) => room.id === route.from).z },
+        ...(route.via ?? []).map(({ x, z }) => ({ x, z })),
+        { x: map.rooms.find((room) => room.id === route.to).x, z: map.rooms.find((room) => room.id === route.to).z }
+      ];
+      if (route.from !== currentId) routePoints.reverse();
+      const finalPoint = routePoints.at(-1);
+      if (!isWalkable(mapId, finalPoint.x, finalPoint.z, 0.2)) {
+        const targetRoom = map.rooms.find((room) => room.id === nextId);
+        const approach = routePoints.at(-2) ?? finalPoint;
+        const xDirection = Math.sign(approach.x - finalPoint.x) || 1;
+        const zDirection = Math.sign(approach.z - finalPoint.z) || 1;
+        const candidates = [
+          { x: finalPoint.x + xDirection * targetRoom.width * 0.3, z: finalPoint.z },
+          { x: finalPoint.x, z: finalPoint.z + zDirection * targetRoom.depth * 0.3 },
+          { x: finalPoint.x - xDirection * targetRoom.width * 0.3, z: finalPoint.z },
+          { x: finalPoint.x, z: finalPoint.z - zDirection * targetRoom.depth * 0.3 }
+        ];
+        const safeEndpoint = candidates.find((point) => isWalkable(mapId, point.x, point.z, 0.2));
+        if (safeEndpoint) routePoints[routePoints.length - 1] = safeEndpoint;
+      }
+      const orthogonalPoints = [routePoints[0]];
+      for (const point of routePoints.slice(1)) {
+        const previousPoint = orthogonalPoints.at(-1);
+        if (previousPoint.x !== point.x && previousPoint.z !== point.z) {
+          orthogonalPoints.push({ x: point.x, z: previousPoint.z });
+        }
+        orthogonalPoints.push(point);
+      }
+      waypoints.push(...orthogonalPoints.slice(1));
     }
     return waypoints;
   }

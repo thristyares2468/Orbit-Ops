@@ -7,6 +7,15 @@ export function pointInMapRect(x, z, rect, margin = 0) {
     && z >= rect.z - rect.depth / 2 + margin && z <= rect.z + rect.depth / 2 - margin;
 }
 
+export function pointInMapEllipse(x, z, ellipse, margin = 0) {
+  const radiusX = ellipse.width / 2 - margin;
+  const radiusZ = ellipse.depth / 2 - margin;
+  if (radiusX <= 0 || radiusZ <= 0) return false;
+  const dx = (x - ellipse.x) / radiusX;
+  const dz = (z - ellipse.z) / radiusZ;
+  return dx * dx + dz * dz <= 1;
+}
+
 export function mapShapePolygon(rect, margin = 0) {
   const halfWidth = rect.width / 2 - margin;
   const halfDepth = rect.depth / 2 - margin;
@@ -25,6 +34,7 @@ export function mapShapePolygon(rect, margin = 0) {
 }
 
 export function pointInMapShape(x, z, shape, margin = 0) {
+  if (shape?.shape === "ellipse") return pointInMapEllipse(x, z, shape, margin);
   if (shape?.shape !== "octagon") return pointInMapRect(x, z, shape, margin);
   const polygon = mapShapePolygon(shape, margin);
   let inside = false;
@@ -83,20 +93,66 @@ export function buildOrthogonalCorridors(rooms, connections, width = 4) {
   return corridors;
 }
 
+export function buildRoutedCorridors(rooms, routes, defaultWidth = 4) {
+  const roomById = new Map(rooms.map((room) => [room.id, room]));
+  const corridors = [];
+  for (const [routeIndex, route] of routes.entries()) {
+    const from = roomById.get(route.from);
+    const to = roomById.get(route.to);
+    if (!from || !to) continue;
+    const width = Number(route.width) > 0 ? Number(route.width) : defaultWidth;
+    const requestedPoints = [
+      { x: from.x, z: from.z },
+      ...(route.via ?? []).map((point) => ({ x: Number(point.x), z: Number(point.z) })),
+      { x: to.x, z: to.z }
+    ];
+    const points = [requestedPoints[0]];
+    for (const next of requestedPoints.slice(1)) {
+      const previous = points.at(-1);
+      if (previous.x !== next.x && previous.z !== next.z) {
+        points.push({ x: next.x, z: previous.z });
+      }
+      points.push(next);
+    }
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const start = points[index];
+      const end = points[index + 1];
+      if (start.x === end.x && start.z === end.z) continue;
+      const axis = start.z === end.z ? "x" : "z";
+      corridors.push(Object.freeze({
+        id: `${route.id ?? `${route.from}:${route.to}:${routeIndex}`}:${index}`,
+        routeId: route.id ?? `${route.from}:${route.to}`,
+        fromRoomId: route.from,
+        toRoomId: route.to,
+        axis,
+        x: (start.x + end.x) / 2,
+        z: (start.z + end.z) / 2,
+        width: axis === "x" ? Math.abs(end.x - start.x) + width : width,
+        depth: axis === "z" ? Math.abs(end.z - start.z) + width : width
+      }));
+    }
+  }
+  return corridors;
+}
+
 export function validateMapDefinition(map) {
   const errors = [];
   const rooms = Array.isArray(map?.rooms) ? map.rooms : [];
   const corridors = Array.isArray(map?.corridors) ? map.corridors : [];
+  const corridorRoutes = Array.isArray(map?.corridorRoutes) ? map.corridorRoutes : [];
   const stations = Array.isArray(map?.stations) ? map.stations : [];
   const spawns = Array.isArray(map?.spawnPoints) ? map.spawnPoints : [];
   const collisionRects = Array.isArray(map?.collisionRects) ? map.collisionRects : [];
+  const zones = Array.isArray(map?.zones) ? map.zones : [];
   const objectGroups = Array.isArray(map?.objectGroups) ? map.objectGroups : [];
   const renderLayers = Array.isArray(map?.render?.layers) ? map.render.layers : [];
   const roomIds = new Set();
   const stationIds = new Set();
   const collisionIds = new Set();
+  const zoneIds = new Set();
   const objectGroupIds = new Set();
   const renderLayerIds = new Set();
+  const routeIds = new Set();
 
   if (!map?.id) errors.push("Map id is required.");
   if (!map?.bounds || !["minX", "maxX", "minZ", "maxZ"].every((key) => finite(map.bounds[key]))) {
@@ -109,8 +165,25 @@ export function validateMapDefinition(map) {
       errors.push(`Room ${room.id ?? "(missing)"} has invalid geometry.`);
     }
   }
+  for (const zone of zones) {
+    if (!zone.id || zoneIds.has(zone.id)) errors.push(`Duplicate or missing zone id: ${zone.id ?? "(missing)"}.`);
+    zoneIds.add(zone.id);
+    if (![zone.x, zone.z, zone.width, zone.depth].every(finite) || zone.width <= 0 || zone.depth <= 0) {
+      errors.push(`Zone ${zone.id ?? "(missing)"} has invalid geometry.`);
+    }
+  }
   for (const [fromId, toId] of map?.connections ?? []) {
     if (!roomIds.has(fromId) || !roomIds.has(toId)) errors.push(`Connection ${fromId}:${toId} references an unknown room.`);
+  }
+  for (const route of corridorRoutes) {
+    if (!route.id || routeIds.has(route.id)) errors.push(`Duplicate or missing route id: ${route.id ?? "(missing)"}.`);
+    routeIds.add(route.id);
+    if (!roomIds.has(route.from) || !roomIds.has(route.to)) {
+      errors.push(`Route ${route.id ?? "(missing)"} references an unknown room.`);
+    }
+    if (!Array.isArray(route.via) || route.via.some((point) => ![point.x, point.z].every(finite))) {
+      errors.push(`Route ${route.id ?? "(missing)"} has invalid waypoints.`);
+    }
   }
   for (const station of stations) {
     if (!station.id || stationIds.has(station.id)) errors.push(`Duplicate or missing station id: ${station.id ?? "(missing)"}.`);
@@ -145,6 +218,7 @@ export function validateMapDefinition(map) {
     }
     const [x, z] = spawn;
     const walkable = rooms.some((room) => pointInMapShape(x, z, room))
+      || zones.some((zone) => pointInMapShape(x, z, zone))
       || corridors.some((corridor) => pointInMapRect(x, z, corridor));
     if (!walkable) errors.push(`Spawn ${index} is outside walkable geometry.`);
     if (collisionRects.some((rect) => pointInCollisionRect(x, z, rect))) {

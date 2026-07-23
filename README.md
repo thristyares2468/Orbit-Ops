@@ -82,11 +82,12 @@ render.yaml                       Render Blueprint configuration
 
 The maps follow a data/build split without importing compiled Unity code or third-party map art.
 `public/src/shipData.js` exposes a registry whose four definitions live under `public/src/maps/`.
-Every definition owns its room transforms, adjacency, generated orthogonal corridors, prop collision
-rectangles, station anchors, spawn points, tasks, sabotages, camera bounds, visible render layers,
-and non-rendered object groups. `public/src/game2d/MapBuilder.js` turns the selected definition into
-disposable Phaser containers. The authoritative server reads that same selected definition for
-movement and interaction checks.
+Every definition owns its room transforms, adjacency, explicit orthogonal corridor routes, prop
+collision rectangles, station anchors, spawn points, tasks, sabotages, camera bounds, visible
+render layers, and non-rendered object groups. Polus also defines broad walkable exterior zones.
+`public/src/game2d/MapBuilder.js` turns the selected definition into disposable Phaser containers.
+The authoritative server reads those same routes and volumes for movement, interactions, and bot
+navigation.
 
 This layered/object-group organization adapts the useful public-domain map-loading pattern in the
 project-owner-supplied Python fan conversion: visible map layers are built in order, while named
@@ -114,9 +115,10 @@ Important runtime mappings:
 | --- | --- |
 | `Background/Stars-sharedassets0.assets-56.png` | Loading/menu background and Phaser world backdrop |
 | `Background/Paralax1-sharedassets0.assets-115.png` | Essential anomaly/environment layer in the asset loader |
-| Skeld sheets under `Maps/Cafeteria`, `Engine`, `Hull`, `LifeSupport`, `MedBay`, `Navigation`, `Security`, `Storage`, and `Weapons` | The Skeld room art only |
-| `HQAssets`, `HQAssets2`, `HQAssets3`, `compLabGreenHouseAdminWalls`, and `launchPadWalls` | MIRA HQ room art only |
-| `PlanetSprites`, `PlanetSecurity`, `dropshipTop`, and the `room_*` outpost sheets | Polus room art only |
+| `Maps/Cafeteria`, `Engine`, `MedBay`, `Weapons`, and `Navigation` | Verified Skeld room art; mixed sheets use deliberate crops with preserved aspect ratio |
+| `Maps/launchPadWalls` | Verified MIRA HQ Launchpad room art |
+| `room_O2`, `room_broadcast`, `room_science`, `room_specimen`, `room_tunnel2`, `room_weapon`, and `room_storage` | Verified Polus room art |
+| `HQAssets*`, `PlanetSprites*`, `ReactorRoom`, and other packed sheets | Retained in the archive for future extraction; never stretched across a room |
 | `player-models/base/idle`, `walk`, and `death` frames | Live 58×76 player model, movement animation, and elimination animation |
 | `Tasks/Consolas_0`, `Emergency`, `DoorLog`, `panel_doors_bg`, and reactor panel art | Live world station markers |
 | `Tasks/grid-sharedassets0.assets-156.png` | Task-console holographic surface |
@@ -190,11 +192,11 @@ npm run check
 npm test
 ```
 
-The automated suite validates every room, spawn, collision, task, sabotage repair point, emergency
-button, and asset namespace on all four maps. It also verifies the authoritative elimination →
-incident → vote → victory path and four real Socket.IO clients changing maps, joining, receiving
-private role/task state, starting a match, moving through server snapshots, and being denied a Crew
-elimination request.
+The automated suite validates every room, routed corridor, exterior zone, spawn, collision, task,
+sabotage repair point, emergency button, and verified room-art allowlist on all four maps. It also
+verifies the authoritative elimination → incident → vote → victory path and four real Socket.IO
+clients changing maps, joining, receiving private role/task state, starting a match, moving through
+server snapshots, and being denied a Crew elimination request.
 
 The project has also been browser-playtested through map selection and rendered gameplay/player-map
 views for The Skeld, MIRA HQ, Polus, and The Airship. Database migration was not executed in this
@@ -202,13 +204,15 @@ checkout because no Neon `DATABASE_URL` was supplied.
 
 ## Known limitations and next integration points
 
-- The four room transforms and collision volumes are authored-data approximations ready for the user's later map code. They are intentionally isolated rather than combined into one deck.
-- The supplied asset pack contains dedicated legacy sheets for The Skeld, MIRA HQ, and Polus, but no files named or identifiable as Airship rooms. The Airship therefore uses its own procedural deck treatment so artwork from another map is not mixed into it.
+- The four room transforms and corridor routes are reference-authored approximations ready for the owner's later exact map code. They are intentionally isolated rather than combined into one deck.
+- The supplied asset pack contains several packed atlases whose filenames resemble rooms but whose pixels also contain props, effects, or task-animation frames. Only verified whole-room images and deliberate Skeld crops are rendered; other packed sheets stay available in the archive.
+- No supplied file is identifiable as Airship room art. The Airship therefore uses its own procedural deck treatment so artwork from another map is not mixed into it.
 - Supplied map, player, station, task, voting, meeting, role-reveal, role-icon, walk, and standard death art is live in gameplay. The three irregular cinematic death sheets are retained as reference assets for a later attacker/victim animation pass.
 - Audio is synthesized because no supplied audio files were found.
 - The controls are desktop-first; responsive menus work at narrow widths, but touch gameplay controls are not implemented.
 - Practice bots exercise navigation, tasks, sabotage, elimination, and voting heuristics; they are training opponents, not production matchmaking AI.
 - Render's free service may cold-start, and in-memory rooms do not survive a process restart. Durable match/account data remains in Neon.
 
-Recommended next step: provide the authored map and asset-use code, then refine one definition at a
-time under `public/src/maps/` without changing the other three maps or the server protocol.
+Recommended next step: when exact authored map or asset-use code is ready, replace one definition at
+a time under `public/src/maps/` while retaining its room and station IDs or migrating them
+deliberately.

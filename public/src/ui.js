@@ -492,6 +492,10 @@ export class GameUI {
     const sy = (z) => offsetY + (z - bounds.minZ) * scale;
     const roomPath = (room) => {
       context.beginPath();
+      if (room.shape === "ellipse") {
+        context.ellipse(sx(room.x), sy(room.z), room.width * scale / 2, room.depth * scale / 2, 0, 0, Math.PI * 2);
+        return;
+      }
       if (room.shape === "octagon") {
         const points = mapShapePolygon(room);
         context.moveTo(sx(points[0].x), sy(points[0].z));
@@ -530,6 +534,15 @@ export class GameUI {
     }
     context.restore();
 
+    for (const zone of map.zones ?? []) {
+      roomPath(zone);
+      context.fillStyle = "rgba(86, 79, 128, .78)";
+      context.strokeStyle = "rgba(197, 205, 242, .72)";
+      context.lineWidth = 2;
+      context.fill();
+      context.stroke();
+    }
+
     for (const corridor of map.corridors) {
       const x = sx(corridor.x - corridor.width / 2);
       const y = sy(corridor.z - corridor.depth / 2);
@@ -555,15 +568,17 @@ export class GameUI {
       context.stroke();
       context.shadowBlur = 0;
 
-      const fontSize = Math.max(10, Math.min(15, room.width * scale * 0.115));
-      context.fillStyle = "#ffffff";
-      context.strokeStyle = "rgba(5, 16, 53, .92)";
-      context.lineWidth = 4;
-      context.font = `800 ${fontSize}px Avenir Next, Inter, sans-serif`;
-      context.textAlign = "center";
-      context.textBaseline = "middle";
-      context.strokeText(room.name, sx(room.x), sy(room.z), room.width * scale - 10);
-      context.fillText(room.name, sx(room.x), sy(room.z), room.width * scale - 10);
+      if (room.label !== false) {
+        const fontSize = Math.max(10, Math.min(15, room.width * scale * 0.115));
+        context.fillStyle = "#ffffff";
+        context.strokeStyle = "rgba(5, 16, 53, .92)";
+        context.lineWidth = 4;
+        context.font = `800 ${fontSize}px Avenir Next, Inter, sans-serif`;
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.strokeText(room.name, sx(room.x), sy(room.z), room.width * scale - 10);
+        context.fillText(room.name, sx(room.x), sy(room.z), room.width * scale - 10);
+      }
     }
 
     const complete = new Set(completedTaskIds);
