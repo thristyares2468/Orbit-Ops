@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050a12">
+  <meta name="description" content="Orbit Ops — a 3D multiplayer space murder-mystery aboard the O.S.V. Meridian.">
+  <title>Orbit Ops</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="loading-screen" class="screen loading-screen">
+    <div class="anomaly anomaly-a"></div>
+    <div class="anomaly anomaly-b"></div>
+    <main class="loading-card" aria-live="polite">
+      <div class="brand-lockup brand-lockup-large" aria-label="Orbit Ops">
+        <span class="brand-orbit">ORBIT</span><span class="brand-ops">OPS</span>
+        <span class="brand-kicker">O.S.V. MERIDIAN // KX-71</span>
+      </div>
+      <p id="loading-category" class="eyebrow">Initialising operations link</p>
+      <div class="loading-track"><div id="loading-bar" class="loading-bar"></div></div>
+      <div class="loading-meta">
+        <strong id="loading-percent">0%</strong>
+        <span id="loading-asset">Preparing manifest…</span>
+      </div>
+      <div class="status-grid">
+        <span><i id="loading-server-dot" class="status-dot is-pending"></i> Render link <b id="loading-server">Connecting</b></span>
+        <span><i id="loading-db-dot" class="status-dot is-pending"></i> Neon archive <b id="loading-db">Checking</b></span>
+      </div>
+      <p id="loading-tip" class="loading-tip">Tip: evidence narrows possibilities; it rarely names an Operative outright.</p>
+      <p id="loading-error" class="error-text is-hidden"></p>
+      <div class="button-row">
+        <button id="loading-retry" class="button button-ghost is-hidden" type="button">Retry assets</button>
+        <button id="loading-reconnect" class="button button-ghost is-hidden" type="button">Reconnect</button>
+        <button id="loading-continue" class="button button-primary" type="button" disabled>Enter Meridian</button>
+      </div>
+    </main>
+  </div>
+
+  <div id="app" class="app is-hidden">
+    <canvas id="game-canvas" aria-label="Orbit Ops 3D game viewport"></canvas>
+    <div class="scanlines" aria-hidden="true"></div>
+
+    <section id="auth-screen" class="screen menu-screen">
+      <div class="menu-backdrop"></div>
+      <main class="menu-shell auth-shell">
+        <div class="brand-lockup brand-lockup-large">
+          <span class="brand-orbit">ORBIT</span><span class="brand-ops">OPS</span>
+          <span class="brand-kicker">Deep-space operations // KX-71</span>
+        </div>
+        <p class="story-lede">Six days after Station KX-71 went silent, the Meridian received a signal that rewrote its own crew manifest.</p>
+        <div class="auth-tabs" role="tablist">
+          <button class="tab is-active" data-auth-tab="guest" type="button">Guest</button>
+          <button class="tab" data-auth-tab="login" type="button">Login</button>
+          <button class="tab" data-auth-tab="register" type="button">Register</button>
+        </div>
+        <form id="guest-form" class="auth-form">
+          <label>Callsign<input id="guest-name" maxlength="22" autocomplete="nickname" value="Explorer-071" required></label>
+          <button class="button button-primary" type="submit">Continue as Guest</button>
+          <small>Guest progress is temporary. Multiplayer and practice remain fully available.</small>
+        </form>
+        <form id="login-form" class="auth-form is-hidden">
+          <label>Email<input id="login-email" type="email" autocomplete="email" required></label>
+          <label>Password<input id="login-password" type="password" minlength="10" maxlength="128" autocomplete="current-password" required></label>
+          <button class="button button-primary" type="submit">Restore Clearance</button>
+        </form>
+        <form id="register-form" class="auth-form is-hidden">
+          <label>Email<input id="register-email" type="email" autocomplete="email" required></label>
+          <label>Callsign<input id="register-name" maxlength="22" autocomplete="nickname" required></label>
+          <label>Password<input id="register-password" type="password" minlength="10" maxlength="128" autocomplete="new-password" required></label>
+          <label>Confirm password<input id="register-confirm" type="password" minlength="10" maxlength="128" autocomplete="new-password" required></label>
+          <button class="button button-primary" type="submit">Create Personnel File</button>
+        </form>
+        <p id="auth-message" class="form-message" role="status"></p>
+        <div class="service-strip"><span id="auth-server-status">Server online</span><span id="auth-db-status">Database checking</span></div>
+      </main>
+    </section>
+
+    <section id="main-menu" class="screen menu-screen is-hidden">
+      <div class="menu-backdrop"></div>
+      <main class="menu-shell command-shell">
+        <header class="command-header">
+          <div class="brand-lockup"><span class="brand-orbit">ORBIT</span><span class="brand-ops">OPS</span></div>
+          <div class="identity-chip"><span id="menu-display-name">Explorer</span><small id="menu-account-type">Guest clearance</small></div>
+        </header>
+        <p class="eyebrow">OPERATIONS DIRECTIVE 71-A</p>
+        <h1>Return the Meridian to operational control.</h1>
+        <div class="menu-actions">
+          <button id="join-public" class="mission-card" type="button"><b>Public Match</b><span>Find an available crew in the sector.</span></button>
+          <button id="create-private" class="mission-card" type="button"><b>Create Private Room</b><span>Open a secured Meridian channel.</span></button>
+          <button id="join-private-open" class="mission-card" type="button"><b>Join by Code</b><span>Enter a five-character room code.</span></button>
+          <button id="practice-mode" class="mission-card mission-card-accent" type="button"><b>Practice Simulation</b><span>Explore systems with training operatives.</span></button>
+        </div>
+        <form id="join-code-form" class="join-code is-hidden">
+          <label>Room code<input id="join-code" maxlength="6" autocomplete="off" spellcheck="false" placeholder="KX71A"></label>
+          <button class="button button-primary" type="submit">Connect</button>
+        </form>
+        <nav class="utility-nav">
+          <button data-open-modal="profile" type="button">Profile</button>
+          <button data-open-modal="settings" type="button">Settings</button>
+          <button data-open-modal="howto" type="button">How to Play</button>
+          <button data-open-modal="assets" type="button">Asset Archive</button>
+          <button id="logout-button" type="button">Logout</button>
+        </nav>
+      </main>
+    </section>
+
+    <section id="lobby-screen" class="screen lobby-screen is-hidden">
+      <main class="lobby-shell">
+        <header class="lobby-header">
+          <div><p class="eyebrow">SECURE CREW CHANNEL</p><h2>Room <span id="lobby-code">—</span></h2></div>
+          <div class="connection-cluster"><span id="lobby-mode">Private</span><span id="lobby-ping">— ms</span></div>
+        </header>
+        <div class="lobby-grid">
+          <section class="panel roster-panel"><h3>Crew Manifest</h3><ul id="lobby-player-list" class="player-list"></ul></section>
+          <section class="panel settings-panel">
+            <h3>Mission Parameters</h3>
+            <div id="host-settings" class="settings-compact">
+              <label>Max crew<input id="setting-max-players" type="range" min="4" max="16" value="12"><output id="setting-max-players-value">12</output></label>
+              <label>Operatives<input id="setting-operatives" type="range" min="1" max="4" value="2"><output id="setting-operatives-value">2</output></label>
+              <label>Assignments<input id="setting-tasks" type="range" min="3" max="8" value="5"><output id="setting-tasks-value">5</output></label>
+              <label>Discussion<input id="setting-discussion" type="range" min="10" max="120" step="5" value="35"><output id="setting-discussion-value">35s</output></label>
+              <label>Voting<input id="setting-voting" type="range" min="10" max="120" step="5" value="30"><output id="setting-voting-value">30s</output></label>
+              <label class="toggle-label"><input id="setting-anonymous" type="checkbox"><span>Anonymous voting</span></label>
+            </div>
+            <label id="practice-role-wrap" class="is-hidden">Practice role<select id="practice-role"><option value="crew">Operations Crew</option><option value="operative">Signal Operative</option></select></label>
+          </section>
+          <section class="panel lobby-chat-panel"><h3>Channel</h3><div id="lobby-chat-log" class="chat-log"></div><form id="lobby-chat-form" class="chat-form"><input id="lobby-chat-input" maxlength="280" placeholder="Message crew…"><button type="submit">Send</button></form></section>
+        </div>
+        <footer class="lobby-footer">
+          <button id="leave-room" class="button button-ghost" type="button">Leave Room</button>
+          <div class="button-row"><button id="ready-button" class="button button-secondary" type="button">Mark Ready</button><button id="start-match" class="button button-primary" type="button">Start Operation</button></div>
+        </footer>
+      </main>
+    </section>
+
+    <div id="hud" class="hud is-hidden">
+      <section class="hud-objective">
+        <p id="hud-role" class="eyebrow">OPERATIONS CREW</p>
+        <strong id="hud-objective">Restore Meridian systems</strong>
+        <div class="mission-meter"><span id="mission-meter-bar"></span></div>
+        <small id="mission-meter-label">0 / 0 assignments</small>
+      </section>
+      <section class="hud-status">
+        <span id="hud-room">Operations Hub</span><span id="hud-ping">— ms</span><span id="hud-phase">Active</span>
+      </section>
+      <section id="task-list" class="task-drawer is-collapsed"><button id="task-list-toggle" type="button">Assignments <span>▾</span></button><ul id="task-list-items"></ul></section>
+      <div id="interaction-prompt" class="interaction-prompt is-hidden"><kbd>E</kbd><span>Interact</span></div>
+      <div id="controls-hint" class="controls-hint">WASD move · Mouse look · E interact · Tab map · Esc pause</div>
+      <button id="report-button" class="ability-button report-button is-hidden" type="button"><kbd>R</kbd><span>Report</span></button>
+      <button id="primary-ability" class="ability-button primary-ability is-hidden" type="button"><kbd>Q</kbd><span>Eliminate</span></button>
+      <button id="secondary-ability" class="ability-button secondary-ability is-hidden" type="button"><kbd>F</kbd><span>Sabotage</span></button>
+      <div id="critical-alert" class="critical-alert is-hidden"><strong id="critical-name">CORE OVERLOAD</strong><span id="critical-timer">45</span></div>
+      <div id="telemetry" class="telemetry is-hidden">FPS <span id="fps-value">60</span></div>
+    </div>
+
+    <aside id="minimap" class="modal minimap-modal is-hidden" aria-label="Meridian minimap">
+      <header><div><p class="eyebrow">DECK OVERVIEW</p><h2>O.S.V. Meridian</h2></div><button data-close-modal="minimap" type="button" aria-label="Close map">×</button></header>
+      <canvas id="minimap-canvas" width="900" height="560"></canvas>
+      <small>Assignment markers are cyan. Critical repairs are amber. Other players are not tracked.</small>
+    </aside>
+
+    <section id="task-modal" class="modal task-modal is-hidden" aria-modal="true">
+      <header><div><p id="task-room" class="eyebrow">SYSTEM ASSIGNMENT</p><h2 id="task-title">Assignment</h2></div><button id="task-cancel" type="button" aria-label="Cancel task">×</button></header>
+      <div class="task-workbench">
+        <img id="task-reference-art" class="task-reference-art" alt="Provisional task artwork">
+        <div class="task-console">
+          <p id="task-instruction">Follow the signal sequence.</p>
+          <div id="task-challenge" class="task-challenge"></div>
+          <div id="task-controls" class="task-controls"></div>
+          <div class="task-progress-track"><span id="task-progress-bar"></span></div>
+          <p id="task-feedback" class="form-message"></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="meeting-modal" class="modal meeting-modal is-hidden" aria-modal="true">
+      <header><div><p class="eyebrow">INCIDENT PROTOCOL</p><h2 id="meeting-title">Crew discussion</h2></div><strong id="meeting-timer">—</strong></header>
+      <div class="meeting-grid">
+        <section><h3>Personnel</h3><div id="meeting-players" class="meeting-players"></div></section>
+        <section class="evidence-panel"><h3>Recovered evidence</h3><ul id="meeting-evidence"></ul></section>
+        <section class="meeting-chat"><div id="meeting-chat-log" class="chat-log"></div><form id="meeting-chat-form" class="chat-form"><input id="meeting-chat-input" maxlength="280" placeholder="Discuss evidence…"><button type="submit">Send</button></form></section>
+      </div>
+      <footer><button id="vote-skip" class="button button-ghost" type="button">Vote to Skip</button><p id="meeting-status">Discussion in progress</p></footer>
+    </section>
+
+    <section id="sabotage-modal" class="modal compact-modal is-hidden"><header><div><p class="eyebrow">OPERATIVE NETWORK</p><h2>Sabotage systems</h2></div><button data-close-modal="sabotage" type="button">×</button></header><div id="sabotage-options" class="sabotage-grid"></div></section>
+    <section id="security-modal" class="modal compact-modal is-hidden"><header><div><p class="eyebrow">SECURITY OPERATIONS</p><h2>Delayed telemetry</h2></div><button data-close-modal="security" type="button">×</button></header><div id="security-content"></div></section>
+
+    <section id="results-screen" class="screen results-screen is-hidden">
+      <main class="results-shell"><p class="eyebrow">OPERATION COMPLETE</p><h1 id="results-winner">Crew Victory</h1><p id="results-reason"></p><div id="results-table" class="results-table"></div><p id="results-save">Saving match record…</p><div class="button-row"><button id="results-lobby" class="button button-primary" type="button">Return to Lobby</button><button id="results-menu" class="button button-ghost" type="button">Main Menu</button></div></main>
+    </section>
+
+    <section id="pause-modal" class="modal compact-modal is-hidden"><header><div><p class="eyebrow">OPERATIONS PAUSED</p><h2>System menu</h2></div></header><div class="pause-actions"><button id="resume-game" class="button button-primary" type="button">Resume</button><button data-open-modal="settings" class="button button-ghost" type="button">Settings</button><button id="pause-leave" class="button button-danger" type="button">Leave Match</button></div></section>
+    <section id="settings-modal" class="modal compact-modal is-hidden"><header><div><p class="eyebrow">LOCAL TERMINAL</p><h2>Settings</h2></div><button data-close-modal="settings" type="button">×</button></header><div class="settings-list">
+      <label>Master volume<input id="pref-master" type="range" min="0" max="1" step="0.05"></label>
+      <label>Music volume<input id="pref-music" type="range" min="0" max="1" step="0.05"></label>
+      <label>SFX volume<input id="pref-sfx" type="range" min="0" max="1" step="0.05"></label>
+      <label>Mouse sensitivity<input id="pref-sensitivity" type="range" min="0.1" max="4" step="0.1"></label>
+      <label>Camera distance<input id="pref-camera" type="range" min="4" max="14" step="0.5"></label>
+      <label>Graphics quality<select id="pref-quality"><option>low</option><option>medium</option><option>high</option></select></label>
+      <label class="toggle-label"><input id="pref-invert" type="checkbox"><span>Invert camera Y</span></label>
+      <label class="toggle-label"><input id="pref-fps" type="checkbox"><span>Show FPS</span></label>
+      <label class="toggle-label"><input id="pref-reduced-motion" type="checkbox"><span>Reduced motion</span></label>
+      <label class="toggle-label"><input id="pref-screen-shake" type="checkbox"><span>Screen shake</span></label>
+      <label>Text size<input id="pref-text-size" type="range" min="0.8" max="1.5" step="0.1"></label>
+    </div><button id="save-settings" class="button button-primary" type="button">Apply Settings</button></section>
+
+    <section id="howto-modal" class="modal reading-modal is-hidden"><header><div><p class="eyebrow">FIELD MANUAL</p><h2>How to Play</h2></div><button data-close-modal="howto" type="button">×</button></header><div class="reading-grid"><article><h3>Operations Crew</h3><p>Complete assignments, repair sabotage, recover evidence and remove every hidden Operative.</p></article><article><h3>Operatives</h3><p>Blend in with fake assignments, disrupt systems, use maintenance routes and isolate the Crew.</p></article><article><h3>Controls</h3><p>WASD move · mouse look · Shift sprint · C crouch · Space jump · E interact · R report · Tab map · Q/F abilities · Enter chat · Escape pause.</p></article><article><h3>Evidence</h3><p>Evidence suggests time, method and location. It is deliberately incomplete and may be corrupted.</p></article></div></section>
+    <section id="profile-modal" class="modal compact-modal is-hidden"><header><div><p class="eyebrow">PERSONNEL FILE</p><h2>Profile</h2></div><button data-close-modal="profile" type="button">×</button></header><div id="profile-content"><p>Guest progression lasts for this browser session.</p></div></section>
+    <section id="assets-modal" class="modal archive-modal is-hidden"><header><div><p class="eyebrow">SUPPLIED ART INVENTORY</p><h2>Asset Archive</h2></div><button data-close-modal="assets" type="button">×</button></header><p>All provided non-logo art is catalogued here. Map and usage integration remains provisional until the authored map code is supplied.</p><div id="asset-filter" class="filter-row"></div><div id="asset-grid" class="asset-grid"></div></section>
+
+    <div id="disconnect-overlay" class="disconnect-overlay is-hidden"><div class="spinner"></div><strong>Operations link interrupted</strong><span>Reconnecting to the Meridian…</span></div>
+    <div id="role-reveal" class="role-reveal is-hidden"><p>YOUR CLEARANCE</p><h1 id="role-reveal-title">Operations Crew</h1><span id="role-reveal-description">Restore the ship. Find the signal.</span></div>
+    <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

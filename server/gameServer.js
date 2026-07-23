@@ -1,0 +1,1185 @@
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { isDatabaseConfigured } from "../database/database.js";
+import { updateSettings } from "../database/repositories/accountsRepository.js";
+import { recordMatch } from "../database/repositories/statsRepository.js";
+import { login, logout, profile, register, resume } from "./authService.js";
+import {
+  CONNECTIONS, CORRIDORS, ROOMS, SABOTAGE_DEFINITIONS, SPAWN_POINTS, STATIONS, TASK_DEFINITIONS,
+  distance2D, isWalkable, roomAt, stationById
+} from "../public/src/shipData.js";
+import {
+  DEFAULT_SETTINGS, DISCONNECT_GRACE_MS, MAX_ROOM_PLAYERS, MIN_MATCH_PLAYERS,
+  PHASES, PLAYER_SPEED, SERVER_VERSION, SESSION_SECRET, SNAPSHOT_RATE, TICK_RATE
+} from "./constants.js";
+import { RateLimiter } from "./rateLimits.js";
+import {
+  cleanText, isPlainObject, validateAppearance, validateChat, validateDisplayName,
+  validateRoomCode, validateSettings
+} from "./validation.js";
+
+const ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const INTERACTION_RANGE = 2.8;
+
+function hashOpaque(value) {
+  return createHmac("sha256", SESSION_SECRET).update(String(value)).digest("hex");
+}
+
+function randomRoomCode() {
+  return Array.from({ length: 5 }, () => ROOM_ALPHABET[Math.floor(Math.random() * ROOM_ALPHABET.length)]).join("");
+}
+
+function shuffle(values) {
+  const result = [...values];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result;
+}
+
+function makeStats() {
+  return {
+    tasksCompleted: 0, sabotagesStarted: 0, sabotagesRepaired: 0,
+    eliminations: 0, incidentsReported: 0, correctVotes: 0,
+    incorrectVotes: 0, evidenceFound: 0
+  };
+}
+
+function normaliseInput(payload) {
+  const x = Number(payload?.x);
+  const z = Number(payload?.z);
+  const yaw = Number(payload?.yaw);
+  const magnitude = Math.hypot(x, z);
+  return {
+    x: Number.isFinite(x) && magnitude > 0 ? x / Math.max(1, magnitude) : 0,
+    z: Number.isFinite(z) && magnitude > 0 ? z / Math.max(1, magnitude) : 0,
+    yaw: Number.isFinite(yaw) ? Math.atan2(Math.sin(yaw), Math.cos(yaw)) : 0,
+    sprint: Boolean(payload?.sprint),
+    crouch: Boolean(payload?.crouch),
+    seq: Math.max(0, Math.round(Number(payload?.seq) || 0))
+  };
+}
+
+function publicPlayer(player) {
+  return {
+    id: player.id,
+    displayName: player.displayName,
+    guest: player.guest,
+    appearance: player.appearance,
+    ready: player.ready,
+    connected: player.connected,
+    alive: player.alive,
+    bot: player.bot,
+    isHost: player.isHost,
+    currentRoom: player.currentRoom,
+    voted: Boolean(player.vote),
+    spectator: !player.alive
+  };
+}
+
+function snapshotPlayer(player) {
+  return {
+    id: player.id,
+    x: Number(player.position.x.toFixed(3)),
+    z: Number(player.position.z.toFixed(3)),
+    y: player.jumpUntil > Date.now() ? 0.45 : 0,
+    yaw: Number(player.rotation.toFixed(3)),
+    animation: player.animation,
+    alive: player.alive,
+    connected: player.connected,
+    roomId: player.currentRoom,
+    seq: player.lastInputSeq
+  };
+}
+
+export class GameServer {
+  constructor(io) {
+    this.io = io;
+    this.rooms = new Map();
+    this.socketPlayers = new Map();
+    this.rateLimiter = new RateLimiter();
+    this.startedAt = Date.now();
+    this.lastTickAt = Date.now();
+    this.loop = setInterval(() => this.tick(), 1000 / TICK_RATE);
+    this.rateCleanup = setInterval(() => this.rateLimiter.cleanup(), 60_000);
+    this.io.on("connection", (socket) => this.registerSocket(socket));
+  }
+
+  get connectedPlayers() {
+    let count = 0;
+    for (const room of this.rooms.values()) count += [...room.players.values()].filter((player) => player.connected && !player.bot).length;
+    return count;
+  }
+
+  get activeRooms() {
+    return [...this.rooms.values()].filter((room) => room.players.size > 0).length;
+  }
+
+  registerSocket(socket) {
+    socket.data.auth = null;
+    socket.emit("connected", {
+      socketId: socket.id,
+      serverVersion: SERVER_VERSION,
+      databaseConfigured: isDatabaseConfigured(),
+      serverTime: Date.now()
+    });
+
+    socket.on("guestLogin", (payload, ack) => this.guard(socket, "guestLogin", 5, 60_000, ack, async () => {
+      const displayName = validateDisplayName(payload?.displayName ?? `Explorer-${Math.floor(Math.random() * 900 + 100)}`);
+      socket.data.auth = {
+        accountId: null, displayName, guest: true,
+        appearance: validateAppearance(payload?.appearance)
+      };
+      const result = { ok: true, guest: true, displayName, account: null };
+      socket.emit("authenticationResult", result);
+      return result;
+    }));
+
+    socket.on("register", (payload, ack) => this.guard(socket, "register", 3, 5 * 60_000, ack, async () => {
+      const result = await register(payload);
+      socket.data.auth = {
+        accountId: result.account.id, displayName: result.account.displayName,
+        guest: false, appearance: validateAppearance(payload?.appearance)
+      };
+      const response = { ok: true, ...result };
+      socket.emit("authenticationResult", response);
+      return response;
+    }));
+
+    socket.on("login", (payload, ack) => this.guard(socket, "login", 5, 5 * 60_000, ack, async () => {
+      const result = await login(payload);
+      socket.data.auth = {
+        accountId: result.account.id, displayName: result.account.displayName,
+        guest: false, appearance: validateAppearance(payload?.appearance)
+      };
+      const response = { ok: true, ...result };
+      socket.emit("authenticationResult", response);
+      return response;
+    }));
+
+    socket.on("resumeSession", (payload, ack) => this.guard(socket, "resumeSession", 8, 60_000, ack, async () => {
+      const result = await resume(payload?.token);
+      if (!result) throw new Error("Your saved account session has expired.");
+      socket.data.auth = {
+        accountId: result.account.id, displayName: result.account.displayName,
+        guest: false, appearance: validateAppearance(payload?.appearance)
+      };
+      const response = { ok: true, ...result };
+      socket.emit("authenticationResult", response);
+      return response;
+    }));
+
+    socket.on("logout", (payload, ack) => this.guard(socket, "logout", 5, 60_000, ack, async () => {
+      await logout(payload?.token);
+      this.leaveCurrentRoom(socket, false);
+      socket.data.auth = null;
+      return { ok: true };
+    }));
+
+    socket.on("requestProfile", (_payload, ack) => this.guard(socket, "profile", 10, 60_000, ack, async () => {
+      this.requireAuth(socket);
+      if (socket.data.auth.guest) return { ok: true, guest: true };
+      return { ok: true, profile: await profile(socket.data.auth.accountId) };
+    }));
+
+    socket.on("saveSettings", (payload, ack) => this.guard(socket, "saveSettings", 12, 60_000, ack, async () => {
+      this.requireAuth(socket);
+      if (socket.data.auth.guest || !isDatabaseConfigured()) return { ok: true, persisted: false };
+      const settings = this.validatePlayerSettings(payload);
+      await updateSettings(socket.data.auth.accountId, settings);
+      return { ok: true, persisted: true };
+    }));
+
+    socket.on("joinPublic", (_payload, ack) => this.guard(socket, "joinPublic", 8, 60_000, ack, async () => {
+      this.requireAuth(socket);
+      let room = [...this.rooms.values()].find((candidate) => candidate.mode === "public" && candidate.phase === PHASES.LOBBY && candidate.players.size < candidate.settings.maxPlayers);
+      if (!room) room = this.createRoom("public", {});
+      return this.joinRoom(socket, room);
+    }));
+
+    socket.on("createRoom", (payload, ack) => this.guard(socket, "createRoom", 6, 60_000, ack, async () => {
+      this.requireAuth(socket);
+      const mode = payload?.mode === "practice" ? "practice" : "private";
+      const room = this.createRoom(mode, payload?.settings);
+      const result = await this.joinRoom(socket, room);
+      if (mode === "practice") {
+        room.practiceRoles.set(result.playerId, "crew");
+        this.populatePracticeBots(room, 4);
+        result.room = this.serialiseRoom(room);
+      }
+      this.broadcastRoomState(room);
+      return result;
+    }));
+
+    socket.on("joinRoom", (payload, ack) => this.guard(socket, "joinRoom", 10, 60_000, ack, async () => {
+      this.requireAuth(socket);
+      const code = validateRoomCode(payload?.code);
+      const room = this.rooms.get(code);
+      if (!room) throw new Error("Room not found.");
+      return this.joinRoom(socket, room);
+    }));
+
+    socket.on("resumeRoom", (payload, ack) => this.guard(socket, "resumeRoom", 10, 60_000, ack, async () => {
+      this.requireAuth(socket);
+      return this.resumeRoom(socket, payload?.token);
+    }));
+
+    socket.on("leaveRoom", (_payload, ack) => this.guard(socket, "leaveRoom", 10, 60_000, ack, async () => {
+      this.leaveCurrentRoom(socket, false);
+      return { ok: true };
+    }));
+
+    socket.on("readyState", (payload, ack) => this.withPlayer(socket, "readyState", 12, 10_000, ack, (room, player) => {
+      if (room.phase !== PHASES.LOBBY) throw new Error("Ready state can only change in the lobby.");
+      player.ready = Boolean(payload?.ready);
+      this.broadcastRoomState(room);
+      const connectedHumans = [...room.players.values()].filter((candidate) => candidate.connected && !candidate.bot);
+      if (room.mode === "public" && connectedHumans.length >= MIN_MATCH_PLAYERS && connectedHumans.every((candidate) => candidate.ready)) {
+        this.startMatch(room);
+      }
+      return { ok: true, ready: player.ready };
+    }));
+
+    socket.on("hostSettings", (payload, ack) => this.withPlayer(socket, "hostSettings", 10, 10_000, ack, (room, player) => {
+      this.requireHost(room, player);
+      if (room.phase !== PHASES.LOBBY) throw new Error("Match settings are locked after countdown.");
+      room.settings = validateSettings({ ...room.settings, ...payload });
+      if (room.settings.operativeCount >= room.settings.maxPlayers) room.settings.operativeCount = Math.max(1, room.settings.maxPlayers - 1);
+      this.broadcastRoomState(room);
+      return { ok: true, settings: room.settings };
+    }));
+
+    socket.on("practiceRole", (payload, ack) => this.withPlayer(socket, "practiceRole", 6, 10_000, ack, (room, player) => {
+      if (room.mode !== "practice" || room.phase !== PHASES.LOBBY) throw new Error("Role selection is only available in a practice lobby.");
+      const role = payload?.role === "operative" ? "operative" : "crew";
+      room.practiceRoles.set(player.id, role);
+      return { ok: true, role };
+    }));
+
+    socket.on("startMatch", (_payload, ack) => this.withPlayer(socket, "startMatch", 4, 10_000, ack, (room, player) => {
+      this.requireHost(room, player);
+      this.startMatch(room);
+      return { ok: true };
+    }));
+
+    socket.on("returnToLobby", (_payload, ack) => this.withPlayer(socket, "returnToLobby", 4, 10_000, ack, (room, player) => {
+      if (room.phase !== PHASES.RESULTS) throw new Error("The current operation has not ended.");
+      this.resetRoomToLobby(room);
+      return { ok: true, room: this.serialiseRoom(room) };
+    }));
+
+    socket.on("playerInput", (payload) => this.withPlayer(socket, "playerInput", 40, 1000, null, (room, player) => {
+      if (![PHASES.ACTIVE, PHASES.LOBBY].includes(room.phase) || !player.alive) return { ok: true };
+      player.input = normaliseInput(payload);
+      player.lastInputAt = Date.now();
+      return { ok: true };
+    }));
+
+    socket.on("jump", (_payload, ack) => this.withPlayer(socket, "jump", 4, 3000, ack, (room, player) => {
+      if (room.phase !== PHASES.ACTIVE || !player.alive || player.jumpUntil > Date.now()) throw new Error("Cannot jump right now.");
+      player.jumpUntil = Date.now() + 550;
+      return { ok: true };
+    }));
+
+    socket.on("beginTask", (payload, ack) => this.withPlayer(socket, "beginTask", 8, 10_000, ack, (room, player) => this.beginTask(room, player, payload)));
+    socket.on("taskAction", (payload, ack) => this.withPlayer(socket, "taskAction", 12, 5000, ack, (room, player) => this.taskAction(room, player, payload)));
+    socket.on("sabotageRequest", (payload, ack) => this.withPlayer(socket, "sabotageRequest", 4, 10_000, ack, (room, player) => this.startSabotage(room, player, payload?.sabotageId)));
+    socket.on("repairSabotage", (payload, ack) => this.withPlayer(socket, "repairSabotage", 8, 10_000, ack, (room, player) => this.repairSabotage(room, player, payload?.stationId)));
+    socket.on("eliminationAttempt", (payload, ack) => this.withPlayer(socket, "eliminationAttempt", 6, 10_000, ack, (room, player) => this.eliminationAttempt(room, player, payload?.targetId)));
+    socket.on("reportIncident", (payload, ack) => this.withPlayer(socket, "reportIncident", 5, 10_000, ack, (room, player) => this.reportIncident(room, player, payload?.incidentId)));
+    socket.on("callMeeting", (_payload, ack) => this.withPlayer(socket, "callMeeting", 4, 30_000, ack, (room, player) => this.callMeeting(room, player)));
+    socket.on("submitVote", (payload, ack) => this.withPlayer(socket, "submitVote", 6, 10_000, ack, (room, player) => this.submitVote(room, player, payload?.targetId)));
+    socket.on("useMaintenance", (payload, ack) => this.withPlayer(socket, "useMaintenance", 4, 10_000, ack, (room, player) => this.useMaintenance(room, player, payload?.stationId)));
+    socket.on("requestSecurity", (_payload, ack) => this.withPlayer(socket, "requestSecurity", 5, 10_000, ack, (room, player) => this.requestSecurity(room, player)));
+    socket.on("chatMessage", (payload, ack) => this.withPlayer(socket, "chatMessage", 6, 10_000, ack, (room, player) => this.chat(room, player, payload?.message)));
+    socket.on("customisePlayer", (payload, ack) => this.withPlayer(socket, "customisePlayer", 8, 10_000, ack, (room, player) => {
+      if (room.phase !== PHASES.LOBBY) throw new Error("Appearance is locked during a match.");
+      player.appearance = validateAppearance(payload);
+      socket.data.auth.appearance = player.appearance;
+      this.broadcastRoomState(room);
+      return { ok: true, appearance: player.appearance };
+    }));
+    socket.on("ping", (payload) => socket.emit("pong", { clientTime: Number(payload?.clientTime) || Date.now(), serverTime: Date.now() }));
+
+    socket.on("disconnect", () => this.leaveCurrentRoom(socket, true));
+  }
+
+  async guard(socket, action, limit, windowMs, ack, callback) {
+    try {
+      if (!this.rateLimiter.allow(`${socket.handshake.address}:${socket.id}:${action}`, limit, windowMs)) throw new Error("Too many requests. Please wait a moment.");
+      const result = await callback();
+      if (typeof ack === "function") ack(result ?? { ok: true });
+    } catch (error) {
+      const message = cleanText(error?.message ?? "Request failed.", 180);
+      if (typeof ack === "function") ack({ ok: false, error: message });
+      else socket.emit("errorMessage", { action, message });
+    }
+  }
+
+  withPlayer(socket, action, limit, windowMs, ack, callback) {
+    return this.guard(socket, action, limit, windowMs, ack, async () => {
+      const link = this.socketPlayers.get(socket.id);
+      if (!link) throw new Error("Join a room first.");
+      const room = this.rooms.get(link.roomCode);
+      const player = room?.players.get(link.playerId);
+      if (!room || !player || !player.connected) throw new Error("Player state is unavailable.");
+      return callback(room, player);
+    });
+  }
+
+  requireAuth(socket) {
+    if (!socket.data.auth) throw new Error("Sign in or continue as a guest first.");
+  }
+
+  requireHost(room, player) {
+    if (room.hostId !== player.id) throw new Error("Only the room host can do that.");
+  }
+
+  validatePlayerSettings(value = {}) {
+    return {
+      masterVolume: Math.max(0, Math.min(1, Number(value.masterVolume) || 0)),
+      musicVolume: Math.max(0, Math.min(1, Number(value.musicVolume) || 0)),
+      sfxVolume: Math.max(0, Math.min(1, Number(value.sfxVolume) || 0)),
+      mouseSensitivity: Math.max(0.1, Math.min(4, Number(value.mouseSensitivity) || 1)),
+      cameraDistance: Math.max(4, Math.min(14, Number(value.cameraDistance) || 8)),
+      invertY: Boolean(value.invertY),
+      graphicsQuality: ["low", "medium", "high"].includes(value.graphicsQuality) ? value.graphicsQuality : "medium",
+      showFps: Boolean(value.showFps), showPing: value.showPing !== false,
+      colourBlindMode: cleanText(value.colourBlindMode ?? "off", 20),
+      reducedMotion: Boolean(value.reducedMotion), screenShake: value.screenShake !== false,
+      subtitles: value.subtitles !== false,
+      textSize: Math.max(0.8, Math.min(1.5, Number(value.textSize) || 1)),
+      keybinds: isPlainObject(value.keybinds) ? value.keybinds : {}
+    };
+  }
+
+  createRoom(mode, settingsInput) {
+    let code = randomRoomCode();
+    while (this.rooms.has(code)) code = randomRoomCode();
+    const settings = validateSettings({ ...DEFAULT_SETTINGS, ...settingsInput, allowSinglePlayer: mode === "practice" });
+    const room = {
+      code, mode, settings, phase: PHASES.LOBBY, phaseEndsAt: null,
+      hostId: null, players: new Map(), practiceRoles: new Map(),
+      createdAt: Date.now(), matchStartedAt: null, matchNumber: 0,
+      taskCompleted: 0, taskTotal: 0, incidents: new Map(), evidence: [],
+      activeSabotage: null, lastSabotageAt: 0, meeting: null,
+      doorLogs: [], maintenanceLogs: [], timers: new Set(), lastSnapshotAt: 0
+    };
+    this.rooms.set(code, room);
+    return room;
+  }
+
+  async joinRoom(socket, room) {
+    if (room.phase !== PHASES.LOBBY) throw new Error("That match is already in progress.");
+    if (room.players.size >= room.settings.maxPlayers) throw new Error("That room is full.");
+    this.leaveCurrentRoom(socket, false);
+    const duplicate = [...room.players.values()].some((candidate) => candidate.displayName.toLocaleLowerCase() === socket.data.auth.displayName.toLocaleLowerCase());
+    if (duplicate) throw new Error("That display name is already present in this room.");
+
+    const spawn = SPAWN_POINTS[room.players.size % SPAWN_POINTS.length];
+    const player = this.makePlayer({
+      id: randomUUID(), socketId: socket.id, accountId: socket.data.auth.accountId,
+      displayName: socket.data.auth.displayName, guest: socket.data.auth.guest,
+      appearance: socket.data.auth.appearance, x: spawn[0], z: spawn[1]
+    });
+    room.players.set(player.id, player);
+    if (!room.hostId) room.hostId = player.id;
+    this.syncHost(room);
+    this.socketPlayers.set(socket.id, { roomCode: room.code, playerId: player.id });
+    socket.join(room.code);
+    const token = this.rotateRejoinToken(player);
+    const result = { ok: true, room: this.serialiseRoom(room), playerId: player.id, rejoinToken: token };
+    socket.emit("roomJoined", result);
+    this.broadcastRoomState(room);
+    return result;
+  }
+
+  makePlayer({ id, socketId, accountId = null, displayName, guest = true, appearance, x, z, bot = false }) {
+    return {
+      id, socketId, accountId, displayName, guest, appearance: validateAppearance(appearance), bot,
+      connected: true, ready: bot, isHost: false, alive: true, role: null, faction: null,
+      position: { x, z }, rotation: 0, currentRoom: roomAt(x, z)?.id ?? "operations-hub",
+      input: normaliseInput({}), lastInputAt: 0, lastInputSeq: 0, animation: "idle",
+      jumpUntil: 0, activeTask: null, tasks: [], completedTasks: new Set(), vote: null,
+      lastEliminationAt: 0, lastMaintenanceAt: 0, emergencyMeetings: 0,
+      disconnectedAt: null, cleanupTimer: null, rejoinTokenHash: null,
+      matchStats: makeStats(), eliminatedAt: null, botTarget: null, botActionAt: 0
+    };
+  }
+
+  rotateRejoinToken(player) {
+    const token = randomBytes(32).toString("base64url");
+    player.rejoinTokenHash = hashOpaque(token);
+    return token;
+  }
+
+  resumeRoom(socket, token) {
+    if (!token) throw new Error("No saved room session was found.");
+    const tokenHash = hashOpaque(token);
+    for (const room of this.rooms.values()) {
+      const player = [...room.players.values()].find((candidate) => candidate.rejoinTokenHash === tokenHash && !candidate.bot);
+      if (!player) continue;
+      if (player.connected) throw new Error("That player is already connected.");
+      if (player.accountId && player.accountId !== socket.data.auth.accountId) throw new Error("Room session does not match this account.");
+      if (!player.accountId && player.displayName !== socket.data.auth.displayName) throw new Error("Use the same guest name to reconnect.");
+      clearTimeout(player.cleanupTimer);
+      player.cleanupTimer = null;
+      player.socketId = socket.id;
+      player.connected = true;
+      player.disconnectedAt = null;
+      this.socketPlayers.set(socket.id, { roomCode: room.code, playerId: player.id });
+      socket.join(room.code);
+      const rejoinToken = this.rotateRejoinToken(player);
+      const result = { ok: true, room: this.serialiseRoom(room), playerId: player.id, rejoinToken, restored: this.privatePlayerState(room, player) };
+      socket.emit("reconnectState", result);
+      this.sendPrivateState(room, player);
+      this.broadcastRoomState(room);
+      return result;
+    }
+    throw new Error("The reserved room slot has expired.");
+  }
+
+  populatePracticeBots(room, targetPlayerCount) {
+    const botNames = ["Kepler", "Vega", "Sagan", "Lyra", "Pioneer", "Aster"];
+    while (room.players.size < Math.min(targetPlayerCount, room.settings.maxPlayers)) {
+      const index = room.players.size;
+      const spawn = SPAWN_POINTS[index % SPAWN_POINTS.length];
+      const player = this.makePlayer({
+        id: `bot-${randomUUID()}`, socketId: null, displayName: botNames[index - 1] ?? `Drone ${index}`,
+        appearance: { colour: ["amber", "violet", "lime", "coral"][index % 4], symbol: ["delta", "nova", "pulse", "vector"][index % 4], number: index + 10 },
+        x: spawn[0], z: spawn[1], bot: true
+      });
+      room.players.set(player.id, player);
+    }
+  }
+
+  serialiseRoom(room) {
+    return {
+      code: room.code, mode: room.mode, phase: room.phase, phaseEndsAt: room.phaseEndsAt,
+      hostId: room.hostId, settings: room.settings, players: [...room.players.values()].map(publicPlayer),
+      taskProgress: { completed: room.taskCompleted, total: room.taskTotal },
+      activeSabotage: room.activeSabotage ? this.publicSabotage(room.activeSabotage) : null,
+      incidentCount: room.incidents.size,
+      databaseConnected: isDatabaseConfigured()
+    };
+  }
+
+  privatePlayerState(room, player) {
+    return {
+      id: player.id, role: player.role, faction: player.faction, alive: player.alive,
+      tasks: player.tasks, completedTaskIds: [...player.completedTasks],
+      emergencyMeetings: Math.max(0, room.settings.emergencyMeetings - player.emergencyMeetings),
+      position: player.position,
+      teammates: player.faction === "operative"
+        ? [...room.players.values()].filter((candidate) => candidate.faction === "operative" && candidate.id !== player.id).map((candidate) => candidate.id)
+        : []
+    };
+  }
+
+  broadcastRoomState(room) {
+    this.io.to(room.code).emit("roomState", this.serialiseRoom(room));
+  }
+
+  sendPrivateState(room, player) {
+    if (player.socketId) this.io.to(player.socketId).emit("roleAssigned", this.privatePlayerState(room, player));
+  }
+
+  syncHost(room) {
+    const previousHostId = room.hostId;
+    const currentHost = room.players.get(room.hostId);
+    if (!currentHost?.connected || currentHost.bot) {
+      room.hostId = [...room.players.values()].find((player) => player.connected && !player.bot)?.id
+        ?? [...room.players.values()].find((player) => player.connected)?.id ?? null;
+    }
+    for (const player of room.players.values()) player.isHost = player.id === room.hostId;
+    if (previousHostId && previousHostId !== room.hostId) {
+      this.io.to(room.code).emit("hostChanged", { previousHostId, hostId: room.hostId });
+    }
+  }
+
+  leaveCurrentRoom(socket, disconnected) {
+    const link = this.socketPlayers.get(socket.id);
+    if (!link) return;
+    this.socketPlayers.delete(socket.id);
+    const room = this.rooms.get(link.roomCode);
+    const player = room?.players.get(link.playerId);
+    if (!room || !player) return;
+    socket.leave(room.code);
+    if (disconnected) {
+      player.connected = false;
+      player.disconnectedAt = Date.now();
+      player.input = normaliseInput({});
+      player.cleanupTimer = setTimeout(() => this.removePlayer(room, player.id), DISCONNECT_GRACE_MS);
+      this.syncHost(room);
+      this.broadcastRoomState(room);
+      if (room.phase !== PHASES.LOBBY) this.checkWinConditions(room, "disconnect");
+    } else {
+      this.removePlayer(room, player.id);
+    }
+  }
+
+  removePlayer(room, playerId) {
+    const player = room.players.get(playerId);
+    if (!player) return;
+    clearTimeout(player.cleanupTimer);
+    if (player.socketId) this.socketPlayers.delete(player.socketId);
+    room.players.delete(playerId);
+    room.practiceRoles.delete(playerId);
+    this.syncHost(room);
+    if (room.players.size === 0 || [...room.players.values()].every((candidate) => candidate.bot)) {
+      this.destroyRoom(room);
+      return;
+    }
+    this.broadcastRoomState(room);
+    if (room.phase !== PHASES.LOBBY) this.checkWinConditions(room, "player-left");
+  }
+
+  destroyRoom(room) {
+    for (const timer of room.timers) clearTimeout(timer);
+    for (const player of room.players.values()) clearTimeout(player.cleanupTimer);
+    this.rooms.delete(room.code);
+  }
+
+  startMatch(room) {
+    if (room.phase !== PHASES.LOBBY) throw new Error("The match has already started.");
+    const connectedHumans = [...room.players.values()].filter((player) => player.connected && !player.bot);
+    const required = room.mode === "practice" || room.settings.allowSinglePlayer || process.env.ALLOW_SINGLE_PLAYER_TESTING === "true" ? 1 : MIN_MATCH_PLAYERS;
+    if (connectedHumans.length < required) throw new Error(`At least ${required} connected player${required === 1 ? "" : "s"} required.`);
+    if (room.mode !== "practice" && connectedHumans.some((player) => !player.ready)) throw new Error("Every connected player must be ready before launch.");
+    const participants = [...room.players.values()].filter((player) => player.connected || player.bot).slice(0, MAX_ROOM_PLAYERS);
+    if (participants.length < 2) this.populatePracticeBots(room, 4);
+    const activePlayers = [...room.players.values()].filter((player) => player.connected || player.bot);
+    const desiredOperatives = Math.min(room.settings.operativeCount, Math.max(1, Math.floor(activePlayers.length / 4)), Math.max(1, activePlayers.length - 1));
+    const chosenOperatives = new Set(
+      activePlayers.filter((player) => room.practiceRoles.get(player.id) === "operative").slice(0, desiredOperatives).map((player) => player.id)
+    );
+    for (const candidate of shuffle(activePlayers.filter((player) => !chosenOperatives.has(player.id) && room.practiceRoles.get(player.id) !== "crew"))) {
+      if (chosenOperatives.size >= desiredOperatives) break;
+      chosenOperatives.add(candidate.id);
+    }
+    for (const candidate of shuffle(activePlayers.filter((player) => !chosenOperatives.has(player.id)))) {
+      if (chosenOperatives.size >= desiredOperatives) break;
+      chosenOperatives.add(candidate.id);
+    }
+
+    room.matchStartedAt = Date.now();
+    room.matchNumber += 1;
+    room.taskCompleted = 0;
+    room.taskTotal = 0;
+    room.incidents.clear();
+    room.evidence = [];
+    room.activeSabotage = null;
+    room.meeting = null;
+    room.lastSabotageAt = room.mode === "practice" ? 0 : Date.now();
+    for (const timer of room.timers) clearTimeout(timer);
+    room.timers.clear();
+
+    let spawnIndex = 0;
+    for (const player of activePlayers) {
+      const spawn = SPAWN_POINTS[spawnIndex++ % SPAWN_POINTS.length];
+      player.position = { x: spawn[0], z: spawn[1] };
+      player.rotation = 0;
+      player.alive = true;
+      player.eliminatedAt = null;
+      player.role = chosenOperatives.has(player.id) ? "signal-operative" : "operations-crew";
+      player.faction = chosenOperatives.has(player.id) ? "operative" : "crew";
+      player.completedTasks = new Set();
+      player.activeTask = null;
+      player.vote = null;
+      player.matchStats = makeStats();
+      player.lastEliminationAt = room.mode === "practice" ? 0 : Date.now();
+      player.lastMaintenanceAt = 0;
+      player.emergencyMeetings = 0;
+      const assignments = shuffle(TASK_DEFINITIONS).slice(0, room.settings.assignmentQuantity).map((task) => ({
+        id: task.id, name: task.name, roomId: task.roomId, fake: player.faction === "operative"
+      }));
+      player.tasks = assignments;
+      if (player.faction === "crew") room.taskTotal += assignments.length;
+    }
+
+    this.setPhase(room, PHASES.COUNTDOWN, 3_000);
+    this.io.to(room.code).emit("countdown", { endsAt: room.phaseEndsAt });
+    this.schedule(room, 3_000, () => {
+      this.setPhase(room, PHASES.ROLE_REVEAL, 3_500);
+      for (const player of activePlayers) this.sendPrivateState(room, player);
+      this.schedule(room, 3_500, () => {
+        this.setPhase(room, PHASES.ACTIVE, null);
+        this.io.to(room.code).emit("matchStarted", {
+          mapId: "osv-meridian", startedAt: room.matchStartedAt,
+          taskProgress: { completed: 0, total: room.taskTotal }
+        });
+      });
+    });
+  }
+
+  resetRoomToLobby(room) {
+    for (const timer of room.timers) clearTimeout(timer);
+    room.timers.clear();
+    room.phase = PHASES.LOBBY;
+    room.phaseEndsAt = null;
+    room.meeting = null;
+    room.activeSabotage = null;
+    room.incidents.clear();
+    room.evidence = [];
+    room.taskCompleted = 0;
+    room.taskTotal = 0;
+    let spawnIndex = 0;
+    for (const player of room.players.values()) {
+      const spawn = SPAWN_POINTS[spawnIndex++ % SPAWN_POINTS.length];
+      player.position = { x: spawn[0], z: spawn[1] };
+      player.ready = player.bot;
+      player.alive = true;
+      player.role = null;
+      player.faction = null;
+      player.tasks = [];
+      player.completedTasks = new Set();
+      player.activeTask = null;
+      player.vote = null;
+      player.input = normaliseInput({});
+    }
+    this.broadcastRoomState(room);
+    this.io.to(room.code).emit("matchReset", { room: this.serialiseRoom(room) });
+  }
+
+  schedule(room, delayMs, callback) {
+    const timer = setTimeout(() => {
+      room.timers.delete(timer);
+      if (this.rooms.get(room.code) === room) callback();
+    }, delayMs);
+    room.timers.add(timer);
+    return timer;
+  }
+
+  setPhase(room, phase, durationMs) {
+    room.phase = phase;
+    room.phaseEndsAt = durationMs ? Date.now() + durationMs : null;
+    this.io.to(room.code).emit("phaseChanged", { phase, endsAt: room.phaseEndsAt });
+    this.broadcastRoomState(room);
+  }
+
+  beginTask(room, player, payload) {
+    if (room.phase !== PHASES.ACTIVE || !player.alive) throw new Error("Assignments are unavailable right now.");
+    const station = stationById(payload?.stationId);
+    if (!station || station.type !== "task") throw new Error("Task station not found.");
+    const assignment = player.tasks.find((task) => task.id === station.refId);
+    if (!assignment) throw new Error("This station is not assigned to you.");
+    if (player.completedTasks.has(assignment.id)) throw new Error("That assignment is already complete.");
+    if (distance2D(player.position, station) > INTERACTION_RANGE) throw new Error("Move closer to the task station.");
+    const definition = TASK_DEFINITIONS.find((task) => task.id === assignment.id);
+    const challenge = Array.from({ length: definition.steps }, () => Math.floor(Math.random() * 4));
+    player.activeTask = { taskId: assignment.id, stationId: station.id, startedAt: Date.now(), lastActionAt: 0, progress: 0, challenge };
+    const result = { ok: true, task: { ...assignment, kind: definition.kind, steps: definition.steps }, challenge };
+    if (player.socketId) this.io.to(player.socketId).emit("taskStarted", result);
+    return result;
+  }
+
+  taskAction(room, player, payload) {
+    const active = player.activeTask;
+    if (!active || active.taskId !== payload?.taskId) throw new Error("No matching task is active.");
+    const station = stationById(active.stationId);
+    if (room.phase !== PHASES.ACTIVE || !player.alive || !station || distance2D(player.position, station) > INTERACTION_RANGE + 0.7) {
+      player.activeTask = null;
+      throw new Error("Task cancelled because the station is no longer reachable.");
+    }
+    const now = Date.now();
+    if (now - active.lastActionAt < 280) throw new Error("Input arrived too quickly.");
+    active.lastActionAt = now;
+    const expected = active.challenge[active.progress];
+    const correct = Math.round(Number(payload?.choice)) === expected;
+    if (correct) active.progress += 1;
+    else active.progress = Math.max(0, active.progress - 1);
+    const definition = TASK_DEFINITIONS.find((task) => task.id === active.taskId);
+    if (active.progress >= definition.steps && now - active.startedAt >= definition.steps * 450) {
+      return this.completeTaskInternal(room, player, active.taskId);
+    }
+    const result = { ok: true, correct, progress: active.progress, total: definition.steps };
+    if (player.socketId) this.io.to(player.socketId).emit("taskProgress", result);
+    return result;
+  }
+
+  completeTaskInternal(room, player, taskId) {
+    const assignment = player.tasks.find((task) => task.id === taskId);
+    if (!assignment || player.completedTasks.has(taskId)) return { ok: true, completed: true };
+    player.completedTasks.add(taskId);
+    player.activeTask = null;
+    player.matchStats.tasksCompleted += 1;
+    if (!assignment.fake) room.taskCompleted += 1;
+    const result = {
+      ok: true, completed: true, taskId, fake: assignment.fake,
+      sharedProgress: { completed: room.taskCompleted, total: room.taskTotal }
+    };
+    if (player.socketId) this.io.to(player.socketId).emit("taskCompleted", result);
+    if (!assignment.fake) this.io.to(room.code).emit("taskProgress", result.sharedProgress);
+    this.checkWinConditions(room, "task-complete");
+    return result;
+  }
+
+  startSabotage(room, player, sabotageId) {
+    if (room.phase !== PHASES.ACTIVE || !player.alive || player.faction !== "operative") throw new Error("Your role cannot activate sabotage now.");
+    const definition = SABOTAGE_DEFINITIONS.find((item) => item.id === sabotageId);
+    if (!definition) throw new Error("Unknown sabotage system.");
+    if (room.activeSabotage) throw new Error("Another sabotage is already active.");
+    if (room.mode !== "practice" && Date.now() - room.lastSabotageAt < room.settings.sabotageCooldownSeconds * 1000) throw new Error("Sabotage is still recharging.");
+    room.lastSabotageAt = Date.now();
+    room.activeSabotage = {
+      id: definition.id, name: definition.name, critical: definition.critical,
+      startedAt: Date.now(), endsAt: Date.now() + definition.durationMs,
+      repairStations: definition.repairStations, repairs: new Set(), activatedBy: player.id
+    };
+    player.matchStats.sabotagesStarted += 1;
+    this.io.to(room.code).emit("sabotageStarted", this.publicSabotage(room.activeSabotage));
+    this.broadcastRoomState(room);
+    return { ok: true, sabotage: this.publicSabotage(room.activeSabotage) };
+  }
+
+  publicSabotage(sabotage) {
+    return {
+      id: sabotage.id, name: sabotage.name, critical: sabotage.critical,
+      startedAt: sabotage.startedAt, endsAt: sabotage.endsAt,
+      repairedStations: [...sabotage.repairs], requiredRepairs: sabotage.repairStations.length
+    };
+  }
+
+  repairSabotage(room, player, stationId) {
+    if (room.phase !== PHASES.ACTIVE || !player.alive || !room.activeSabotage) throw new Error("No sabotage can be repaired now.");
+    const station = stationById(stationId);
+    const sabotage = room.activeSabotage;
+    if (!station || station.type !== "repair" || station.refId !== sabotage.id || !sabotage.repairStations.includes(station.id)) throw new Error("Use the correct repair station.");
+    if (distance2D(player.position, station) > INTERACTION_RANGE) throw new Error("Move closer to the repair station.");
+    sabotage.repairs.add(station.id);
+    const completed = sabotage.repairStations.every((id) => sabotage.repairs.has(id));
+    player.matchStats.sabotagesRepaired += completed ? 1 : 0;
+    if (completed) {
+      const ended = this.publicSabotage(sabotage);
+      room.activeSabotage = null;
+      this.io.to(room.code).emit("sabotageEnded", { ...ended, repairedBy: player.id });
+    } else {
+      this.io.to(room.code).emit("sabotageUpdated", this.publicSabotage(sabotage));
+    }
+    this.broadcastRoomState(room);
+    return { ok: true, completed };
+  }
+
+  eliminationAttempt(room, attacker, targetId) {
+    if (room.phase !== PHASES.ACTIVE || !attacker.alive || attacker.faction !== "operative") throw new Error("Elimination is unavailable.");
+    const target = room.players.get(String(targetId));
+    if (!target || !target.alive || target.faction === "operative" || target.id === attacker.id) throw new Error("Invalid elimination target.");
+    if (room.mode !== "practice" && Date.now() - attacker.lastEliminationAt < room.settings.eliminationCooldownSeconds * 1000) throw new Error("Elimination is recharging.");
+    if (distance2D(attacker.position, target.position) > room.settings.eliminationRange) throw new Error("Target is out of range.");
+    return this.eliminateInternal(room, attacker, target, "electromagnetic suit shutdown");
+  }
+
+  eliminateInternal(room, attacker, target, category) {
+    if (!attacker.alive || !target.alive || attacker.faction !== "operative" || target.faction !== "crew") return { ok: false };
+    target.alive = false;
+    target.eliminatedAt = Date.now();
+    target.input = normaliseInput({});
+    attacker.lastEliminationAt = Date.now();
+    attacker.matchStats.eliminations += 1;
+    const incident = {
+      id: randomUUID(), victimId: target.id, victimName: target.displayName,
+      x: target.position.x, z: target.position.z, roomId: target.currentRoom,
+      createdAt: Date.now(), category, reported: false,
+      evidence: [
+        { type: "energy-residue", detail: "A short-range electromagnetic discharge was detected." },
+        { type: "time-window", detail: "Suit telemetry failed within the last minute." }
+      ]
+    };
+    room.incidents.set(incident.id, incident);
+    this.io.to(room.code).emit("playerEliminated", {
+      playerId: target.id, incident: { id: incident.id, x: incident.x, z: incident.z, roomId: incident.roomId },
+      effect: "suit-shutdown"
+    });
+    this.io.to(room.code).emit("incidentCreated", { id: incident.id, x: incident.x, z: incident.z, roomId: incident.roomId });
+    this.sendPrivateState(room, target);
+    this.checkWinConditions(room, "elimination");
+    return { ok: true, incidentId: incident.id };
+  }
+
+  reportIncident(room, reporter, incidentId) {
+    if (room.phase !== PHASES.ACTIVE || !reporter.alive) throw new Error("You cannot report right now.");
+    const incident = incidentId ? room.incidents.get(String(incidentId)) : [...room.incidents.values()].find((item) => !item.reported && distance2D(reporter.position, item) <= INTERACTION_RANGE);
+    if (!incident || incident.reported) throw new Error("No unreported incident is in range.");
+    if (distance2D(reporter.position, incident) > INTERACTION_RANGE) throw new Error("Move closer to the incident.");
+    incident.reported = true;
+    reporter.matchStats.incidentsReported += 1;
+    reporter.matchStats.evidenceFound += incident.evidence.length;
+    return this.startMeeting(room, reporter, incident);
+  }
+
+  callMeeting(room, reporter) {
+    if (room.phase !== PHASES.ACTIVE || !reporter.alive) throw new Error("Emergency meeting is unavailable.");
+    const station = stationById("meeting-console");
+    if (distance2D(reporter.position, station) > INTERACTION_RANGE) throw new Error("Move to the bridge meeting console.");
+    if (room.mode !== "practice" && reporter.emergencyMeetings >= room.settings.emergencyMeetings) throw new Error("You have no emergency calls remaining.");
+    reporter.emergencyMeetings += 1;
+    return this.startMeeting(room, reporter, null);
+  }
+
+  startMeeting(room, reporter, incident) {
+    if (room.activeSabotage?.critical) throw new Error("Resolve the critical sabotage before calling a meeting.");
+    if (room.activeSabotage) {
+      const ended = this.publicSabotage(room.activeSabotage);
+      room.activeSabotage = null;
+      this.io.to(room.code).emit("sabotageEnded", { ...ended, cancelledByMeeting: true });
+    }
+    for (const player of room.players.values()) {
+      player.input = normaliseInput({});
+      player.vote = null;
+      player.activeTask = null;
+    }
+    room.meeting = {
+      id: randomUUID(), reporterId: reporter.id, incidentId: incident?.id ?? null,
+      incidentRoom: incident?.roomId ?? "operations-bridge",
+      evidence: room.settings.evidenceEnabled ? incident?.evidence ?? [] : [], votes: new Map()
+    };
+    this.setPhase(room, PHASES.INCIDENT, 2_500);
+    this.io.to(room.code).emit("meetingStarted", {
+      meetingId: room.meeting.id, reporterId: reporter.id,
+      incidentRoom: room.meeting.incidentRoom, evidence: room.meeting.evidence
+    });
+    this.schedule(room, 2_500, () => this.startDiscussion(room));
+    return { ok: true, meetingId: room.meeting.id };
+  }
+
+  startDiscussion(room) {
+    if (!room.meeting) return;
+    this.setPhase(room, PHASES.DISCUSSION, room.settings.discussionSeconds * 1000);
+    this.io.to(room.code).emit("discussionStarted", { endsAt: room.phaseEndsAt });
+    this.schedule(room, room.settings.discussionSeconds * 1000, () => this.startVoting(room));
+  }
+
+  startVoting(room) {
+    if (!room.meeting) return;
+    this.setPhase(room, PHASES.VOTING, room.settings.votingSeconds * 1000);
+    for (const player of room.players.values()) player.vote = null;
+    this.io.to(room.code).emit("votingStarted", { endsAt: room.phaseEndsAt });
+    for (const bot of [...room.players.values()].filter((player) => player.bot && player.alive)) {
+      this.schedule(room, 1_500 + Math.random() * 3_000, () => {
+        if (room.phase !== PHASES.VOTING || !bot.alive) return;
+        const choices = ["skip", ...[...room.players.values()].filter((player) => player.alive && player.id !== bot.id).map((player) => player.id)];
+        bot.vote = choices[Math.floor(Math.random() * choices.length)];
+        this.maybeFinishVoting(room);
+      });
+    }
+    this.schedule(room, room.settings.votingSeconds * 1000, () => this.finishVoting(room));
+  }
+
+  submitVote(room, voter, targetId) {
+    if (room.phase !== PHASES.VOTING || !room.meeting || !voter.alive) throw new Error("You cannot vote right now.");
+    const choice = String(targetId ?? "skip");
+    if (choice !== "skip") {
+      const target = room.players.get(choice);
+      if (!target || !target.alive) throw new Error("That player is not eligible.");
+    }
+    voter.vote = choice;
+    room.meeting.votes.set(voter.id, choice);
+    this.io.to(room.code).emit("voteUpdated", { voterId: voter.id });
+    this.broadcastRoomState(room);
+    this.maybeFinishVoting(room);
+    return { ok: true, choice };
+  }
+
+  maybeFinishVoting(room) {
+    const living = [...room.players.values()].filter((player) => player.alive && (player.connected || player.bot));
+    if (living.length > 0 && living.every((player) => player.vote)) this.finishVoting(room);
+  }
+
+  finishVoting(room) {
+    if (room.phase !== PHASES.VOTING || !room.meeting) return;
+    const totals = new Map();
+    for (const player of room.players.values()) {
+      if (!player.alive || !player.vote) continue;
+      totals.set(player.vote, (totals.get(player.vote) ?? 0) + 1);
+    }
+    const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+    const tie = ranked.length > 1 && ranked[0][1] === ranked[1][1];
+    const removedId = !tie && ranked[0]?.[0] !== "skip" ? ranked[0]?.[0] : null;
+    const removed = removedId ? room.players.get(removedId) : null;
+    if (removed) {
+      removed.alive = false;
+      removed.eliminatedAt = Date.now();
+      removed.input = normaliseInput({});
+    }
+    for (const voter of room.players.values()) {
+      if (!voter.alive && voter.id !== removedId) continue;
+      const voted = room.players.get(voter.vote);
+      if (!voted) continue;
+      if (voted.faction === "operative") voter.matchStats.correctVotes += 1;
+      else voter.matchStats.incorrectVotes += 1;
+    }
+    const publicVotes = room.settings.anonymousVoting
+      ? [...totals.entries()].map(([targetId, count]) => ({ targetId, count }))
+      : [...room.players.values()].filter((player) => player.vote).map((player) => ({ voterId: player.id, targetId: player.vote }));
+    this.setPhase(room, PHASES.REMOVAL, 4_000);
+    this.io.to(room.code).emit("voteResult", {
+      removedId: removed?.id ?? null,
+      removedName: removed?.displayName ?? null,
+      faction: removed && room.settings.factionReveal ? removed.faction : null,
+      tie, votes: publicVotes
+    });
+    this.schedule(room, 4_000, () => {
+      if (!this.checkWinConditions(room, "vote")) {
+        room.meeting = null;
+        for (const player of room.players.values()) player.vote = null;
+        this.setPhase(room, PHASES.ACTIVE, null);
+        this.io.to(room.code).emit("matchResumed", { at: Date.now() });
+      }
+    });
+  }
+
+  useMaintenance(room, player, stationId) {
+    if (room.phase !== PHASES.ACTIVE || !player.alive || player.faction !== "operative") throw new Error("Your role cannot use the maintenance network.");
+    const entrance = stationById(stationId);
+    const exit = entrance?.refId ? stationById(entrance.refId) : null;
+    if (!entrance || entrance.type !== "maintenance" || !exit) throw new Error("Maintenance route not found.");
+    if (distance2D(player.position, entrance) > INTERACTION_RANGE) throw new Error("Move closer to the maintenance hatch.");
+    if (room.mode !== "practice" && Date.now() - player.lastMaintenanceAt < 8_000) throw new Error("Maintenance route is re-pressurising.");
+    const blocked = [...room.players.values()].some((candidate) => candidate.id !== player.id && candidate.alive && distance2D(candidate.position, exit) < 1.4);
+    if (blocked) throw new Error("The exit hatch is obstructed.");
+    player.position = { x: exit.x, z: exit.z };
+    player.currentRoom = exit.roomId;
+    player.lastMaintenanceAt = Date.now();
+    room.maintenanceLogs.push({ roomId: entrance.roomId, at: Date.now() });
+    room.maintenanceLogs = room.maintenanceLogs.slice(-20);
+    this.io.to(room.code).emit("maintenanceUsed", { playerId: player.id, from: entrance.roomId, to: exit.roomId });
+    return { ok: true, position: player.position };
+  }
+
+  requestSecurity(room, player) {
+    if (room.phase !== PHASES.ACTIVE || !player.alive) throw new Error("Security systems are unavailable.");
+    const consoles = [stationById("camera-console"), stationById("door-logs")].filter(Boolean);
+    if (!consoles.some((station) => distance2D(player.position, station) <= INTERACTION_RANGE)) throw new Error("Move to a Security Operations console.");
+    if (room.activeSabotage?.id === "security-interference" || room.activeSabotage?.id === "comms-blackout") throw new Error("Security telemetry is being jammed.");
+    const delayedCutoff = Date.now() - 2_000;
+    return {
+      ok: true,
+      motion: [...room.players.values()].filter((candidate) => candidate.alive).map((candidate) => ({ roomId: candidate.currentRoom, at: delayedCutoff })),
+      doorLogs: room.doorLogs.slice(-12).map(({ playerId: _private, ...log }) => log),
+      incidents: [...room.incidents.values()].map((incident) => ({ roomId: incident.roomId, createdAt: incident.createdAt, reported: incident.reported })),
+      maintenance: room.maintenanceLogs.slice(-6)
+    };
+  }
+
+  chat(room, player, messageInput) {
+    const message = validateChat(messageInput);
+    let channel = "lobby";
+    let recipients = [...room.players.values()].filter((candidate) => candidate.connected && candidate.socketId);
+    if ([PHASES.DISCUSSION, PHASES.VOTING, PHASES.INCIDENT, PHASES.REMOVAL].includes(room.phase)) {
+      channel = player.alive ? "meeting" : "spectator";
+      recipients = recipients.filter((candidate) => candidate.alive === player.alive);
+    } else if (room.phase === PHASES.ACTIVE) {
+      if (player.alive) throw new Error("Living players can only chat during meetings.");
+      channel = "spectator";
+      recipients = recipients.filter((candidate) => !candidate.alive);
+    } else if (room.phase === PHASES.RESULTS) {
+      channel = "results";
+    }
+    const payload = { channel, playerId: player.id, displayName: player.displayName, message, at: Date.now() };
+    for (const recipient of recipients) this.io.to(recipient.socketId).emit("chatMessage", payload);
+    return { ok: true };
+  }
+
+  checkWinConditions(room, reason) {
+    if (![PHASES.ACTIVE, PHASES.REMOVAL, PHASES.DISCUSSION, PHASES.VOTING].includes(room.phase)) return false;
+    const connectedOrBots = [...room.players.values()].filter((player) => player.connected || player.bot);
+    const livingCrew = connectedOrBots.filter((player) => player.alive && player.faction === "crew").length;
+    const livingOperatives = connectedOrBots.filter((player) => player.alive && player.faction === "operative").length;
+    let winner = null;
+    let outcomeReason = reason;
+    if (livingOperatives === 0) { winner = "crew"; outcomeReason = "all-operatives-removed"; }
+    else if (livingCrew === 0 || livingOperatives >= livingCrew) { winner = "operative"; outcomeReason = "operative-parity"; }
+    else if (room.taskTotal > 0 && room.taskCompleted >= room.taskTotal) { winner = "crew"; outcomeReason = "assignments-complete"; }
+    if (!winner) return false;
+    this.endMatch(room, winner, outcomeReason);
+    return true;
+  }
+
+  endMatch(room, winner, reason) {
+    if (room.phase === PHASES.RESULTS) return;
+    for (const timer of room.timers) clearTimeout(timer);
+    room.timers.clear();
+    room.activeSabotage = null;
+    const endedAt = Date.now();
+    const durationSeconds = Math.max(0, Math.round((endedAt - room.matchStartedAt) / 1000));
+    const players = [...room.players.values()].map((player) => ({
+      id: player.id, accountId: player.accountId, displayName: player.displayName,
+      role: player.role, faction: player.faction, won: player.faction === winner,
+      alive: player.alive, connected: player.connected, stats: player.matchStats,
+      score: this.scorePlayer(player, winner),
+      survivalSeconds: player.eliminatedAt
+        ? Math.max(0, Math.round((player.eliminatedAt - room.matchStartedAt) / 1000))
+        : durationSeconds
+    }));
+    this.setPhase(room, PHASES.RESULTS, null);
+    const results = { winner, reason, durationSeconds, players, taskProgress: { completed: room.taskCompleted, total: room.taskTotal } };
+    this.io.to(room.code).emit("matchEnded", results);
+    if (isDatabaseConfigured()) {
+      recordMatch({
+        roomCode: room.code, startedAt: new Date(room.matchStartedAt), endedAt: new Date(endedAt),
+        winner, durationSeconds, players,
+        summary: { reason, mode: room.mode, settings: room.settings, incidents: room.incidents.size }
+      }).then((matchId) => this.io.to(room.code).emit("databaseSaveStatus", { saved: true, matchId }))
+        .catch((error) => {
+          console.error("Match persistence failed:", error.message);
+          this.io.to(room.code).emit("databaseSaveStatus", { saved: false });
+        });
+    } else {
+      this.io.to(room.code).emit("databaseSaveStatus", { saved: false, reason: "database-not-configured" });
+    }
+  }
+
+  scorePlayer(player, winner) {
+    const stats = player.matchStats;
+    return (player.faction === winner ? 100 : 25) + stats.tasksCompleted * 20
+      + stats.sabotagesRepaired * 25 + stats.eliminations * 35
+      + stats.correctVotes * 20 + stats.evidenceFound * 5;
+  }
+
+  tick() {
+    const now = Date.now();
+    const delta = Math.min(0.1, Math.max(0.001, (now - this.lastTickAt) / 1000));
+    this.lastTickAt = now;
+    for (const room of this.rooms.values()) {
+      if ([PHASES.ACTIVE, PHASES.LOBBY].includes(room.phase)) {
+        for (const player of room.players.values()) {
+          if (!player.alive || (!player.connected && !player.bot)) continue;
+          if (player.bot && room.phase === PHASES.ACTIVE) this.tickBot(room, player, now, delta);
+          else this.tickPlayerMovement(room, player, now, delta);
+        }
+      }
+      if (room.phase === PHASES.ACTIVE && room.activeSabotage) {
+        if (now >= room.activeSabotage.endsAt) {
+          if (room.activeSabotage.critical) {
+            this.endMatch(room, "operative", `${room.activeSabotage.id}-expired`);
+          } else {
+            const ended = this.publicSabotage(room.activeSabotage);
+            room.activeSabotage = null;
+            this.io.to(room.code).emit("sabotageEnded", { ...ended, expired: true });
+          }
+        } else if (room.activeSabotage.critical && now % 1000 < 1000 / TICK_RATE) {
+          this.io.to(room.code).emit("sabotageUpdated", this.publicSabotage(room.activeSabotage));
+        }
+      }
+      if (now - room.lastSnapshotAt >= 1000 / SNAPSHOT_RATE) {
+        room.lastSnapshotAt = now;
+        this.io.to(room.code).emit("worldSnapshot", {
+          serverTime: now,
+          phase: room.phase,
+          players: [...room.players.values()].map(snapshotPlayer),
+          incidents: [...room.incidents.values()].filter((incident) => !incident.reported).map((incident) => ({ id: incident.id, x: incident.x, z: incident.z, roomId: incident.roomId }))
+        });
+      }
+    }
+  }
+
+  tickPlayerMovement(room, player, now, delta) {
+    const input = now - player.lastInputAt < 500 ? player.input : normaliseInput({});
+    const baseSpeed = input.crouch ? PLAYER_SPEED.crouch : input.sprint ? PLAYER_SPEED.sprint : PLAYER_SPEED.walk;
+    const factionMultiplier = player.faction === "operative" ? room.settings.operativeSpeed : room.settings.crewSpeed;
+    const speed = baseSpeed * factionMultiplier;
+    const next = { x: player.position.x + input.x * speed * delta, z: player.position.z + input.z * speed * delta };
+    if (isWalkable(next.x, next.z)) player.position = next;
+    else {
+      const slideX = { x: next.x, z: player.position.z };
+      const slideZ = { x: player.position.x, z: next.z };
+      if (isWalkable(slideX.x, slideX.z)) player.position = slideX;
+      else if (isWalkable(slideZ.x, slideZ.z)) player.position = slideZ;
+    }
+    player.rotation = input.yaw;
+    player.lastInputSeq = input.seq;
+    player.animation = input.crouch ? "crouch" : Math.hypot(input.x, input.z) < 0.05 ? "idle" : input.sprint ? "sprint" : "walk";
+    const nextRoom = roomAt(player.position.x, player.position.z)?.id ?? player.currentRoom;
+    if (nextRoom !== player.currentRoom) {
+      room.doorLogs.push({ from: player.currentRoom, to: nextRoom, at: now, playerId: player.id });
+      room.doorLogs = room.doorLogs.slice(-40);
+      player.currentRoom = nextRoom;
+    }
+  }
+
+  tickBot(room, bot, now, delta) {
+    if (room.phase !== PHASES.ACTIVE || !bot.alive) return;
+    if (bot.faction === "operative" && !room.activeSabotage && now - room.lastSabotageAt > room.settings.sabotageCooldownSeconds * 1000 + 5_000 && Math.random() < delta * 0.12) {
+      try { this.startSabotage(room, bot, SABOTAGE_DEFINITIONS[Math.floor(Math.random() * SABOTAGE_DEFINITIONS.length)].id); } catch { /* next tick */ }
+    }
+    if (bot.faction === "operative" && now - bot.lastEliminationAt > room.settings.eliminationCooldownSeconds * 1000) {
+      const target = [...room.players.values()].find((player) => player.alive && player.faction === "crew" && distance2D(bot.position, player.position) <= room.settings.eliminationRange);
+      if (target && Math.random() < delta * 0.35) {
+        this.eliminateInternal(room, bot, target, "drone signal interruption");
+        return;
+      }
+    }
+    if (!bot.botTarget || now - bot.botActionAt > 30_000) {
+      const outstanding = bot.tasks.filter((task) => !bot.completedTasks.has(task.id));
+      const task = outstanding[0] ?? bot.tasks[Math.floor(Math.random() * bot.tasks.length)];
+      const station = stationById(`task:${task?.id}`) ?? STATIONS[Math.floor(Math.random() * STATIONS.length)];
+      bot.botTarget = station ? { x: station.x, z: station.z, roomId: station.roomId, stationId: station.id, taskId: task?.id } : { x: 0, z: 0, roomId: "operations-hub" };
+      bot.botPath = this.buildBotPath(bot.currentRoom, bot.botTarget.roomId);
+      bot.botActionAt = now;
+    }
+    const waypoint = bot.botPath?.[0] ?? bot.botTarget;
+    const dx = waypoint.x - bot.position.x;
+    const dz = waypoint.z - bot.position.z;
+    const distance = Math.hypot(dx, dz);
+    if (bot.botPath?.length && distance < 0.75) {
+      bot.botPath.shift();
+      return;
+    }
+    if (!bot.botPath?.length && distance < 1.6) {
+      bot.animation = "interact";
+      if (bot.faction === "crew" && bot.botTarget.taskId && !bot.completedTasks.has(bot.botTarget.taskId) && now - bot.botActionAt > 3_000) {
+        this.completeTaskInternal(room, bot, bot.botTarget.taskId);
+        bot.botTarget = null;
+      } else if (now - bot.botActionAt > 4_000) {
+        bot.botTarget = null;
+      }
+      return;
+    }
+    const input = { x: dx / distance, z: dz / distance, yaw: Math.atan2(dx, dz), sprint: false, crouch: false, seq: 0 };
+    bot.input = input;
+    bot.lastInputAt = now;
+    this.tickPlayerMovement(room, bot, now, delta);
+  }
+
+  buildBotPath(startRoomId, targetRoomId) {
+    if (!startRoomId || startRoomId === targetRoomId) return [];
+    const neighbours = new Map(ROOMS.map((room) => [room.id, []]));
+    for (const [from, to] of CONNECTIONS) {
+      neighbours.get(from)?.push(to);
+      neighbours.get(to)?.push(from);
+    }
+    const queue = [startRoomId];
+    const previous = new Map([[startRoomId, null]]);
+    while (queue.length) {
+      const current = queue.shift();
+      if (current === targetRoomId) break;
+      for (const next of neighbours.get(current) ?? []) {
+        if (previous.has(next)) continue;
+        previous.set(next, current);
+        queue.push(next);
+      }
+    }
+    if (!previous.has(targetRoomId)) return [];
+    const roomPath = [];
+    for (let roomId = targetRoomId; roomId; roomId = previous.get(roomId)) roomPath.unshift(roomId);
+    const waypoints = [];
+    for (let index = 0; index < roomPath.length - 1; index += 1) {
+      const currentId = roomPath[index];
+      const nextId = roomPath[index + 1];
+      const connection = CONNECTIONS.find(([from, to]) => (from === currentId && to === nextId) || (from === nextId && to === currentId));
+      const fromRoom = ROOMS.find((room) => room.id === connection[0]);
+      const toRoom = ROOMS.find((room) => room.id === connection[1]);
+      const destination = ROOMS.find((room) => room.id === nextId);
+      waypoints.push({ x: toRoom.x, z: fromRoom.z }, { x: destination.x, z: destination.z });
+    }
+    return waypoints;
+  }
+
+  stop() {
+    clearInterval(this.loop);
+    clearInterval(this.rateCleanup);
+    for (const room of this.rooms.values()) this.destroyRoom(room);
+  }
+}
+
+export { CORRIDORS, ROOMS };
