@@ -1,15 +1,22 @@
-import { MERIDIAN_MAP } from "../shipData.js";
+import { getMapDefinition } from "../shipData.js";
 
-export const WORLD_SCALE = MERIDIAN_MAP.render.worldScale;
-export const WORLD_PADDING = MERIDIAN_MAP.render.worldPadding;
-export const WORLD_BOUNDS = MERIDIAN_MAP.bounds;
-export const WORLD_WIDTH = (WORLD_BOUNDS.maxX - WORLD_BOUNDS.minX) * WORLD_SCALE + WORLD_PADDING * 2;
-export const WORLD_HEIGHT = (WORLD_BOUNDS.maxZ - WORLD_BOUNDS.minZ) * WORLD_SCALE + WORLD_PADDING * 2;
+export function worldMetrics(map = getMapDefinition()) {
+  const scale = map.render.worldScale;
+  const padding = map.render.worldPadding;
+  return Object.freeze({
+    scale,
+    padding,
+    bounds: map.bounds,
+    width: (map.bounds.maxX - map.bounds.minX) * scale + padding * 2,
+    height: (map.bounds.maxZ - map.bounds.minZ) * scale + padding * 2
+  });
+}
 
-export function worldToScreen(x, z) {
+export function worldToScreen(x, z, map = getMapDefinition()) {
+  const metrics = worldMetrics(map);
   return {
-    x: (Number(x) - WORLD_BOUNDS.minX) * WORLD_SCALE + WORLD_PADDING,
-    y: (Number(z) - WORLD_BOUNDS.minZ) * WORLD_SCALE + WORLD_PADDING
+    x: (Number(x) - metrics.bounds.minX) * metrics.scale + metrics.padding,
+    y: (Number(z) - metrics.bounds.minZ) * metrics.scale + metrics.padding
   };
 }
 
@@ -22,23 +29,34 @@ export const PHASER_ASSETS = Object.freeze({
   securityConsole: "/assets/art/Tasks/DoorLog-sharedassets0.assets-145.png",
   repairConsole: "/assets/art/Tasks/reactorMeltdown_handprintBase-sharedassets0.assets-124.png",
   incidentMarker: "/assets/art/Tasks/glow-sharedassets0.assets-191.png",
-  "room-operations-hub": "/assets/art/Maps/Cafeteria/Cafeteria-sharedassets0.assets-210.png",
-  "room-operations-bridge": "/assets/art/Maps/HQAssets-sharedassets0.assets-72.png",
-  "room-navigation-control": "/assets/art/Maps/Navigation-sharedassets0.assets-160.png",
-  "room-observation-ring": "/assets/art/Maps/Other/PlanetSprites2-sharedassets0.assets-200.png",
-  "room-communications-array": "/assets/art/Maps/room_broadcast-sharedassets0.assets-57.png",
-  "room-security-operations": "/assets/art/Maps/Security/Security-sharedassets0.assets-162.png",
-  "room-medical-wing": "/assets/art/Maps/MedBay-sharedassets0.assets-110.png",
-  "room-crew-quarters": "/assets/art/Maps/Lobby/Lobby-sharedassets0.assets-54.png",
-  "room-mess-hall": "/assets/art/Maps/Cafeteria/cafeteriaWalls-sharedassets0.assets-152.png",
-  "room-cargo-operations": "/assets/art/Maps/Storage/room_storage-sharedassets0.assets-98.png",
-  "room-airlock": "/assets/art/Maps/dropshipTop-sharedassets0.assets-134.png",
-  "room-engineering-bay": "/assets/art/Maps/Engine-sharedassets0.assets-147.png",
-  "room-drone-operations": "/assets/art/Maps/room_weapon-sharedassets0.assets-80.png",
-  "room-core-chamber": "/assets/art/Tasks/ReactorRoom-sharedassets0.assets-132.png",
-  "room-atmospheric-systems": "/assets/art/Maps/room_O2-sharedassets0.assets-93.png",
-  "room-research-laboratory": "/assets/art/Maps/room_science-sharedassets0.assets-90.png",
-  "room-data-archive": "/assets/art/Maps/room_specimen-sharedassets0.assets-123.png"
+  "skeld-cafeteria": "/assets/art/Maps/Cafeteria/Cafeteria-sharedassets0.assets-210.png",
+  "skeld-engine": "/assets/art/Maps/Engine-sharedassets0.assets-147.png",
+  "skeld-reactor": "/assets/art/Tasks/ReactorRoom-sharedassets0.assets-132.png",
+  "skeld-security": "/assets/art/Maps/Security/Security-sharedassets0.assets-162.png",
+  "skeld-medbay": "/assets/art/Maps/MedBay-sharedassets0.assets-110.png",
+  "skeld-hull": "/assets/art/Maps/Hull-sharedassets0.assets-159.png",
+  "skeld-storage": "/assets/art/Maps/Storage/Admin_Comms_Elec_Engine_Halls_Shields_Storage-sharedassets0.assets-150.png",
+  "skeld-life-support": "/assets/art/Maps/LifeSupport-sharedassets0.assets-119.png",
+  "skeld-weapons": "/assets/art/Maps/Weapons-sharedassets0.assets-201.png",
+  "skeld-navigation": "/assets/art/Maps/Navigation-sharedassets0.assets-160.png",
+  "mira-hq-1": "/assets/art/Maps/HQAssets-sharedassets0.assets-72.png",
+  "mira-hq-2": "/assets/art/Maps/HQAssets2-sharedassets0.assets-186.png",
+  "mira-hq-3": "/assets/art/Maps/HQAssets3-sharedassets0.assets-79.png",
+  "mira-lab": "/assets/art/Maps/compLabGreenHouseAdminWalls-sharedassets0.assets-67.png",
+  "mira-launchpad": "/assets/art/Maps/launchPadWalls-sharedassets0.assets-204.png",
+  "mira-walls": "/assets/art/Maps/HQAssets2-sharedassets0.assets-186.png",
+  "polus-planet-1": "/assets/art/Maps/PlanetSprites-sharedassets0.assets-62.png",
+  "polus-planet-2": "/assets/art/Maps/Other/PlanetSprites2-sharedassets0.assets-200.png",
+  "polus-planet-3": "/assets/art/Maps/PlanetSprites3-sharedassets0.assets-114.png",
+  "polus-security": "/assets/art/Maps/Security/PlanetSecurity-sharedassets0.assets-53.png",
+  "polus-dropship": "/assets/art/Maps/dropshipTop-sharedassets0.assets-134.png",
+  "polus-o2": "/assets/art/Maps/room_O2-sharedassets0.assets-93.png",
+  "polus-broadcast": "/assets/art/Maps/room_broadcast-sharedassets0.assets-57.png",
+  "polus-science": "/assets/art/Maps/room_science-sharedassets0.assets-90.png",
+  "polus-specimen": "/assets/art/Maps/room_specimen-sharedassets0.assets-123.png",
+  "polus-tunnel": "/assets/art/Maps/room_tunnel2-sharedassets0.assets-138.png",
+  "polus-weapons": "/assets/art/Maps/room_weapon-sharedassets0.assets-80.png",
+  "polus-storage": "/assets/art/Maps/Storage/room_storage-sharedassets0.assets-98.png"
 });
 
 export const PLAYER_FRAME_COUNTS = Object.freeze({ walk: 12, death: 42 });

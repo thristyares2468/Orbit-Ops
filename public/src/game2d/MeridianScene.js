@@ -1,10 +1,10 @@
 import { CharacterSprite } from "./CharacterSprite.js";
 import { MapBuilder } from "./MapBuilder.js";
+import { DEFAULT_MAP_ID, getMapDefinition } from "../shipData.js";
 import {
   PHASER_ASSETS,
   PLAYER_MODEL_ASSETS,
-  WORLD_HEIGHT,
-  WORLD_WIDTH,
+  worldMetrics,
   worldToScreen
 } from "./assets.js";
 
@@ -19,6 +19,9 @@ export class MeridianScene extends Phaser.Scene {
     this.stationMarkers = [];
     this.sabotageOverlay = null;
     this.privateState = null;
+    this.mapId = null;
+    this.map = null;
+    this.metrics = null;
   }
 
   preload() {
@@ -28,22 +31,39 @@ export class MeridianScene extends Phaser.Scene {
 
   create() {
     this.cameras.main.setBackgroundColor("#02060c");
-    this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     this.cameras.main.setRoundPixels(true);
+    this.setMap(this.bridge.room?.mapId ?? DEFAULT_MAP_ID);
 
-    this.mapBuilder = new MapBuilder(this).build();
+    this.bridge.onSceneReady(this);
+  }
+
+  setMap(mapId) {
+    const map = getMapDefinition(mapId);
+    if (this.mapId === map.id && this.mapBuilder) return;
+    this.clearCharacters();
+    for (const marker of this.incidentMarkers.values()) marker.destroy();
+    this.incidentMarkers.clear();
+    this.sabotageOverlay?.destroy();
+    this.mapBuilder?.destroy();
+
+    this.mapId = map.id;
+    this.map = map;
+    this.metrics = worldMetrics(map);
+    this.cameras.main.setBounds(0, 0, this.metrics.width, this.metrics.height);
+    this.mapBuilder = new MapBuilder(this, map).build();
     this.stationMarkers = this.mapBuilder.stationMarkers;
-
     this.sabotageOverlay = this.add.rectangle(
-      WORLD_WIDTH / 2,
-      WORLD_HEIGHT / 2,
-      WORLD_WIDTH,
-      WORLD_HEIGHT,
+      this.metrics.width / 2,
+      this.metrics.height / 2,
+      this.metrics.width,
+      this.metrics.height,
       0xc31530,
       0
     ).setDepth(450);
+  }
 
-    this.bridge.onSceneReady(this);
+  mapPoint(x, z) {
+    return worldToScreen(x, z, this.map);
   }
 
   syncPlayers(players, localPlayerId, latestSnapshots) {
@@ -93,7 +113,7 @@ export class MeridianScene extends Phaser.Scene {
     const ids = new Set(incidents.map((incident) => incident.id));
     for (const incident of incidents) {
       if (this.incidentMarkers.has(incident.id)) continue;
-      const point = worldToScreen(incident.x, incident.z);
+      const point = this.mapPoint(incident.x, incident.z);
       const glow = this.add.image(point.x, point.y, "incidentMarker")
         .setDisplaySize(72, 72)
         .setTint(0xff5369)

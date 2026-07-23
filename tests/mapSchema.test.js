@@ -7,27 +7,51 @@ import {
   visibleMapLayers
 } from "../public/src/mapSchema.js";
 import {
-  COLLISION_RECTS,
-  CONNECTIONS,
-  MAP_VALIDATION,
-  MERIDIAN_MAP,
-  ROOMS,
+  MAP_DEFINITIONS,
+  MAP_IDS,
+  getMapDefinition,
   isWalkable,
   stationById
 } from "../public/src/shipData.js";
 
-test("the shared Meridian map schema drives valid server geometry", () => {
-  assert.deepEqual(MAP_VALIDATION, { valid: true, errors: [] });
-  assert.equal(MERIDIAN_MAP.rooms, ROOMS);
-  assert.equal(MERIDIAN_MAP.corridors.length, CONNECTIONS.length * 2);
-  assert.ok(MERIDIAN_MAP.spawnPoints.every(([x, z]) => isWalkable(x, z, 0)));
-  assert.equal(stationById("meeting-console")?.roomId, "operations-hub");
-  assert.equal(MERIDIAN_MAP.objectGroups.find((group) => group.id === "collisions")?.objects, COLLISION_RECTS);
-  assert.deepEqual(visibleMapLayers(MERIDIAN_MAP).map((layer) => layer.id), [
-    "backgrounds", "corridors", "rooms", "stations"
-  ]);
-  assert.equal(isWalkable(0, 0), false);
-  assert.equal(pointInCollisionRect(0, 0, COLLISION_RECTS[0], 0.55), true);
+test("all four maps have isolated, valid server geometry and interactions", () => {
+  assert.deepEqual(MAP_IDS, ["the-skeld", "mira-hq", "polus", "the-airship"]);
+  assert.equal(new Set(Object.values(MAP_DEFINITIONS).map((map) => map.rooms)).size, 4);
+  for (const mapId of MAP_IDS) {
+    const map = getMapDefinition(mapId);
+    assert.deepEqual(validateMapDefinition(map), { valid: true, errors: [] }, map.name);
+    assert.equal(map.corridors.length, map.connections.length * 2, map.name);
+    assert.ok(map.spawnPoints.every(([x, z]) => isWalkable(mapId, x, z, 0)), map.name);
+    assert.ok(stationById(mapId, "meeting-console"), `${map.name} emergency button`);
+    assert.equal(map.objectGroups.find((group) => group.id === "collisions")?.objects, map.collisionRects);
+    assert.deepEqual(visibleMapLayers(map).map((layer) => layer.id), [
+      "backgrounds", "corridors", "rooms", "stations"
+    ]);
+    assert.ok(map.taskDefinitions.every((task) => map.rooms.some((room) => room.id === task.roomId)));
+    assert.ok(map.sabotageDefinitions.every((sabotage) =>
+      sabotage.repairStations.every((id) => stationById(mapId, id)?.refId === sabotage.id)
+    ));
+    for (const collision of map.collisionRects) {
+      assert.equal(isWalkable(mapId, collision.x, collision.z), false);
+      assert.equal(pointInCollisionRect(collision.x, collision.z, collision, 0.55), true);
+    }
+  }
+});
+
+test("room artwork never crosses map asset namespaces", () => {
+  for (const mapId of ["the-skeld", "mira-hq", "polus"]) {
+    const prefix = mapId === "the-skeld" ? "skeld-" : mapId === "mira-hq" ? "mira-" : "polus-";
+    assert.ok(getMapDefinition(mapId).rooms.every((room) => !room.assetKey || room.assetKey.startsWith(prefix)), mapId);
+  }
+  assert.ok(getMapDefinition("the-airship").rooms.every((room) => !room.assetKey), "Airship uses its own procedural deck treatment");
+});
+
+test("canonical room sets are kept on their original maps", () => {
+  const roomIds = (mapId) => new Set(getMapDefinition(mapId).rooms.map((room) => room.id));
+  assert.ok(["cafeteria", "upper-engine", "reactor", "navigation"].every((id) => roomIds("the-skeld").has(id)));
+  assert.ok(["launchpad", "greenhouse", "balcony", "decontamination"].every((id) => roomIds("mira-hq").has(id)));
+  assert.ok(["dropship", "boiler-room", "specimen-room", "laboratory"].every((id) => roomIds("polus").has(id)));
+  assert.ok(["cockpit", "vault", "gap-room", "meeting-room", "cargo-bay"].every((id) => roomIds("the-airship").has(id)));
 });
 
 test("the reusable map schema builder generates orthogonal corridor transforms", () => {

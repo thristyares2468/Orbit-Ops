@@ -14,6 +14,7 @@ export const MIN_MATCH_PLAYERS = 4;
 export const PLAYER_SPEED = Object.freeze({ walk: 5.25, sprint: 7.25, crouch: 2.6 });
 
 export const DEFAULT_SETTINGS = Object.freeze({
+  mapId: "the-skeld",
   maxPlayers: 12,
   operativeCount: 2,
   discussionSeconds: 35,

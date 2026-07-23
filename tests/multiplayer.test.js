@@ -91,6 +91,10 @@ test("four clients join, receive private roles, and move through authoritative s
   const sockets = await Promise.all([0, 1, 2, 3].map(connectGuest));
   const created = await request(sockets[0], "createRoom", { mode: "private", settings: { operativeCount: 2, discussionSeconds: 10, votingSeconds: 10, eliminationCooldownSeconds: 10 } });
   const roomCode = created.room.code;
+  for (const mapId of ["mira-hq", "polus", "the-skeld", "the-airship"]) {
+    const changed = await request(sockets[0], "hostSettings", { mapId });
+    assert.equal(changed.settings.mapId, mapId);
+  }
   for (let index = 1; index < sockets.length; index += 1) await request(sockets[index], "joinRoom", { code: roomCode });
   for (const socket of sockets) await request(socket, "readyState", { ready: true });
 
@@ -115,15 +119,20 @@ test("four clients join, receive private roles, and move through authoritative s
 
   const [crewIndex, crewState] = crewEntries[0];
   const initialPosition = { ...crewState.position };
+  const movement = { x: initialPosition.x <= 0 ? -1 : 1, z: 0 };
   const movedSnapshot = waitFor(
     sockets[crewIndex],
     "worldSnapshot",
-    (snapshot) => snapshot.players.some((player) => player.id === crewState.id && player.seq === 501 && player.x > initialPosition.x),
+    (snapshot) => snapshot.players.some((player) =>
+      player.id === crewState.id
+      && player.seq === 501
+      && Math.hypot(player.x - initialPosition.x, player.z - initialPosition.z) > 0.05
+    ),
     8_000
   );
-  sockets[crewIndex].emit("playerInput", { x: 1, z: 0, yaw: Math.PI / 2, seq: 501 });
+  sockets[crewIndex].emit("playerInput", { ...movement, yaw: Math.atan2(movement.x, movement.z), seq: 501 });
   const movedPlayer = (await movedSnapshot).players.find((player) => player.id === crewState.id);
-  assert.ok(movedPlayer.x > initialPosition.x, "movement intent is reflected by a server snapshot");
+  assert.ok(Math.hypot(movedPlayer.x - initialPosition.x, movedPlayer.z - initialPosition.z) > 0.05, "movement intent is reflected by a server snapshot");
   assert.equal(movedPlayer.seq, 501);
 
   const rejectedElimination = await requestResult(sockets[crewIndex], "eliminationAttempt", { targetId: operativeState.id });

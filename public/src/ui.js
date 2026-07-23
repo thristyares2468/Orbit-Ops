@@ -1,6 +1,7 @@
 import { ART_CATALOG } from "./artCatalog.js";
+import { mapShapePolygon, pointInMapShape } from "./mapSchema.js";
 import { getRoleDefinition } from "./roleData.js";
-import { ROOMS, SABOTAGE_DEFINITIONS, TASK_DEFINITIONS } from "./shipData.js";
+import { getMapDefinition } from "./shipData.js";
 
 const COLOURS = Object.freeze({ cyan: "#27bad8", amber: "#e2a238", violet: "#805bd0", lime: "#54b86a", coral: "#d9575f", white: "#c8d8dd", blue: "#3f67c9", rose: "#c74f87" });
 
@@ -67,6 +68,7 @@ export class GameUI {
       byId(id).addEventListener("change", () => this.sendHostSettings());
     }
     byId("setting-anonymous").addEventListener("change", () => this.sendHostSettings());
+    byId("setting-map").addEventListener("change", () => this.sendHostSettings());
     this.buildSabotageOptions();
   }
 
@@ -134,6 +136,7 @@ export class GameUI {
 
   updateRoom(room) {
     if (!room) return;
+    const previousMapId = this.room?.mapId;
     this.room = room;
     byId("lobby-code").textContent = room.code;
     byId("lobby-mode").textContent = titleCase(room.mode);
@@ -142,6 +145,7 @@ export class GameUI {
     this.syncHostControls();
     this.updateTaskProgress(room.taskProgress);
     if (room.activeSabotage) this.updateSabotage(room.activeSabotage); else this.clearSabotage();
+    if (previousMapId !== room.mapId) this.buildSabotageOptions(room.mapId);
     const me = this.myPlayer();
     if (me) byId("ready-button").textContent = me.ready ? "Ready ✓" : "Mark Ready";
   }
@@ -171,7 +175,7 @@ export class GameUI {
     const everyoneReady = connectedHumans.length > 0 && connectedHumans.every((player) => player.ready);
     byId("start-match").disabled = !host || (this.room?.mode !== "practice" && !everyoneReady);
     byId("start-match").title = this.room?.mode !== "practice" && !everyoneReady ? "Every connected player must be ready." : "";
-    byId("host-settings").querySelectorAll("input").forEach((input) => { input.disabled = !host; });
+    byId("host-settings").querySelectorAll("input, select").forEach((input) => { input.disabled = !host; });
     const settings = this.room?.settings;
     if (settings) {
       byId("setting-max-players").value = settings.maxPlayers;
@@ -180,6 +184,7 @@ export class GameUI {
       byId("setting-discussion").value = settings.discussionSeconds;
       byId("setting-voting").value = settings.votingSeconds;
       byId("setting-anonymous").checked = settings.anonymousVoting;
+      byId("setting-map").value = this.room?.mapId ?? settings.mapId ?? "the-skeld";
       this.updateSettingOutputs();
     }
   }
@@ -196,7 +201,8 @@ export class GameUI {
     this.invoke("hostSettings", {
       maxPlayers: Number(byId("setting-max-players").value), operativeCount: Number(byId("setting-operatives").value),
       assignmentQuantity: Number(byId("setting-tasks").value), discussionSeconds: Number(byId("setting-discussion").value),
-      votingSeconds: Number(byId("setting-voting").value), anonymousVoting: byId("setting-anonymous").checked
+      votingSeconds: Number(byId("setting-voting").value), anonymousVoting: byId("setting-anonymous").checked,
+      mapId: byId("setting-map").value
     });
   }
 
@@ -323,9 +329,11 @@ export class GameUI {
 
   clearSabotage() { clearInterval(this.sabotageTimer); setVisible(byId("critical-alert"), false); }
 
-  buildSabotageOptions() {
+  buildSabotageOptions(mapId = this.room?.mapId) {
     const container = byId("sabotage-options");
-    for (const sabotage of SABOTAGE_DEFINITIONS) {
+    container.replaceChildren();
+    const map = getMapDefinition(mapId);
+    for (const sabotage of map.sabotageDefinitions) {
       const button = document.createElement("button"); button.type = "button";
       const name = document.createElement("b"); name.textContent = sabotage.name;
       const detail = document.createElement("small"); detail.textContent = `${titleCase(sabotage.roomId)} · ${sabotage.critical ? "critical" : "disruption"}`;
@@ -468,31 +476,141 @@ export class GameUI {
     };
   }
 
-  drawMinimap({ playerPosition, tasks = [], completedTaskIds = [], sabotage = null }) {
-    const canvas = byId("minimap-canvas"); const context = canvas.getContext("2d");
-    const bounds = { minX: -62, maxX: 48, minZ: -45, maxZ: 30 };
-    const sx = (x) => (x - bounds.minX) / (bounds.maxX - bounds.minX) * canvas.width;
-    const sy = (z) => (z - bounds.minZ) / (bounds.maxZ - bounds.minZ) * canvas.height;
+  drawMinimap({ mapId = this.room?.mapId, playerPosition, tasks = [], completedTaskIds = [], sabotage = null }) {
+    const canvas = byId("minimap-canvas");
+    const context = canvas.getContext("2d");
+    const map = getMapDefinition(mapId);
+    const bounds = map.bounds;
+    byId("minimap-title").textContent = map.name;
+    const padding = 34;
+    const mapWidth = bounds.maxX - bounds.minX;
+    const mapHeight = bounds.maxZ - bounds.minZ;
+    const scale = Math.min((canvas.width - padding * 2) / mapWidth, (canvas.height - padding * 2) / mapHeight);
+    const offsetX = (canvas.width - mapWidth * scale) / 2;
+    const offsetY = (canvas.height - mapHeight * scale) / 2;
+    const sx = (x) => offsetX + (x - bounds.minX) * scale;
+    const sy = (z) => offsetY + (z - bounds.minZ) * scale;
+    const roomPath = (room) => {
+      context.beginPath();
+      if (room.shape === "octagon") {
+        const points = mapShapePolygon(room);
+        context.moveTo(sx(points[0].x), sy(points[0].z));
+        for (const point of points.slice(1)) context.lineTo(sx(point.x), sy(point.z));
+        context.closePath();
+        return;
+      }
+      context.roundRect(
+        sx(room.x - room.width / 2),
+        sy(room.z - room.depth / 2),
+        room.width * scale,
+        room.depth * scale,
+        Math.min(14, room.width * scale * 0.12)
+      );
+    };
+    const currentRoom = playerPosition
+      ? map.rooms.find((room) => pointInMapShape(playerPosition.x, playerPosition.z, room))
+      : null;
+
     context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = "#040b12"; context.fillRect(0, 0, canvas.width, canvas.height);
-    context.strokeStyle = "rgba(105,220,255,.28)"; context.lineWidth = 2;
-    for (const room of ROOMS) {
-      const x = sx(room.x - room.width / 2); const y = sy(room.z - room.depth / 2);
-      const width = room.width / (bounds.maxX - bounds.minX) * canvas.width; const height = room.depth / (bounds.maxZ - bounds.minZ) * canvas.height;
-      context.fillStyle = "rgba(28,64,81,.6)"; context.fillRect(x, y, width, height); context.strokeRect(x, y, width, height);
-      context.fillStyle = "#8fb6c7"; context.font = "11px Avenir Next"; context.textAlign = "center"; context.fillText(room.name, sx(room.x), sy(room.z));
+    const background = context.createRadialGradient(canvas.width / 2, canvas.height / 2, 40, canvas.width / 2, canvas.height / 2, canvas.width * 0.65);
+    background.addColorStop(0, "#12223f");
+    background.addColorStop(1, "#030712");
+    context.fillStyle = background;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    context.save();
+    context.globalAlpha = 0.14;
+    context.strokeStyle = "#8ba6d6";
+    context.lineWidth = 1;
+    for (let x = offsetX; x <= canvas.width - offsetX; x += scale * 5) {
+      context.beginPath(); context.moveTo(x, offsetY); context.lineTo(x, canvas.height - offsetY); context.stroke();
     }
+    for (let y = offsetY; y <= canvas.height - offsetY; y += scale * 5) {
+      context.beginPath(); context.moveTo(offsetX, y); context.lineTo(canvas.width - offsetX, y); context.stroke();
+    }
+    context.restore();
+
+    for (const corridor of map.corridors) {
+      const x = sx(corridor.x - corridor.width / 2);
+      const y = sy(corridor.z - corridor.depth / 2);
+      const width = corridor.width * scale;
+      const height = corridor.depth * scale;
+      context.fillStyle = "rgba(211, 222, 255, .88)";
+      context.strokeStyle = "rgba(255, 255, 255, .95)";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.roundRect(x, y, width, height, Math.min(8, width / 3, height / 3));
+      context.fill();
+      context.stroke();
+    }
+
+    for (const room of map.rooms) {
+      roomPath(room);
+      context.fillStyle = room.id === currentRoom?.id ? "rgba(47, 111, 255, .98)" : "rgba(32, 71, 218, .92)";
+      context.strokeStyle = room.id === currentRoom?.id ? "#9ef4ff" : "#f4f7ff";
+      context.lineWidth = room.id === currentRoom?.id ? 5 : 3;
+      context.shadowColor = room.id === currentRoom?.id ? "rgba(83, 225, 255, .65)" : "rgba(11, 20, 61, .7)";
+      context.shadowBlur = room.id === currentRoom?.id ? 18 : 8;
+      context.fill();
+      context.stroke();
+      context.shadowBlur = 0;
+
+      const fontSize = Math.max(10, Math.min(15, room.width * scale * 0.115));
+      context.fillStyle = "#ffffff";
+      context.strokeStyle = "rgba(5, 16, 53, .92)";
+      context.lineWidth = 4;
+      context.font = `800 ${fontSize}px Avenir Next, Inter, sans-serif`;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.strokeText(room.name, sx(room.x), sy(room.z), room.width * scale - 10);
+      context.fillText(room.name, sx(room.x), sy(room.z), room.width * scale - 10);
+    }
+
     const complete = new Set(completedTaskIds);
-    context.fillStyle = "#74e5ff";
     for (const assignment of tasks.filter((task) => !complete.has(task.id))) {
-      const definition = TASK_DEFINITIONS.find((task) => task.id === assignment.id); if (!definition) continue;
-      context.beginPath(); context.arc(sx(definition.x), sy(definition.z), 6, 0, Math.PI * 2); context.fill();
+      const definition = map.taskDefinitions.find((task) => task.id === assignment.id);
+      if (!definition) continue;
+      context.fillStyle = "#ffd63e";
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(sx(definition.x), sy(definition.z), 9, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+      context.fillStyle = "#17213d";
+      context.font = "900 13px Inter, sans-serif";
+      context.fillText("!", sx(definition.x), sy(definition.z) + 1);
     }
     if (sabotage) {
-      const definition = SABOTAGE_DEFINITIONS.find((item) => item.id === sabotage.id); const room = ROOMS.find((item) => item.id === definition?.roomId);
-      if (room) { context.fillStyle = "#ffc45e"; context.beginPath(); context.arc(sx(room.x), sy(room.z), 10, 0, Math.PI * 2); context.fill(); }
+      const definition = map.sabotageDefinitions.find((item) => item.id === sabotage.id);
+      const room = map.rooms.find((item) => item.id === definition?.roomId);
+      if (room) {
+        context.fillStyle = "#ff684f";
+        context.strokeStyle = "#fff1b6";
+        context.lineWidth = 4;
+        context.beginPath();
+        context.arc(sx(room.x), sy(room.z), 14, 0, Math.PI * 2);
+        context.fill();
+        context.stroke();
+      }
     }
-    if (playerPosition) { context.fillStyle = "#ffffff"; context.beginPath(); context.arc(sx(playerPosition.x), sy(playerPosition.z), 8, 0, Math.PI * 2); context.fill(); context.strokeStyle = "#74e5ff"; context.stroke(); }
+    if (playerPosition) {
+      const x = sx(playerPosition.x);
+      const y = sy(playerPosition.z);
+      context.fillStyle = "#ffffff";
+      context.strokeStyle = "#55e8ff";
+      context.lineWidth = 4;
+      context.beginPath();
+      context.arc(x, y, 10, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+      context.fillStyle = "#ffffff";
+      context.strokeStyle = "#07142d";
+      context.lineWidth = 4;
+      context.font = "900 11px Inter, sans-serif";
+      context.strokeText("YOU", x, y - 19);
+      context.fillText("YOU", x, y - 19);
+    }
   }
 
   setConnection(connected) { setVisible(this.elements.disconnect, !connected); }

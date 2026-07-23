@@ -4,8 +4,7 @@ import { updateSettings } from "../database/repositories/accountsRepository.js";
 import { recordMatch } from "../database/repositories/statsRepository.js";
 import { login, logout, profile, register, resume } from "./authService.js";
 import {
-  CONNECTIONS, CORRIDORS, ROOMS, SABOTAGE_DEFINITIONS, SPAWN_POINTS, STATIONS, TASK_DEFINITIONS,
-  distance2D, isWalkable, roomAt, stationById
+  DEFAULT_MAP_ID, MAP_DEFINITIONS, distance2D, getMapDefinition, isWalkable, roomAt, stationById
 } from "../public/src/shipData.js";
 import {
   CREW_ROLE_IDS, NEUTRAL_ROLE_IDS, OPERATIVE_ROLE_IDS, ROLE_DEFINITIONS,
@@ -289,8 +288,11 @@ export class GameServer {
     socket.on("hostSettings", (payload, ack) => this.withPlayer(socket, "hostSettings", 10, 10_000, ack, (room, player) => {
       this.requireHost(room, player);
       if (room.phase !== PHASES.LOBBY) throw new Error("Match settings are locked after countdown.");
+      const previousMapId = room.mapId;
       room.settings = validateSettings({ ...room.settings, ...payload });
+      room.mapId = room.settings.mapId;
       if (room.settings.operativeCount >= room.settings.maxPlayers) room.settings.operativeCount = Math.max(1, room.settings.maxPlayers - 1);
+      if (room.mapId !== previousMapId) this.positionPlayersAtMapSpawn(room);
       this.broadcastRoomState(room);
       return { ok: true, settings: room.settings };
     }));
@@ -405,7 +407,7 @@ export class GameServer {
     while (this.rooms.has(code)) code = randomRoomCode();
     const settings = validateSettings({ ...DEFAULT_SETTINGS, ...settingsInput, allowSinglePlayer: mode === "practice" });
     const room = {
-      code, mode, settings, phase: PHASES.LOBBY, phaseEndsAt: null,
+      code, mode, settings, mapId: settings.mapId, phase: PHASES.LOBBY, phaseEndsAt: null,
       hostId: null, players: new Map(), practiceRoles: new Map(),
       createdAt: Date.now(), matchStartedAt: null, matchNumber: 0,
       taskCompleted: 0, taskTotal: 0, incidents: new Map(), evidence: [],
@@ -424,11 +426,12 @@ export class GameServer {
     const duplicate = [...room.players.values()].some((candidate) => candidate.displayName.toLocaleLowerCase() === socket.data.auth.displayName.toLocaleLowerCase());
     if (duplicate) throw new Error("That display name is already present in this room.");
 
-    const spawn = SPAWN_POINTS[room.players.size % SPAWN_POINTS.length];
+    const map = getMapDefinition(room.mapId);
+    const spawn = map.spawnPoints[room.players.size % map.spawnPoints.length];
     const player = this.makePlayer({
       id: randomUUID(), socketId: socket.id, accountId: socket.data.auth.accountId,
       displayName: socket.data.auth.displayName, guest: socket.data.auth.guest,
-      appearance: socket.data.auth.appearance, x: spawn[0], z: spawn[1]
+      appearance: socket.data.auth.appearance, x: spawn[0], z: spawn[1], mapId: room.mapId
     });
     room.players.set(player.id, player);
     if (!room.hostId) room.hostId = player.id;
@@ -442,12 +445,12 @@ export class GameServer {
     return result;
   }
 
-  makePlayer({ id, socketId, accountId = null, displayName, guest = true, appearance, x, z, bot = false }) {
+  makePlayer({ id, socketId, accountId = null, displayName, guest = true, appearance, x, z, mapId = DEFAULT_MAP_ID, bot = false }) {
     return {
       id, socketId, accountId, displayName, guest, appearance: validateAppearance(appearance), bot,
       connected: true, ready: bot, isHost: false, alive: true, role: null, faction: null,
       roleState: makeRoleState("operations-crew"),
-      position: { x, z }, rotation: 0, currentRoom: roomAt(x, z)?.id ?? "operations-hub",
+      position: { x, z }, rotation: 0, currentRoom: roomAt(mapId, x, z)?.id ?? getMapDefinition(mapId).rooms[0].id,
       input: normaliseInput({}), lastInputAt: 0, lastInputSeq: 0, animation: "idle",
       jumpUntil: 0, activeTask: null, tasks: [], completedTasks: new Set(), vote: null,
       lastEliminationAt: 0, lastMaintenanceAt: 0, emergencyMeetings: 0,
@@ -490,22 +493,36 @@ export class GameServer {
 
   populatePracticeBots(room, targetPlayerCount) {
     const botNames = ["Kepler", "Vega", "Sagan", "Lyra", "Pioneer", "Aster"];
+    const map = getMapDefinition(room.mapId);
     while (room.players.size < Math.min(targetPlayerCount, room.settings.maxPlayers)) {
       const index = room.players.size;
-      const spawn = SPAWN_POINTS[index % SPAWN_POINTS.length];
+      const spawn = map.spawnPoints[index % map.spawnPoints.length];
       const player = this.makePlayer({
         id: `bot-${randomUUID()}`, socketId: null, displayName: botNames[index - 1] ?? `Drone ${index}`,
         appearance: { colour: ["amber", "violet", "lime", "coral"][index % 4], symbol: ["delta", "nova", "pulse", "vector"][index % 4], number: index + 10 },
-        x: spawn[0], z: spawn[1], bot: true
+        x: spawn[0], z: spawn[1], mapId: room.mapId, bot: true
       });
       room.players.set(player.id, player);
+    }
+  }
+
+  positionPlayersAtMapSpawn(room) {
+    const map = getMapDefinition(room.mapId);
+    let index = 0;
+    for (const player of room.players.values()) {
+      const spawn = map.spawnPoints[index++ % map.spawnPoints.length];
+      player.position = { x: spawn[0], z: spawn[1] };
+      player.currentRoom = roomAt(room.mapId, spawn[0], spawn[1])?.id ?? map.rooms[0].id;
+      player.botTarget = null;
+      player.botPath = [];
+      player.input = normaliseInput({});
     }
   }
 
   serialiseRoom(room) {
     return {
       code: room.code, mode: room.mode, phase: room.phase, phaseEndsAt: room.phaseEndsAt,
-      hostId: room.hostId, settings: room.settings, players: [...room.players.values()].map(publicPlayer),
+      hostId: room.hostId, mapId: room.mapId, settings: room.settings, players: [...room.players.values()].map(publicPlayer),
       taskProgress: { completed: room.taskCompleted, total: room.taskTotal },
       activeSabotage: room.activeSabotage ? this.publicSabotage(room.activeSabotage) : null,
       incidentCount: room.incidents.size,
@@ -662,10 +679,12 @@ export class GameServer {
     for (const timer of room.timers) clearTimeout(timer);
     room.timers.clear();
 
+    const map = getMapDefinition(room.mapId);
     let spawnIndex = 0;
     for (const player of activePlayers) {
-      const spawn = SPAWN_POINTS[spawnIndex++ % SPAWN_POINTS.length];
+      const spawn = map.spawnPoints[spawnIndex++ % map.spawnPoints.length];
       player.position = { x: spawn[0], z: spawn[1] };
+      player.currentRoom = roomAt(room.mapId, spawn[0], spawn[1])?.id ?? map.rooms[0].id;
       player.rotation = 0;
       player.alive = true;
       player.eliminatedAt = null;
@@ -684,7 +703,7 @@ export class GameServer {
       player.lastEliminationAt = room.mode === "practice" ? 0 : Date.now();
       player.lastMaintenanceAt = 0;
       player.emergencyMeetings = 0;
-      const assignments = shuffle(TASK_DEFINITIONS).slice(0, room.settings.assignmentQuantity).map((task) => ({
+      const assignments = shuffle(map.taskDefinitions).slice(0, room.settings.assignmentQuantity).map((task) => ({
         id: task.id, name: task.name, roomId: task.roomId, fake: player.faction !== "crew"
       }));
       player.tasks = assignments;
@@ -699,7 +718,7 @@ export class GameServer {
       this.schedule(room, 3_500, () => {
         this.setPhase(room, PHASES.ACTIVE, null);
         this.io.to(room.code).emit("matchStarted", {
-          mapId: "osv-meridian", startedAt: room.matchStartedAt,
+          mapId: room.mapId, startedAt: room.matchStartedAt,
           taskProgress: { completed: 0, total: room.taskTotal }
         });
       });
@@ -718,10 +737,12 @@ export class GameServer {
     room.evidence = [];
     room.taskCompleted = 0;
     room.taskTotal = 0;
+    const map = getMapDefinition(room.mapId);
     let spawnIndex = 0;
     for (const player of room.players.values()) {
-      const spawn = SPAWN_POINTS[spawnIndex++ % SPAWN_POINTS.length];
+      const spawn = map.spawnPoints[spawnIndex++ % map.spawnPoints.length];
       player.position = { x: spawn[0], z: spawn[1] };
+      player.currentRoom = roomAt(room.mapId, spawn[0], spawn[1])?.id ?? map.rooms[0].id;
       player.ready = player.bot;
       player.alive = true;
       player.role = null;
@@ -755,13 +776,14 @@ export class GameServer {
 
   beginTask(room, player, payload) {
     if (room.phase !== PHASES.ACTIVE || !player.alive) throw new Error("Assignments are unavailable right now.");
-    const station = stationById(payload?.stationId);
+    const map = getMapDefinition(room.mapId);
+    const station = stationById(room.mapId, payload?.stationId);
     if (!station || station.type !== "task") throw new Error("Task station not found.");
     const assignment = player.tasks.find((task) => task.id === station.refId);
     if (!assignment) throw new Error("This station is not assigned to you.");
     if (player.completedTasks.has(assignment.id)) throw new Error("That assignment is already complete.");
     if (distance2D(player.position, station) > INTERACTION_RANGE) throw new Error("Move closer to the task station.");
-    const definition = TASK_DEFINITIONS.find((task) => task.id === assignment.id);
+    const definition = map.taskDefinitions.find((task) => task.id === assignment.id);
     const challenge = Array.from({ length: definition.steps }, () => Math.floor(Math.random() * 4));
     player.activeTask = { taskId: assignment.id, stationId: station.id, startedAt: Date.now(), lastActionAt: 0, progress: 0, challenge };
     const result = { ok: true, task: { ...assignment, kind: definition.kind, steps: definition.steps }, challenge };
@@ -772,7 +794,8 @@ export class GameServer {
   taskAction(room, player, payload) {
     const active = player.activeTask;
     if (!active || active.taskId !== payload?.taskId) throw new Error("No matching task is active.");
-    const station = stationById(active.stationId);
+    const map = getMapDefinition(room.mapId);
+    const station = stationById(room.mapId, active.stationId);
     if (room.phase !== PHASES.ACTIVE || !player.alive || !station || distance2D(player.position, station) > INTERACTION_RANGE + 0.7) {
       player.activeTask = null;
       throw new Error("Task cancelled because the station is no longer reachable.");
@@ -784,7 +807,7 @@ export class GameServer {
     const correct = Math.round(Number(payload?.choice)) === expected;
     if (correct) active.progress += 1;
     else active.progress = Math.max(0, active.progress - 1);
-    const definition = TASK_DEFINITIONS.find((task) => task.id === active.taskId);
+    const definition = map.taskDefinitions.find((task) => task.id === active.taskId);
     if (active.progress >= definition.steps && now - active.startedAt >= definition.steps * 450) {
       return this.completeTaskInternal(room, player, active.taskId);
     }
@@ -812,7 +835,7 @@ export class GameServer {
 
   startSabotage(room, player, sabotageId) {
     if (room.phase !== PHASES.ACTIVE || !player.alive || player.faction !== "operative") throw new Error("Your role cannot activate sabotage now.");
-    const definition = SABOTAGE_DEFINITIONS.find((item) => item.id === sabotageId);
+    const definition = getMapDefinition(room.mapId).sabotageDefinitions.find((item) => item.id === sabotageId);
     if (!definition) throw new Error("Unknown sabotage system.");
     if (room.activeSabotage) throw new Error("Another sabotage is already active.");
     if (room.mode !== "practice" && Date.now() - room.lastSabotageAt < room.settings.sabotageCooldownSeconds * 1000) throw new Error("Sabotage is still recharging.");
@@ -838,7 +861,7 @@ export class GameServer {
 
   repairSabotage(room, player, stationId) {
     if (room.phase !== PHASES.ACTIVE || !player.alive || !room.activeSabotage) throw new Error("No sabotage can be repaired now.");
-    const station = stationById(stationId);
+    const station = stationById(room.mapId, stationId);
     const sabotage = room.activeSabotage;
     if (!station || station.type !== "repair" || station.refId !== sabotage.id || !sabotage.repairStations.includes(station.id)) throw new Error("Use the correct repair station.");
     if (distance2D(player.position, station) > INTERACTION_RANGE) throw new Error("Move closer to the repair station.");
@@ -1029,8 +1052,8 @@ export class GameServer {
 
   callMeeting(room, reporter) {
     if (room.phase !== PHASES.ACTIVE || !reporter.alive) throw new Error("Emergency meeting is unavailable.");
-    const station = stationById("meeting-console");
-    if (distance2D(reporter.position, station) > INTERACTION_RANGE) throw new Error("Move to the Operations Hub emergency button.");
+    const station = stationById(room.mapId, "meeting-console");
+    if (!station || distance2D(reporter.position, station) > INTERACTION_RANGE) throw new Error("Move to the emergency meeting button.");
     if (room.mode !== "practice" && reporter.emergencyMeetings >= room.settings.emergencyMeetings) throw new Error("You have no emergency calls remaining.");
     reporter.emergencyMeetings += 1;
     return this.startMeeting(room, reporter, null);
@@ -1162,8 +1185,8 @@ export class GameServer {
 
   useMaintenance(room, player, stationId) {
     if (room.phase !== PHASES.ACTIVE || !player.alive || player.faction !== "operative") throw new Error("Your role cannot use the maintenance network.");
-    const entrance = stationById(stationId);
-    const exit = entrance?.refId ? stationById(entrance.refId) : null;
+    const entrance = stationById(room.mapId, stationId);
+    const exit = entrance?.refId ? stationById(room.mapId, entrance.refId) : null;
     if (!entrance || entrance.type !== "maintenance" || !exit) throw new Error("Maintenance route not found.");
     if (distance2D(player.position, entrance) > INTERACTION_RANGE) throw new Error("Move closer to the maintenance hatch.");
     if (room.mode !== "practice" && Date.now() - player.lastMaintenanceAt < 8_000) throw new Error("Maintenance route is re-pressurising.");
@@ -1180,9 +1203,9 @@ export class GameServer {
 
   requestSecurity(room, player) {
     if (room.phase !== PHASES.ACTIVE || !player.alive) throw new Error("Security systems are unavailable.");
-    const consoles = [stationById("camera-console"), stationById("door-logs")].filter(Boolean);
-    if (!consoles.some((station) => distance2D(player.position, station) <= INTERACTION_RANGE)) throw new Error("Move to a Security Operations console.");
-    if (room.activeSabotage?.id === "security-interference" || room.activeSabotage?.id === "comms-blackout") throw new Error("Security telemetry is being jammed.");
+    const consoles = getMapDefinition(room.mapId).stations.filter((station) => ["security", "doorLogs"].includes(station.type));
+    if (!consoles.some((station) => distance2D(player.position, station) <= INTERACTION_RANGE)) throw new Error("Move to a security console.");
+    if (room.activeSabotage?.id.includes("comms") || room.activeSabotage?.id.includes("security")) throw new Error("Security telemetry is being jammed.");
     const delayedCutoff = Date.now() - 2_000;
     return {
       ok: true,
@@ -1319,17 +1342,17 @@ export class GameServer {
     const factionMultiplier = player.faction === "operative" ? room.settings.operativeSpeed : room.settings.crewSpeed;
     const speed = baseSpeed * factionMultiplier;
     const next = { x: player.position.x + input.x * speed * delta, z: player.position.z + input.z * speed * delta };
-    if (isWalkable(next.x, next.z)) player.position = next;
+    if (isWalkable(room.mapId, next.x, next.z)) player.position = next;
     else {
       const slideX = { x: next.x, z: player.position.z };
       const slideZ = { x: player.position.x, z: next.z };
-      if (isWalkable(slideX.x, slideX.z)) player.position = slideX;
-      else if (isWalkable(slideZ.x, slideZ.z)) player.position = slideZ;
+      if (isWalkable(room.mapId, slideX.x, slideX.z)) player.position = slideX;
+      else if (isWalkable(room.mapId, slideZ.x, slideZ.z)) player.position = slideZ;
     }
     player.rotation = input.yaw;
     player.lastInputSeq = input.seq;
     player.animation = input.crouch ? "crouch" : Math.hypot(input.x, input.z) < 0.05 ? "idle" : input.sprint ? "sprint" : "walk";
-    const nextRoom = roomAt(player.position.x, player.position.z)?.id ?? player.currentRoom;
+    const nextRoom = roomAt(room.mapId, player.position.x, player.position.z)?.id ?? player.currentRoom;
     if (nextRoom !== player.currentRoom) {
       room.doorLogs.push({ from: player.currentRoom, to: nextRoom, at: now, playerId: player.id });
       room.doorLogs = room.doorLogs.slice(-40);
@@ -1339,8 +1362,9 @@ export class GameServer {
 
   tickBot(room, bot, now, delta) {
     if (room.phase !== PHASES.ACTIVE || !bot.alive) return;
+    const map = getMapDefinition(room.mapId);
     if (bot.faction === "operative" && !room.activeSabotage && now - room.lastSabotageAt > room.settings.sabotageCooldownSeconds * 1000 + 5_000 && Math.random() < delta * 0.12) {
-      try { this.startSabotage(room, bot, SABOTAGE_DEFINITIONS[Math.floor(Math.random() * SABOTAGE_DEFINITIONS.length)].id); } catch { /* next tick */ }
+      try { this.startSabotage(room, bot, map.sabotageDefinitions[Math.floor(Math.random() * map.sabotageDefinitions.length)].id); } catch { /* next tick */ }
     }
     if (bot.faction === "operative" && now - bot.lastEliminationAt > room.settings.eliminationCooldownSeconds * 1000) {
       const target = [...room.players.values()].find((player) => player.alive && player.faction === "crew" && distance2D(bot.position, player.position) <= room.settings.eliminationRange);
@@ -1352,9 +1376,12 @@ export class GameServer {
     if (!bot.botTarget || now - bot.botActionAt > 30_000) {
       const outstanding = bot.tasks.filter((task) => !bot.completedTasks.has(task.id));
       const task = outstanding[0] ?? bot.tasks[Math.floor(Math.random() * bot.tasks.length)];
-      const station = stationById(`task:${task?.id}`) ?? STATIONS[Math.floor(Math.random() * STATIONS.length)];
-      bot.botTarget = station ? { x: station.x, z: station.z, roomId: station.roomId, stationId: station.id, taskId: task?.id } : { x: 0, z: 0, roomId: "operations-hub" };
-      bot.botPath = this.buildBotPath(bot.currentRoom, bot.botTarget.roomId);
+      const station = stationById(room.mapId, `task:${task?.id}`) ?? map.stations[Math.floor(Math.random() * map.stations.length)];
+      const fallbackSpawn = map.spawnPoints[0];
+      bot.botTarget = station
+        ? { x: station.x, z: station.z, roomId: station.roomId, stationId: station.id, taskId: task?.id }
+        : { x: fallbackSpawn[0], z: fallbackSpawn[1], roomId: map.rooms[0].id };
+      bot.botPath = this.buildBotPath(room.mapId, bot.currentRoom, bot.botTarget.roomId);
       bot.botActionAt = now;
     }
     const waypoint = bot.botPath?.[0] ?? bot.botTarget;
@@ -1381,10 +1408,11 @@ export class GameServer {
     this.tickPlayerMovement(room, bot, now, delta);
   }
 
-  buildBotPath(startRoomId, targetRoomId) {
+  buildBotPath(mapId, startRoomId, targetRoomId) {
     if (!startRoomId || startRoomId === targetRoomId) return [];
-    const neighbours = new Map(ROOMS.map((room) => [room.id, []]));
-    for (const [from, to] of CONNECTIONS) {
+    const map = getMapDefinition(mapId);
+    const neighbours = new Map(map.rooms.map((room) => [room.id, []]));
+    for (const [from, to] of map.connections) {
       neighbours.get(from)?.push(to);
       neighbours.get(to)?.push(from);
     }
@@ -1406,10 +1434,10 @@ export class GameServer {
     for (let index = 0; index < roomPath.length - 1; index += 1) {
       const currentId = roomPath[index];
       const nextId = roomPath[index + 1];
-      const connection = CONNECTIONS.find(([from, to]) => (from === currentId && to === nextId) || (from === nextId && to === currentId));
-      const fromRoom = ROOMS.find((room) => room.id === connection[0]);
-      const toRoom = ROOMS.find((room) => room.id === connection[1]);
-      const destination = ROOMS.find((room) => room.id === nextId);
+      const connection = map.connections.find(([from, to]) => (from === currentId && to === nextId) || (from === nextId && to === currentId));
+      const fromRoom = map.rooms.find((room) => room.id === connection[0]);
+      const toRoom = map.rooms.find((room) => room.id === connection[1]);
+      const destination = map.rooms.find((room) => room.id === nextId);
       waypoints.push({ x: toRoom.x, z: fromRoom.z }, { x: destination.x, z: destination.z });
     }
     return waypoints;
@@ -1422,4 +1450,4 @@ export class GameServer {
   }
 }
 
-export { CORRIDORS, ROOMS };
+export { MAP_DEFINITIONS };

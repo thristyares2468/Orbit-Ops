@@ -7,6 +7,37 @@ export function pointInMapRect(x, z, rect, margin = 0) {
     && z >= rect.z - rect.depth / 2 + margin && z <= rect.z + rect.depth / 2 - margin;
 }
 
+export function mapShapePolygon(rect, margin = 0) {
+  const halfWidth = rect.width / 2 - margin;
+  const halfDepth = rect.depth / 2 - margin;
+  if (halfWidth <= 0 || halfDepth <= 0) return [];
+  const cut = Math.min(halfWidth * 2, halfDepth * 2) * 0.18;
+  return [
+    { x: rect.x - halfWidth + cut, z: rect.z - halfDepth },
+    { x: rect.x + halfWidth - cut, z: rect.z - halfDepth },
+    { x: rect.x + halfWidth, z: rect.z - halfDepth + cut },
+    { x: rect.x + halfWidth, z: rect.z + halfDepth - cut },
+    { x: rect.x + halfWidth - cut, z: rect.z + halfDepth },
+    { x: rect.x - halfWidth + cut, z: rect.z + halfDepth },
+    { x: rect.x - halfWidth, z: rect.z + halfDepth - cut },
+    { x: rect.x - halfWidth, z: rect.z - halfDepth + cut }
+  ];
+}
+
+export function pointInMapShape(x, z, shape, margin = 0) {
+  if (shape?.shape !== "octagon") return pointInMapRect(x, z, shape, margin);
+  const polygon = mapShapePolygon(shape, margin);
+  let inside = false;
+  for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current, current += 1) {
+    const a = polygon[current];
+    const b = polygon[previous];
+    const crosses = (a.z > z) !== (b.z > z)
+      && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
 export function pointInCollisionRect(x, z, rect, margin = 0) {
   return pointInMapRect(x, z, rect, -Math.max(0, margin));
 }
@@ -113,7 +144,7 @@ export function validateMapDefinition(map) {
       continue;
     }
     const [x, z] = spawn;
-    const walkable = rooms.some((room) => pointInMapRect(x, z, room))
+    const walkable = rooms.some((room) => pointInMapShape(x, z, room))
       || corridors.some((corridor) => pointInMapRect(x, z, corridor));
     if (!walkable) errors.push(`Spawn ${index} is outside walkable geometry.`);
     if (collisionRects.some((rect) => pointInCollisionRect(x, z, rect))) {

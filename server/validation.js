@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS, MAX_CHAT_LENGTH, MAX_NAME_LENGTH, MIN_NAME_LENGTH } from "./constants.js";
+import { MAP_IDS } from "../public/src/shipData.js";
 
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
@@ -53,6 +54,7 @@ export function validateSettings(input = {}) {
   const integer = (key, min, max) => Math.max(min, Math.min(max, Math.round(Number(input[key] ?? DEFAULT_SETTINGS[key]))));
   const decimal = (key, min, max) => Math.max(min, Math.min(max, Number(input[key] ?? DEFAULT_SETTINGS[key])));
   return {
+    mapId: MAP_IDS.includes(input.mapId) ? input.mapId : DEFAULT_SETTINGS.mapId,
     maxPlayers: integer("maxPlayers", 4, 16),
     operativeCount: integer("operativeCount", 1, 4),
     discussionSeconds: integer("discussionSeconds", 10, 120),

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
+import { MAP_IDS, stationById } from "../public/src/shipData.js";
 import { GameServer } from "../server/gameServer.js";
 import { PHASES } from "../server/constants.js";
 
@@ -27,14 +28,15 @@ afterEach(() => {
   server = null;
 });
 
-function player(id, faction, position = { x: 0, z: 0 }) {
+function player(id, faction, position = { x: 0, z: 0 }, mapId = "the-skeld") {
   const result = server.makePlayer({
     id,
     socketId: `socket-${id}`,
     displayName: id,
     appearance: { colour: "cyan", symbol: "orbit", number: 7 },
     x: position.x,
-    z: position.z
+    z: position.z,
+    mapId
   });
   result.faction = faction;
   result.role = faction === "operative" ? "signal-operative" : "operations-crew";
@@ -187,20 +189,25 @@ test("the Sheriff eliminates an Operative and misfires on an innocent", () => {
   assert.equal(innocent.alive, true);
 });
 
-test("the Operations Hub emergency button starts a meeting and consumes the caller allowance", () => {
+test("every map emergency button starts a meeting and consumes the caller allowance", () => {
   const io = new RecordingIo();
   server = new GameServer(io);
-  const room = server.createRoom("private", { emergencyMeetings: 1 });
-  room.phase = PHASES.ACTIVE;
-  room.matchStartedAt = Date.now() - 20_000;
-  const caller = player("caller", "crew", { x: 0, z: 0 });
-  const operative = player("operative", "operative", { x: 1, z: 0 });
-  const witness = player("witness", "crew", { x: 1, z: 0 });
-  for (const member of [caller, operative, witness]) room.players.set(member.id, member);
+  for (const mapId of MAP_IDS) {
+    const room = server.createRoom("private", { emergencyMeetings: 1, mapId });
+    room.phase = PHASES.ACTIVE;
+    room.matchStartedAt = Date.now() - 20_000;
+    const meetingConsole = stationById(room.mapId, "meeting-console");
+    const caller = player(`caller-${mapId}`, "crew", { x: meetingConsole.x - 2.5, z: meetingConsole.z }, mapId);
+    const operative = player(`operative-${mapId}`, "operative", { x: meetingConsole.x + 3, z: meetingConsole.z }, mapId);
+    const witness = player(`witness-${mapId}`, "crew", { x: meetingConsole.x, z: meetingConsole.z + 3 }, mapId);
+    for (const member of [caller, operative, witness]) room.players.set(member.id, member);
 
-  const result = server.callMeeting(room, caller);
-  assert.ok(result.meetingId);
-  assert.equal(caller.emergencyMeetings, 1);
-  assert.equal(room.phase, PHASES.INCIDENT);
-  assert.ok(io.events.some((entry) => entry.event === "meetingStarted" && entry.payload.incidentRoom === null));
+    const result = server.callMeeting(room, caller);
+    assert.ok(result.meetingId, mapId);
+    assert.equal(caller.emergencyMeetings, 1, mapId);
+    assert.equal(room.phase, PHASES.INCIDENT, mapId);
+    assert.ok(io.events.some((entry) => entry.event === "meetingStarted" && entry.payload.incidentRoom === null), mapId);
+    for (const timer of room.timers) clearTimeout(timer);
+    room.timers.clear();
+  }
 });

@@ -1,8 +1,7 @@
 import {
   PLAYER_FRAME_COUNTS,
   colouredPlayerTexture,
-  playerBaseFrameKey,
-  worldToScreen
+  playerBaseFrameKey
 } from "./assets.js";
 
 export class CharacterSprite {
@@ -75,7 +74,7 @@ export class CharacterSprite {
   }
 
   applySnapshot(snapshot, immediate = false) {
-    const next = worldToScreen(snapshot.x, snapshot.z);
+    const next = this.scene.mapPoint(snapshot.x, snapshot.z);
     this.lastTargetX = this.target.x;
     this.target = next;
     this.animation = snapshot.animation ?? "idle";

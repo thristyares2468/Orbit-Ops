@@ -2,7 +2,7 @@ import { AudioManager } from "./audio.js";
 import { MeridianScene } from "./game2d/MeridianScene.js";
 import { InputController } from "./input.js";
 import { getRoleDefinition } from "./roleData.js";
-import { roomAt, STATIONS } from "./shipData.js";
+import { getMapDefinition, roomAt } from "./shipData.js";
 import { TaskInterface } from "./tasks.js";
 import { applyDocumentSettings, saveSettings } from "./settings.js";
 
@@ -26,10 +26,10 @@ function defaultAppearance() {
   }
 }
 
-function nearestInteractable(position, incidents = []) {
+function nearestInteractable(map, position, incidents = []) {
   if (!position) return null;
   let nearest = null;
-  for (const station of [...STATIONS, ...incidents.map((incident) => ({ ...incident, type: "incident" }))]) {
+  for (const station of [...map.stations, ...incidents.map((incident) => ({ ...incident, type: "incident" }))]) {
     const distance = Math.hypot(position.x - station.x, position.z - station.z);
     if (distance <= INTERACTION_RANGE && (!nearest || distance < nearest.distance)) {
       nearest = { station, distance };
@@ -315,6 +315,7 @@ export class OrbitOpsGame {
     this.room = room;
     this.activeSabotage = room.activeSabotage;
     this.ui.updateRoom(room);
+    if (this.sceneReady) this.phaserScene.setMap(room.mapId);
     this.syncCharacterMetadata(room.players);
   }
 
@@ -457,7 +458,7 @@ export class OrbitOpsGame {
 
   callEmergencyMeeting() {
     if (this.nearest?.station?.type !== "meeting") {
-      throw new Error("Move to the Operations Hub emergency button.");
+      throw new Error("Move to the emergency meeting button.");
     }
     return this.network.request("callMeeting");
   }
@@ -510,6 +511,7 @@ export class OrbitOpsGame {
   drawMinimap() {
     const local = this.latestSnapshots.get(this.playerId);
     this.ui.drawMinimap({
+      mapId: this.room?.mapId,
       playerPosition: local,
       tasks: this.privateState?.tasks ?? [],
       completedTaskIds: this.privateState?.completedTaskIds ?? [],
@@ -531,12 +533,13 @@ export class OrbitOpsGame {
 
     const local = this.latestSnapshots.get(this.playerId);
     if (local) {
+      const map = getMapDefinition(this.room?.mapId);
       this.nearest = gameplayActive && this.privateState?.alive
-        ? nearestInteractable(local, this.latestIncidents)
+        ? nearestInteractable(map, local, this.latestIncidents)
         : null;
       this.ui.updateInteraction(this.nearest);
       this.ui.updateRoleAbility(Date.now());
-      const room = roomAt(local.x, local.z);
+      const room = roomAt(map.id, local.x, local.z);
       this.ui.updatePlayerHud(local, room?.name, this.network.pingMs);
     }
     const fps = this.frameSamples.reduce((sum, value) => sum + value, 0) / Math.max(1, this.frameSamples.length);

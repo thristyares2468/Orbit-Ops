@@ -1,8 +1,8 @@
 # Orbit Ops
 
-Orbit Ops is a playable, server-authoritative 2D social-deduction game set aboard the O.S.V. Meridian. One Node.js service hosts the Phaser client, Socket.IO simulation, Express health route, and optional Neon PostgreSQL persistence.
+Orbit Ops is a playable, server-authoritative 2D social-deduction game. One Node.js service hosts the Phaser client, Socket.IO simulation, Express health route, and optional Neon PostgreSQL persistence.
 
-The current top-down room layout uses the supplied non-logo map, astronaut, task, meeting, voting, and transition artwork. Room-to-atlas placement remains intentionally provisional so authored map and asset-use code can replace it without rewriting the multiplayer systems.
+The host can select one of four isolated maps: **The Skeld**, **MIRA HQ**, **Polus**, or **The Airship**. Each selection changes the authoritative room graph, world bounds, collision, spawn points, tasks, sabotages, emergency-button location, bot paths, Phaser deck, and player-map overlay together. Supplied non-logo artwork is kept within its original map family.
 
 ## Current feature set
 
@@ -11,8 +11,8 @@ The current top-down room layout uses the supplied non-logo map, astronaut, task
 - 45-second reconnect reservation with rotated rejoin tokens
 - 20 Hz authoritative movement simulation and 10 Hz world snapshots
 - Server-private role assignment with Engineer, Medic, Sheriff, Tracker, Morphling, Swooper, Janitor, Jester, Survivor, and base Crew/Operative roles
-- Ten server-sequenced assignment interfaces using supplied task artwork
-- Six sabotage systems, including timed critical failures and multi-station repair; practice mode removes action cooldowns for testing
+- Eight map-specific server-sequenced assignments per map using supplied task artwork
+- Four map-specific sabotage systems per map, including timed critical failures and multi-station repair; practice mode removes action cooldowns for testing
 - Server-validated role abilities, elimination, incident evidence, emergency-button calls, reporting, meetings, discussion, voting, removal, and faction/neutral win conditions
 - Living/dead chat separation, input validation, payload limits, action rate limits, and no direct client database access
 - Security telemetry, delayed door logs, Operative maintenance routes, spectator state, match results, and persistent statistics
@@ -47,7 +47,7 @@ npm run dev
 | `Q` | Operative elimination attempt |
 | `F` | Operative sabotage panel |
 | `G` | Use the current role ability |
-| `Tab` | Meridian map |
+| `Tab` | Selected map |
 | `Enter` | Focus meeting chat |
 | `Esc` | Pause |
 
@@ -65,7 +65,8 @@ public/index.html                 Application surfaces and HUD
 public/style.css                  Responsive visual system
 public/src/game.js                Client orchestration and Phaser bridge
 public/src/mapSchema.js           Reusable map validation and corridor generation
-public/src/shipData.js            Shared Meridian map definition and authoritative geometry
+public/src/shipData.js            Four-map registry and authoritative geometry lookup
+public/src/maps/                  Isolated Skeld, MIRA HQ, Polus, and Airship definitions
 public/src/game2d/MapBuilder.js   Layered room/corridor/station Phaser construction
 public/src/game2d/MeridianScene.js Replaceable top-down room renderer
 public/src/game2d/CharacterSprite.js Channel-aware player animation and recolouring
@@ -79,23 +80,28 @@ tests/                             Authoritative rule and real Socket.IO tests
 render.yaml                       Render Blueprint configuration
 ```
 
-The map follows a data/build split without importing compiled Unity code or third-party map art. `MERIDIAN_MAP`
-in `public/src/shipData.js` is the shared source of truth for room transforms, adjacency, generated
-orthogonal corridors, prop collision rectangles, station anchors, spawn points, camera bounds,
-ordered visible render layers, and non-rendered object groups. `public/src/game2d/MapBuilder.js`
-turns that definition into disposable Phaser background, corridor, room-local, and station
-containers. The authoritative server reads the same floor and prop geometry for movement and
-interaction checks.
+The maps follow a data/build split without importing compiled Unity code or third-party map art.
+`public/src/shipData.js` exposes a registry whose four definitions live under `public/src/maps/`.
+Every definition owns its room transforms, adjacency, generated orthogonal corridors, prop collision
+rectangles, station anchors, spawn points, tasks, sabotages, camera bounds, visible render layers,
+and non-rendered object groups. `public/src/game2d/MapBuilder.js` turns the selected definition into
+disposable Phaser containers. The authoritative server reads that same selected definition for
+movement and interaction checks.
 
 This layered/object-group organization adapts the useful public-domain map-loading pattern in the
 project-owner-supplied Python fan conversion: visible map layers are built in order, while named
-object groups carry collision, spawn, and interaction data. Orbit Ops uses its own Meridian
-definition and supplied artwork; the conversion's bundled original-game TMX map and ripped assets
-are deliberately excluded.
+object groups carry collision, spawn, and interaction data. The conversion's bundled original-game
+TMX map and ripped assets are deliberately excluded.
 
-Future authored map code can replace the `MERIDIAN_MAP` definition and stable asset keys without
-putting gameplay rules inside Phaser. Existing room and station IDs should be retained or migrated
-deliberately because tasks, sabotage, meetings, bot navigation, and persistence refer to them.
+The Skeld uses its two central hubs and east/west ship wings. MIRA HQ uses its long launchpad route
+and three-way headquarters junction. Polus uses its dropship, exposed outpost paths, laboratory, and
+specimen route. The Airship uses its large multi-wing deck, Gap Room, Meeting Room, Records, and
+Cargo Bay routes. The clickable HUD map and `Tab` overlay always render the selected server map,
+with private assignment, sabotage, and local-player markers layered on top.
+
+Future authored map code can replace any individual definition without putting gameplay rules
+inside Phaser. Existing room and station IDs should be retained or migrated deliberately because
+tasks, sabotage, meetings, and bot navigation refer to them.
 Character sheet integration remains isolated in `public/src/game2d/CharacterSprite.js`.
 
 ## Supplied assets
@@ -108,7 +114,9 @@ Important runtime mappings:
 | --- | --- |
 | `Background/Stars-sharedassets0.assets-56.png` | Loading/menu background and Phaser world backdrop |
 | `Background/Paralax1-sharedassets0.assets-115.png` | Essential anomaly/environment layer in the asset loader |
-| Seventeen images under `Maps/`, plus `Tasks/ReactorRoom` | Provisional top-down room art for every playable Meridian room |
+| Skeld sheets under `Maps/Cafeteria`, `Engine`, `Hull`, `LifeSupport`, `MedBay`, `Navigation`, `Security`, `Storage`, and `Weapons` | The Skeld room art only |
+| `HQAssets`, `HQAssets2`, `HQAssets3`, `compLabGreenHouseAdminWalls`, and `launchPadWalls` | MIRA HQ room art only |
+| `PlanetSprites`, `PlanetSecurity`, `dropshipTop`, and the `room_*` outpost sheets | Polus room art only |
 | `player-models/base/idle`, `walk`, and `death` frames | Live 58×76 player model, movement animation, and elimination animation |
 | `Tasks/Consolas_0`, `Emergency`, `DoorLog`, `panel_doors_bg`, and reactor panel art | Live world station markers |
 | `Tasks/grid-sharedassets0.assets-156.png` | Task-console holographic surface |
@@ -182,17 +190,25 @@ npm run check
 npm test
 ```
 
-The automated suite verifies the authoritative elimination → incident → vote → victory path directly and verifies four real Socket.IO clients joining, receiving private role/task state, starting a match, moving through server snapshots, and being denied a Crew elimination request.
+The automated suite validates every room, spawn, collision, task, sabotage repair point, emergency
+button, and asset namespace on all four maps. It also verifies the authoritative elimination →
+incident → vote → victory path and four real Socket.IO clients changing maps, joining, receiving
+private role/task state, starting a match, moving through server snapshots, and being denied a Crew
+elimination request.
 
-The project has also been browser-playtested through loading, guest authentication, menu, four-player practice lobby, role reveal, active gameplay, HUD, and minimap. Database migration was not executed in this checkout because no Neon `DATABASE_URL` was supplied; the migration command correctly refuses to run without it.
+The project has also been browser-playtested through map selection and rendered gameplay/player-map
+views for The Skeld, MIRA HQ, Polus, and The Airship. Database migration was not executed in this
+checkout because no Neon `DATABASE_URL` was supplied.
 
 ## Known limitations and next integration points
 
-- The Meridian room transforms, collision volumes, and room-to-image assignments remain authored-data placeholders, but now pass through the shared validated map schema and layered Phaser builder.
+- The four room transforms and collision volumes are authored-data approximations ready for the user's later map code. They are intentionally isolated rather than combined into one deck.
+- The supplied asset pack contains dedicated legacy sheets for The Skeld, MIRA HQ, and Polus, but no files named or identifiable as Airship rooms. The Airship therefore uses its own procedural deck treatment so artwork from another map is not mixed into it.
 - Supplied map, player, station, task, voting, meeting, role-reveal, role-icon, walk, and standard death art is live in gameplay. The three irregular cinematic death sheets are retained as reference assets for a later attacker/victim animation pass.
 - Audio is synthesized because no supplied audio files were found.
 - The controls are desktop-first; responsive menus work at narrow widths, but touch gameplay controls are not implemented.
 - Practice bots exercise navigation, tasks, sabotage, elimination, and voting heuristics; they are training opponents, not production matchmaking AI.
 - Render's free service may cold-start, and in-memory rooms do not survive a process restart. Durable match/account data remains in Neon.
 
-Recommended next step: provide the authored map and asset-use code, then replace the provisional mappings in `game2d/assets.js`, `shipData.js`, and `game2d/CharacterSprite.js` behind their current stable interfaces before adding final animation and audio packages.
+Recommended next step: provide the authored map and asset-use code, then refine one definition at a
+time under `public/src/maps/` without changing the other three maps or the server protocol.
