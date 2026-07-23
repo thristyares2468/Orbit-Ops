@@ -1,4 +1,5 @@
 import { ART_CATALOG } from "./artCatalog.js";
+import { getRoleDefinition } from "./roleData.js";
 import { ROOMS, SABOTAGE_DEFINITIONS, TASK_DEFINITIONS } from "./shipData.js";
 
 const COLOURS = Object.freeze({ cyan: "#27bad8", amber: "#e2a238", violet: "#805bd0", lime: "#54b86a", coral: "#d9575f", white: "#c8d8dd", blue: "#3f67c9", rose: "#c74f87" });
@@ -51,6 +52,8 @@ export class GameUI {
     byId("task-list-toggle").addEventListener("click", () => byId("task-list").classList.toggle("is-collapsed"));
     byId("report-button").addEventListener("click", () => this.invoke("report"));
     byId("primary-ability").addEventListener("click", () => this.invoke("primaryAbility"));
+    byId("role-ability").addEventListener("click", () => this.invoke("roleAbility"));
+    byId("meeting-button").addEventListener("click", () => this.invoke("emergencyMeeting"));
     byId("secondary-ability").addEventListener("click", () => this.openModal("sabotage"));
     byId("vote-skip").addEventListener("click", () => this.invoke("vote", { targetId: "skip" }));
     byId("resume-game").addEventListener("click", () => this.closeModal("pause"));
@@ -203,20 +206,34 @@ export class GameUI {
   }
 
   setPrivateState(state) {
+    const previousRole = this.privateState?.role;
     this.privateState = state;
     const operative = state.faction === "operative";
-    byId("hud-role").textContent = operative ? "SIGNAL OPERATIVE" : "OPERATIONS CREW";
-    byId("hud-objective").textContent = operative ? "Corrupt the mission. Control the vote." : "Restore Meridian systems";
+    const neutral = state.faction === "neutral";
+    const definition = getRoleDefinition(state.role);
+    byId("hud-role").textContent = definition.name.toUpperCase();
+    byId("hud-role").style.color = definition.colour;
+    byId("hud-objective").textContent = definition.objective;
     setVisible(byId("primary-ability"), operative && state.alive);
     setVisible(byId("secondary-ability"), operative && state.alive);
+    const roleAbility = definition.ability;
+    setVisible(byId("role-ability"), Boolean(roleAbility && state.alive));
+    if (roleAbility) {
+      byId("role-ability-icon").src = roleAbility.icon;
+      byId("role-ability-icon").alt = "";
+      byId("role-ability-label").textContent = roleAbility.label;
+    }
     this.renderTasks(state.tasks, state.completedTaskIds);
-    byId("role-reveal-title").textContent = operative ? "Signal Operative" : "Operations Crew";
-    byId("role-reveal-description").textContent = operative
-      ? "Blend into the crew. Sabotage systems. Leave no reliable evidence."
-      : "Complete assignments. Repair the ship. Identify the corrupted signal.";
+    byId("role-reveal-title").textContent = definition.name;
+    byId("role-reveal-description").textContent = definition.objective;
+    byId("role-reveal-title").style.color = definition.colour;
     this.elements.roleReveal.classList.toggle("is-operative", operative);
-    setVisible(this.elements.roleReveal, true);
-    setTimeout(() => setVisible(this.elements.roleReveal, false), 3200);
+    this.elements.roleReveal.classList.toggle("is-neutral", neutral);
+    if (previousRole !== state.role) {
+      setVisible(this.elements.roleReveal, true);
+      setTimeout(() => setVisible(this.elements.roleReveal, false), 3200);
+    }
+    this.updateRoleAbility(Date.now());
   }
 
   renderTasks(tasks = [], completedIds = []) {
@@ -262,11 +279,37 @@ export class GameUI {
 
   updateInteraction(nearest) {
     const prompt = byId("interaction-prompt");
+    setVisible(byId("report-button"), false);
+    setVisible(byId("meeting-button"), false);
     if (!nearest) { setVisible(prompt, false); return; }
     const labels = { task: "Access assignment", repair: "Repair system", meeting: "Call emergency meeting", security: "Open camera telemetry", doorLogs: "Review door logs", maintenance: "Enter maintenance route", incident: "Report incident" };
     prompt.querySelector("span").textContent = labels[nearest.station.type] ?? "Interact";
     setVisible(prompt, true);
     setVisible(byId("report-button"), nearest.station.type === "incident");
+    const meetingAvailable = nearest.station.type === "meeting"
+      && (this.room?.mode === "practice" || (this.privateState?.emergencyMeetings ?? 0) > 0);
+    setVisible(byId("meeting-button"), meetingAvailable);
+    byId("meeting-button-count").textContent = this.room?.mode === "practice"
+      ? "Practice"
+      : `${this.privateState?.emergencyMeetings ?? 0} left`;
+  }
+
+  updateRoleAbility(now = Date.now()) {
+    const definition = getRoleDefinition(this.privateState?.role);
+    const button = byId("role-ability");
+    if (!definition.ability || !this.privateState?.alive) {
+      setVisible(button, false);
+      return;
+    }
+    const state = this.privateState.roleState ?? {};
+    const cooldownSeconds = Math.max(0, Math.ceil(((state.cooldownEndsAt ?? 0) - now) / 1000));
+    const activeSeconds = Math.max(0, Math.ceil(((state.activeUntil ?? 0) - now) / 1000));
+    const exhausted = state.usesLeft !== null && state.usesLeft <= 0;
+    button.disabled = cooldownSeconds > 0 || exhausted;
+    if (activeSeconds > 0) byId("role-ability-status").textContent = `ACTIVE ${activeSeconds}s`;
+    else if (cooldownSeconds > 0) byId("role-ability-status").textContent = `${cooldownSeconds}s`;
+    else if (state.usesLeft !== null) byId("role-ability-status").textContent = `${Math.max(0, state.usesLeft)} use${state.usesLeft === 1 ? "" : "s"}`;
+    else byId("role-ability-status").textContent = "Ready";
   }
 
   updateSabotage(sabotage) {
@@ -352,8 +395,10 @@ export class GameUI {
 
   showResults(results) {
     this.showScreen("results");
-    byId("results-winner").textContent = results.winner === "crew" ? "Crew Victory" : "Operative Control";
-    byId("results-winner").style.color = results.winner === "crew" ? "#74e5ff" : "#ff5f6f";
+    const titles = { crew: "Crew Victory", operative: "Operative Control", neutral: "Neutral Victory" };
+    const colours = { crew: "#74e5ff", operative: "#ff5f6f", neutral: "#ff72dd" };
+    byId("results-winner").textContent = titles[results.winner] ?? "Operation Complete";
+    byId("results-winner").style.color = colours[results.winner] ?? "#74e5ff";
     byId("results-reason").textContent = `${titleCase(results.reason)} · ${results.durationSeconds}s operation`;
     const table = byId("results-table"); table.replaceChildren();
     for (const player of results.players) {
@@ -409,16 +454,16 @@ export class GameUI {
 
   fillSettings(settings) {
     byId("pref-master").value = settings.masterVolume; byId("pref-music").value = settings.musicVolume; byId("pref-sfx").value = settings.sfxVolume;
-    byId("pref-sensitivity").value = settings.mouseSensitivity; byId("pref-camera").value = settings.cameraDistance; byId("pref-quality").value = settings.graphicsQuality;
-    byId("pref-invert").checked = settings.invertY; byId("pref-fps").checked = settings.showFps; byId("pref-reduced-motion").checked = settings.reducedMotion;
+    byId("pref-camera").value = settings.cameraDistance; byId("pref-quality").value = settings.graphicsQuality;
+    byId("pref-fps").checked = settings.showFps; byId("pref-reduced-motion").checked = settings.reducedMotion;
     byId("pref-screen-shake").checked = settings.screenShake; byId("pref-text-size").value = settings.textSize;
   }
 
   readSettingsForm() {
     return {
       masterVolume: Number(byId("pref-master").value), musicVolume: Number(byId("pref-music").value), sfxVolume: Number(byId("pref-sfx").value),
-      mouseSensitivity: Number(byId("pref-sensitivity").value), cameraDistance: Number(byId("pref-camera").value), graphicsQuality: byId("pref-quality").value,
-      invertY: byId("pref-invert").checked, showFps: byId("pref-fps").checked, reducedMotion: byId("pref-reduced-motion").checked,
+      cameraDistance: Number(byId("pref-camera").value), graphicsQuality: byId("pref-quality").value,
+      showFps: byId("pref-fps").checked, reducedMotion: byId("pref-reduced-motion").checked,
       screenShake: byId("pref-screen-shake").checked, textSize: Number(byId("pref-text-size").value)
     };
   }

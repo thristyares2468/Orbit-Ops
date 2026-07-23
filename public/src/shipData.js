@@ -1,3 +1,10 @@
+import {
+  buildOrthogonalCorridors,
+  pointInCollisionRect,
+  pointInMapRect,
+  validateMapDefinition
+} from "./mapSchema.js";
+
 export const WORLD_BOUNDS = Object.freeze({ minX: -66, maxX: 50, minZ: -46, maxZ: 31 });
 
 export const ROOMS = Object.freeze([
@@ -58,7 +65,7 @@ export const SABOTAGE_DEFINITIONS = Object.freeze([
 
 export const STATIONS = Object.freeze([
   ...TASK_DEFINITIONS.map((task) => ({ id: `task:${task.id}`, type: "task", refId: task.id, roomId: task.roomId, x: task.x, z: task.z })),
-  { id: "meeting-console", type: "meeting", roomId: "operations-bridge", x: 0, z: -19 },
+  { id: "meeting-console", type: "meeting", roomId: "operations-hub", x: -0.5, z: 0 },
   { id: "camera-console", type: "security", roomId: "security-operations", x: 20, z: 0 },
   { id: "door-logs", type: "doorLogs", roomId: "security-operations", x: 23, z: 1 },
   { id: "maintenance-a", type: "maintenance", refId: "maintenance-b", roomId: "engineering-bay", x: -39, z: 0 },
@@ -80,49 +87,101 @@ export const SPAWN_POINTS = Object.freeze([
   [-1.5, 2], [1.5, -2], [-5, 0], [5, 0], [0, 4], [0, -4], [-2.5, -2.5], [2.5, 2.5]
 ]);
 
+export const COLLISION_RECTS = Object.freeze([
+  { id: "operations-table", kind: "table", roomId: "operations-hub", x: 0, z: 0, width: 4.4, depth: 2.6 },
+  { id: "navigation-console-bank", kind: "console", roomId: "navigation-control", x: 24.2, z: -21.5, width: 2.6, depth: 3 },
+  { id: "observation-equipment", kind: "console", roomId: "observation-ring", x: 41.5, z: -21.8, width: 3, depth: 2.4 },
+  { id: "medical-scanner-bed", kind: "scanner", roomId: "medical-wing", x: 16.3, z: 19.8, width: 3.2, depth: 3 },
+  { id: "mess-table", kind: "table", roomId: "mess-hall", x: -18, z: 22, width: 5, depth: 3.2 },
+  { id: "cargo-pallets", kind: "cargo", roomId: "cargo-operations", x: -40, z: 20.5, width: 3.4, depth: 3 },
+  { id: "engineering-turbine", kind: "engine", roomId: "engineering-bay", x: -40.5, z: -2.2, width: 3.5, depth: 3.2 },
+  { id: "research-bench", kind: "console", roomId: "research-laboratory", x: 23.8, z: -37.8, width: 3, depth: 2.4 },
+  { id: "archive-stack", kind: "archive", roomId: "data-archive", x: 34.2, z: -38.2, width: 2.8, depth: 2.5 }
+]);
+
+export const MAP_OBJECT_GROUPS = Object.freeze([
+  Object.freeze({ id: "collisions", kind: "collision", visible: false, objects: COLLISION_RECTS }),
+  Object.freeze({ id: "stations", kind: "interaction", visible: false, objects: STATIONS }),
+  Object.freeze({
+    id: "spawns",
+    kind: "spawn",
+    visible: false,
+    objects: Object.freeze(SPAWN_POINTS.map(([x, z], index) => Object.freeze({ id: `spawn-${index + 1}`, x, z })))
+  })
+]);
+
 export function getRoom(roomId) {
   return ROOMS.find((room) => room.id === roomId) ?? null;
 }
 
 export function buildCorridors(width = 4) {
-  const corridors = [];
-  for (const [fromId, toId] of CONNECTIONS) {
-    const from = getRoom(fromId);
-    const to = getRoom(toId);
-    if (!from || !to) continue;
-    const midX = (from.x + to.x) / 2;
-    corridors.push({
-      id: `${fromId}:${toId}:x`, x: midX, z: from.z,
-      width: Math.abs(to.x - from.x) + width, depth: width
-    });
-    const midZ = (from.z + to.z) / 2;
-    corridors.push({
-      id: `${fromId}:${toId}:z`, x: to.x, z: midZ,
-      width, depth: Math.abs(to.z - from.z) + width
-    });
-  }
-  return corridors;
+  return buildOrthogonalCorridors(ROOMS, CONNECTIONS, width);
 }
 
 export const CORRIDORS = Object.freeze(buildCorridors());
 
-function pointInRect(x, z, rect, margin = 0) {
-  return x >= rect.x - rect.width / 2 + margin && x <= rect.x + rect.width / 2 - margin
-    && z >= rect.z - rect.depth / 2 + margin && z <= rect.z + rect.depth / 2 - margin;
-}
+export const MERIDIAN_MAP = Object.freeze({
+  id: "osv-meridian",
+  name: "O.S.V. Meridian",
+  schemaVersion: 1,
+  bounds: WORLD_BOUNDS,
+  rooms: ROOMS,
+  connections: CONNECTIONS,
+  corridors: CORRIDORS,
+  collisionRects: COLLISION_RECTS,
+  stations: STATIONS,
+  spawnPoints: SPAWN_POINTS,
+  objectGroups: MAP_OBJECT_GROUPS,
+  render: Object.freeze({
+    worldScale: 64,
+    worldPadding: 320,
+    camera: Object.freeze({ clampToBounds: true, roundPixels: true }),
+    layers: Object.freeze([
+      Object.freeze({ id: "backgrounds", kind: "backgrounds", visible: true, order: 0, depth: -1000 }),
+      Object.freeze({ id: "corridors", kind: "corridors", visible: true, order: 1, depth: -300 }),
+      Object.freeze({ id: "rooms", kind: "rooms", visible: true, order: 2, depth: -250 }),
+      Object.freeze({ id: "stations", kind: "stations", visible: true, order: 3, depth: 210 })
+    ]),
+    backgrounds: Object.freeze([
+      Object.freeze({ type: "tile", assetKey: "stars", alpha: 0.58, depth: -1000 }),
+      Object.freeze({ type: "image", assetKey: "parallax1", alpha: 0.13, depth: -990, sizeRatio: 0.72 })
+    ]),
+    corridor: Object.freeze({
+      depth: -300,
+      fill: 0x0b202d,
+      fillAlpha: 0.98,
+      stroke: 0x2b5d6e,
+      strokeAlpha: 0.62,
+      radius: 18
+    }),
+    room: Object.freeze({
+      depth: -250,
+      artAlpha: 0.74,
+      frame: 0x7de7f5,
+      frameAlpha: 0.32,
+      radius: 24
+    }),
+    station: Object.freeze({ depth: 210, iconSize: 34 })
+  })
+});
+
+export const MAP_VALIDATION = validateMapDefinition(MERIDIAN_MAP);
+if (!MAP_VALIDATION.valid) throw new Error(`Invalid Meridian map: ${MAP_VALIDATION.errors.join(" ")}`);
 
 export function isWalkable(x, z, margin = 0.55) {
   if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
-  if (ROOMS.some((room) => pointInRect(x, z, room, margin))) return true;
-  return CORRIDORS.some((corridor) => pointInRect(x, z, corridor, Math.min(margin, 0.35)));
+  const insideFloor = MERIDIAN_MAP.rooms.some((room) => pointInMapRect(x, z, room, margin))
+    || MERIDIAN_MAP.corridors.some((corridor) => pointInMapRect(x, z, corridor, Math.min(margin, 0.35)));
+  if (!insideFloor) return false;
+  return !MERIDIAN_MAP.collisionRects.some((rect) => pointInCollisionRect(x, z, rect, margin));
 }
 
 export function roomAt(x, z) {
-  return ROOMS.find((room) => pointInRect(x, z, room, 0)) ?? null;
+  return MERIDIAN_MAP.rooms.find((room) => pointInMapRect(x, z, room, 0)) ?? null;
 }
 
 export function stationById(stationId) {
-  return STATIONS.find((station) => station.id === stationId) ?? null;
+  return MERIDIAN_MAP.stations.find((station) => station.id === stationId) ?? null;
 }
 
 export function distance2D(a, b) {

@@ -8,6 +8,10 @@ import {
   distance2D, isWalkable, roomAt, stationById
 } from "../public/src/shipData.js";
 import {
+  CREW_ROLE_IDS, NEUTRAL_ROLE_IDS, OPERATIVE_ROLE_IDS, ROLE_DEFINITIONS,
+  getRoleDefinition, roleIdsForFaction
+} from "../public/src/roleData.js";
+import {
   DEFAULT_SETTINGS, DISCONNECT_GRACE_MS, MAX_ROOM_PLAYERS, MIN_MATCH_PLAYERS,
   PHASES, PLAYER_SPEED, SERVER_VERSION, SESSION_SECRET, SNAPSHOT_RATE, TICK_RATE
 } from "./constants.js";
@@ -19,6 +23,7 @@ import {
 
 const ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const INTERACTION_RANGE = 2.8;
+const ROLE_TARGET_RANGE = 3.2;
 
 function hashOpaque(value) {
   return createHmac("sha256", SESSION_SECRET).update(String(value)).digest("hex");
@@ -35,6 +40,37 @@ function shuffle(values) {
     [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
   }
   return result;
+}
+
+function choose(values) {
+  return values[Math.floor(Math.random() * values.length)];
+}
+
+function makeRoleState(roleId) {
+  const definition = getRoleDefinition(roleId);
+  return {
+    usesLeft: definition.ability?.uses ?? null,
+    cooldownEndsAt: 0,
+    activeUntil: 0,
+    protectedUntil: 0,
+    targetId: null,
+    trackedTargetId: null,
+    shieldTargetId: null,
+    morphTargetId: null
+  };
+}
+
+function privateRoleState(player) {
+  const state = player.roleState ?? makeRoleState(player.role);
+  return {
+    usesLeft: state.usesLeft,
+    cooldownEndsAt: state.cooldownEndsAt,
+    activeUntil: state.activeUntil,
+    protectedUntil: state.protectedUntil,
+    trackedTargetId: state.trackedTargetId,
+    shieldTargetId: state.shieldTargetId,
+    morphTargetId: state.morphTargetId
+  };
 }
 
 function makeStats() {
@@ -77,7 +113,14 @@ function publicPlayer(player) {
   };
 }
 
-function snapshotPlayer(player) {
+function snapshotPlayer(player, room) {
+  const now = Date.now();
+  const morphTarget = player.role === "morphling" && player.roleState?.activeUntil > now
+    ? room.players.get(player.roleState.morphTargetId)
+    : null;
+  const medicShield = [...room.players.values()].some((candidate) =>
+    candidate.alive && candidate.role === "medic" && candidate.roleState?.shieldTargetId === player.id
+  );
   return {
     id: player.id,
     x: Number(player.position.x.toFixed(3)),
@@ -88,7 +131,10 @@ function snapshotPlayer(player) {
     alive: player.alive,
     connected: player.connected,
     roomId: player.currentRoom,
-    seq: player.lastInputSeq
+    seq: player.lastInputSeq,
+    visualAppearance: morphTarget?.appearance ?? player.appearance,
+    hidden: player.role === "swooper" && player.roleState?.activeUntil > now,
+    shielded: medicShield || player.roleState?.protectedUntil > now
   };
 }
 
@@ -203,7 +249,7 @@ export class GameServer {
       const room = this.createRoom(mode, payload?.settings);
       const result = await this.joinRoom(socket, room);
       if (mode === "practice") {
-        room.practiceRoles.set(result.playerId, "crew");
+        room.practiceRoles.set(result.playerId, "operations-crew");
         this.populatePracticeBots(room, 4);
         result.room = this.serialiseRoom(room);
       }
@@ -251,7 +297,7 @@ export class GameServer {
 
     socket.on("practiceRole", (payload, ack) => this.withPlayer(socket, "practiceRole", 6, 10_000, ack, (room, player) => {
       if (room.mode !== "practice" || room.phase !== PHASES.LOBBY) throw new Error("Role selection is only available in a practice lobby.");
-      const role = payload?.role === "operative" ? "operative" : "crew";
+      const role = ROLE_DEFINITIONS[String(payload?.role)] ? String(payload.role) : "operations-crew";
       room.practiceRoles.set(player.id, role);
       return { ok: true, role };
     }));
@@ -286,6 +332,7 @@ export class GameServer {
     socket.on("sabotageRequest", (payload, ack) => this.withPlayer(socket, "sabotageRequest", 4, 10_000, ack, (room, player) => this.startSabotage(room, player, payload?.sabotageId)));
     socket.on("repairSabotage", (payload, ack) => this.withPlayer(socket, "repairSabotage", 8, 10_000, ack, (room, player) => this.repairSabotage(room, player, payload?.stationId)));
     socket.on("eliminationAttempt", (payload, ack) => this.withPlayer(socket, "eliminationAttempt", 6, 10_000, ack, (room, player) => this.eliminationAttempt(room, player, payload?.targetId)));
+    socket.on("roleAction", (payload, ack) => this.withPlayer(socket, "roleAction", 8, 10_000, ack, (room, player) => this.roleAction(room, player, payload)));
     socket.on("reportIncident", (payload, ack) => this.withPlayer(socket, "reportIncident", 5, 10_000, ack, (room, player) => this.reportIncident(room, player, payload?.incidentId)));
     socket.on("callMeeting", (_payload, ack) => this.withPlayer(socket, "callMeeting", 4, 30_000, ack, (room, player) => this.callMeeting(room, player)));
     socket.on("submitVote", (payload, ack) => this.withPlayer(socket, "submitVote", 6, 10_000, ack, (room, player) => this.submitVote(room, player, payload?.targetId)));
@@ -363,6 +410,7 @@ export class GameServer {
       createdAt: Date.now(), matchStartedAt: null, matchNumber: 0,
       taskCompleted: 0, taskTotal: 0, incidents: new Map(), evidence: [],
       activeSabotage: null, lastSabotageAt: 0, meeting: null,
+      specialWinnerIds: new Set(),
       doorLogs: [], maintenanceLogs: [], timers: new Set(), lastSnapshotAt: 0
     };
     this.rooms.set(code, room);
@@ -398,6 +446,7 @@ export class GameServer {
     return {
       id, socketId, accountId, displayName, guest, appearance: validateAppearance(appearance), bot,
       connected: true, ready: bot, isHost: false, alive: true, role: null, faction: null,
+      roleState: makeRoleState("operations-crew"),
       position: { x, z }, rotation: 0, currentRoom: roomAt(x, z)?.id ?? "operations-hub",
       input: normaliseInput({}), lastInputAt: 0, lastInputSeq: 0, animation: "idle",
       jumpUntil: 0, activeTask: null, tasks: [], completedTasks: new Set(), vote: null,
@@ -467,6 +516,7 @@ export class GameServer {
   privatePlayerState(room, player) {
     return {
       id: player.id, role: player.role, faction: player.faction, alive: player.alive,
+      roleState: privateRoleState(player),
       tasks: player.tasks, completedTaskIds: [...player.completedTasks],
       emergencyMeetings: Math.max(0, room.settings.emergencyMeetings - player.emergencyMeetings),
       position: player.position,
@@ -550,17 +600,54 @@ export class GameServer {
     if (participants.length < 2) this.populatePracticeBots(room, 4);
     const activePlayers = [...room.players.values()].filter((player) => player.connected || player.bot);
     const desiredOperatives = Math.min(room.settings.operativeCount, Math.max(1, Math.floor(activePlayers.length / 4)), Math.max(1, activePlayers.length - 1));
+    const requestedRoleFor = (player) => {
+      const roleId = room.practiceRoles.get(player.id);
+      return ROLE_DEFINITIONS[roleId] ? roleId : null;
+    };
+    const requestedFactionFor = (player) => {
+      const roleId = requestedRoleFor(player);
+      return roleId ? getRoleDefinition(roleId).faction : null;
+    };
     const chosenOperatives = new Set(
-      activePlayers.filter((player) => room.practiceRoles.get(player.id) === "operative").slice(0, desiredOperatives).map((player) => player.id)
+      activePlayers
+        .filter((player) => requestedFactionFor(player) === "operative")
+        .slice(0, desiredOperatives)
+        .map((player) => player.id)
     );
-    for (const candidate of shuffle(activePlayers.filter((player) => !chosenOperatives.has(player.id) && room.practiceRoles.get(player.id) !== "crew"))) {
+    for (const candidate of shuffle(activePlayers.filter((player) =>
+      !chosenOperatives.has(player.id) && !["crew", "neutral"].includes(requestedFactionFor(player))
+    ))) {
       if (chosenOperatives.size >= desiredOperatives) break;
       chosenOperatives.add(candidate.id);
     }
-    for (const candidate of shuffle(activePlayers.filter((player) => !chosenOperatives.has(player.id)))) {
+    for (const candidate of shuffle(activePlayers.filter((player) =>
+      !chosenOperatives.has(player.id) && requestedFactionFor(player) !== "neutral"
+    ))) {
       if (chosenOperatives.size >= desiredOperatives) break;
       chosenOperatives.add(candidate.id);
     }
+    const chosenNeutrals = new Set(
+      activePlayers
+        .filter((player) => !chosenOperatives.has(player.id) && requestedFactionFor(player) === "neutral")
+        .slice(0, 1)
+        .map((player) => player.id)
+    );
+    if (room.mode !== "practice" && activePlayers.length >= 7 && chosenNeutrals.size === 0) {
+      const neutralCandidate = choose(activePlayers.filter((player) => !chosenOperatives.has(player.id)));
+      if (neutralCandidate) chosenNeutrals.add(neutralCandidate.id);
+    }
+    const rolePools = {
+      crew: shuffle(CREW_ROLE_IDS),
+      operative: shuffle(OPERATIVE_ROLE_IDS),
+      neutral: shuffle(NEUTRAL_ROLE_IDS)
+    };
+    const rolePoolIndexes = { crew: 0, operative: 0, neutral: 0 };
+    const nextRoleForFaction = (faction) => {
+      const pool = rolePools[faction] ?? roleIdsForFaction(faction);
+      const roleId = pool[rolePoolIndexes[faction] % pool.length];
+      rolePoolIndexes[faction] += 1;
+      return roleId;
+    };
 
     room.matchStartedAt = Date.now();
     room.matchNumber += 1;
@@ -570,7 +657,8 @@ export class GameServer {
     room.evidence = [];
     room.activeSabotage = null;
     room.meeting = null;
-    room.lastSabotageAt = room.mode === "practice" ? 0 : Date.now();
+    room.specialWinnerIds.clear();
+    room.lastSabotageAt = Date.now();
     for (const timer of room.timers) clearTimeout(timer);
     room.timers.clear();
 
@@ -581,8 +669,14 @@ export class GameServer {
       player.rotation = 0;
       player.alive = true;
       player.eliminatedAt = null;
-      player.role = chosenOperatives.has(player.id) ? "signal-operative" : "operations-crew";
-      player.faction = chosenOperatives.has(player.id) ? "operative" : "crew";
+      player.faction = chosenOperatives.has(player.id)
+        ? "operative"
+        : chosenNeutrals.has(player.id) ? "neutral" : "crew";
+      const requestedRole = requestedRoleFor(player);
+      player.role = requestedRole && getRoleDefinition(requestedRole).faction === player.faction
+        ? requestedRole
+        : nextRoleForFaction(player.faction);
+      player.roleState = makeRoleState(player.role);
       player.completedTasks = new Set();
       player.activeTask = null;
       player.vote = null;
@@ -591,7 +685,7 @@ export class GameServer {
       player.lastMaintenanceAt = 0;
       player.emergencyMeetings = 0;
       const assignments = shuffle(TASK_DEFINITIONS).slice(0, room.settings.assignmentQuantity).map((task) => ({
-        id: task.id, name: task.name, roomId: task.roomId, fake: player.faction === "operative"
+        id: task.id, name: task.name, roomId: task.roomId, fake: player.faction !== "crew"
       }));
       player.tasks = assignments;
       if (player.faction === "crew") room.taskTotal += assignments.length;
@@ -619,6 +713,7 @@ export class GameServer {
     room.phaseEndsAt = null;
     room.meeting = null;
     room.activeSabotage = null;
+    room.specialWinnerIds.clear();
     room.incidents.clear();
     room.evidence = [];
     room.taskCompleted = 0;
@@ -631,6 +726,7 @@ export class GameServer {
       player.alive = true;
       player.role = null;
       player.faction = null;
+      player.roleState = makeRoleState("operations-crew");
       player.tasks = [];
       player.completedTasks = new Set();
       player.activeTask = null;
@@ -760,6 +856,117 @@ export class GameServer {
     return { ok: true, completed };
   }
 
+  roleTarget(room, player, targetId) {
+    const target = room.players.get(String(targetId ?? ""));
+    if (!target || !target.alive || target.id === player.id) throw new Error("No valid role target is in range.");
+    if (distance2D(player.position, target.position) > ROLE_TARGET_RANGE) throw new Error("Move closer to your target.");
+    return target;
+  }
+
+  beginRoleAction(room, player) {
+    if (room.phase !== PHASES.ACTIVE || !player.alive) throw new Error("Your role ability is unavailable.");
+    const definition = getRoleDefinition(player.role);
+    if (!definition.ability) throw new Error("Your current role has no active ability.");
+    const state = player.roleState ?? makeRoleState(player.role);
+    const now = Date.now();
+    if (state.cooldownEndsAt > now) {
+      throw new Error(`Ability recharging for ${Math.ceil((state.cooldownEndsAt - now) / 1000)}s.`);
+    }
+    if (state.usesLeft !== null && state.usesLeft <= 0) throw new Error("Your role ability has no uses remaining.");
+    player.roleState = state;
+    return { definition, state, now };
+  }
+
+  finishRoleAction(room, player, definition, state, now) {
+    if (room.mode !== "practice" && state.usesLeft !== null) state.usesLeft = Math.max(0, state.usesLeft - 1);
+    state.cooldownEndsAt = now + (room.mode === "practice" ? 1_000 : definition.ability.cooldownMs);
+    this.sendPrivateState(room, player);
+    return this.privatePlayerState(room, player);
+  }
+
+  roleAction(room, player, payload = {}) {
+    const { definition, state, now } = this.beginRoleAction(room, player);
+    let effect = definition.ability.id;
+    let targetId = null;
+
+    if (player.role === "engineer") {
+      if (!room.activeSabotage) throw new Error("No sabotage currently needs an Engineer.");
+      const ended = this.publicSabotage(room.activeSabotage);
+      room.activeSabotage = null;
+      player.matchStats.sabotagesRepaired += 1;
+      this.io.to(room.code).emit("sabotageEnded", { ...ended, repairedBy: player.id, engineerFix: true });
+    } else if (player.role === "medic") {
+      const target = this.roleTarget(room, player, payload.targetId);
+      state.shieldTargetId = target.id;
+      targetId = target.id;
+    } else if (player.role === "sheriff") {
+      const target = this.roleTarget(room, player, payload.targetId);
+      targetId = target.id;
+      if (target.faction === "operative") {
+        this.eliminateInternal(room, player, target, "sheriff intervention", { ignoreFaction: true });
+        effect = "sheriff-hit";
+      } else {
+        this.eliminateInternal(room, player, player, "sheriff misfire", {
+          ignoreFaction: true,
+          ignoreProtection: true
+        });
+        effect = "sheriff-misfire";
+      }
+    } else if (player.role === "tracker") {
+      const target = this.roleTarget(room, player, payload.targetId);
+      state.trackedTargetId = target.id;
+      state.activeUntil = now + 20_000;
+      targetId = target.id;
+    } else if (player.role === "morphling") {
+      const target = this.roleTarget(room, player, payload.targetId);
+      state.morphTargetId = target.id;
+      state.activeUntil = now + 12_000;
+      targetId = target.id;
+    } else if (player.role === "swooper") {
+      state.activeUntil = now + 8_000;
+    } else if (player.role === "janitor") {
+      const incident = room.incidents.get(String(payload.incidentId ?? payload.targetId ?? ""));
+      if (!incident || incident.reported) throw new Error("No incident can be cleaned here.");
+      if (distance2D(player.position, incident) > ROLE_TARGET_RANGE) throw new Error("Move closer to the incident.");
+      room.incidents.delete(incident.id);
+      targetId = incident.id;
+      this.io.to(room.code).emit("incidentCleaned", { incidentId: incident.id });
+    } else if (player.role === "survivor") {
+      state.protectedUntil = now + 8_000;
+      state.activeUntil = state.protectedUntil;
+    } else {
+      throw new Error("This role ability is not implemented.");
+    }
+
+    const privateState = this.finishRoleAction(room, player, definition, state, now);
+    this.io.to(room.code).emit("roleEffect", {
+      playerId: player.id,
+      targetId,
+      effect,
+      activeUntil: state.activeUntil || null
+    });
+    return { ok: true, effect, targetId, privateState };
+  }
+
+  consumeProtection(room, target) {
+    const now = Date.now();
+    if (target.role === "survivor" && target.roleState?.protectedUntil > now) {
+      target.roleState.protectedUntil = 0;
+      target.roleState.activeUntil = 0;
+      this.sendPrivateState(room, target);
+      return { type: "vest", ownerId: target.id };
+    }
+    const medic = [...room.players.values()].find((candidate) =>
+      candidate.alive && candidate.role === "medic" && candidate.roleState?.shieldTargetId === target.id
+    );
+    if (medic) {
+      medic.roleState.shieldTargetId = null;
+      this.sendPrivateState(room, medic);
+      return { type: "medic-shield", ownerId: medic.id };
+    }
+    return null;
+  }
+
   eliminationAttempt(room, attacker, targetId) {
     if (room.phase !== PHASES.ACTIVE || !attacker.alive || attacker.faction !== "operative") throw new Error("Elimination is unavailable.");
     const target = room.players.get(String(targetId));
@@ -769,13 +976,26 @@ export class GameServer {
     return this.eliminateInternal(room, attacker, target, "electromagnetic suit shutdown");
   }
 
-  eliminateInternal(room, attacker, target, category) {
-    if (!attacker.alive || !target.alive || attacker.faction !== "operative" || target.faction !== "crew") return { ok: false };
+  eliminateInternal(room, attacker, target, category, options = {}) {
+    if (!attacker.alive || !target.alive) return { ok: false };
+    if (!options.ignoreFaction && (attacker.faction !== "operative" || target.faction === "operative")) return { ok: false };
+    if (!options.ignoreProtection) {
+      const protection = this.consumeProtection(room, target);
+      if (protection) {
+        attacker.lastEliminationAt = Date.now();
+        this.io.to(room.code).emit("shieldBlocked", {
+          playerId: target.id,
+          attackerId: attacker.id,
+          protection: protection.type
+        });
+        return { ok: true, blocked: true };
+      }
+    }
     target.alive = false;
     target.eliminatedAt = Date.now();
     target.input = normaliseInput({});
     attacker.lastEliminationAt = Date.now();
-    attacker.matchStats.eliminations += 1;
+    if (attacker.id !== target.id) attacker.matchStats.eliminations += 1;
     const incident = {
       id: randomUUID(), victimId: target.id, victimName: target.displayName,
       x: target.position.x, z: target.position.z, roomId: target.currentRoom,
@@ -810,7 +1030,7 @@ export class GameServer {
   callMeeting(room, reporter) {
     if (room.phase !== PHASES.ACTIVE || !reporter.alive) throw new Error("Emergency meeting is unavailable.");
     const station = stationById("meeting-console");
-    if (distance2D(reporter.position, station) > INTERACTION_RANGE) throw new Error("Move to the bridge meeting console.");
+    if (distance2D(reporter.position, station) > INTERACTION_RANGE) throw new Error("Move to the Operations Hub emergency button.");
     if (room.mode !== "practice" && reporter.emergencyMeetings >= room.settings.emergencyMeetings) throw new Error("You have no emergency calls remaining.");
     reporter.emergencyMeetings += 1;
     return this.startMeeting(room, reporter, null);
@@ -827,10 +1047,16 @@ export class GameServer {
       player.input = normaliseInput({});
       player.vote = null;
       player.activeTask = null;
+      if (player.roleState) {
+        player.roleState.activeUntil = 0;
+        player.roleState.protectedUntil = 0;
+        player.roleState.morphTargetId = null;
+      }
+      this.sendPrivateState(room, player);
     }
     room.meeting = {
       id: randomUUID(), reporterId: reporter.id, incidentId: incident?.id ?? null,
-      incidentRoom: incident?.roomId ?? "operations-bridge",
+      incidentRoom: incident?.roomId ?? null,
       evidence: room.settings.evidenceEnabled ? incident?.evidence ?? [] : [], votes: new Map()
     };
     this.setPhase(room, PHASES.INCIDENT, 2_500);
@@ -896,6 +1122,7 @@ export class GameServer {
     const tie = ranked.length > 1 && ranked[0][1] === ranked[1][1];
     const removedId = !tie && ranked[0]?.[0] !== "skip" ? ranked[0]?.[0] : null;
     const removed = removedId ? room.players.get(removedId) : null;
+    const jesterWon = removed?.role === "jester";
     if (removed) {
       removed.alive = false;
       removed.eliminatedAt = Date.now();
@@ -919,6 +1146,11 @@ export class GameServer {
       tie, votes: publicVotes
     });
     this.schedule(room, 4_000, () => {
+      if (jesterWon) {
+        room.specialWinnerIds = new Set([removed.id]);
+        this.endMatch(room, "neutral", "jester-voted-out");
+        return;
+      }
       if (!this.checkWinConditions(room, "vote")) {
         room.meeting = null;
         for (const player of room.players.values()) player.vote = null;
@@ -985,9 +1217,11 @@ export class GameServer {
     const connectedOrBots = [...room.players.values()].filter((player) => player.connected || player.bot);
     const livingCrew = connectedOrBots.filter((player) => player.alive && player.faction === "crew").length;
     const livingOperatives = connectedOrBots.filter((player) => player.alive && player.faction === "operative").length;
+    const livingSurvivors = connectedOrBots.filter((player) => player.alive && player.role === "survivor").length;
     let winner = null;
     let outcomeReason = reason;
-    if (livingOperatives === 0) { winner = "crew"; outcomeReason = "all-operatives-removed"; }
+    if (livingOperatives === 0 && livingCrew === 0 && livingSurvivors > 0) { winner = "neutral"; outcomeReason = "survivor-standing"; }
+    else if (livingOperatives === 0) { winner = "crew"; outcomeReason = "all-operatives-removed"; }
     else if (livingCrew === 0 || livingOperatives >= livingCrew) { winner = "operative"; outcomeReason = "operative-parity"; }
     else if (room.taskTotal > 0 && room.taskCompleted >= room.taskTotal) { winner = "crew"; outcomeReason = "assignments-complete"; }
     if (!winner) return false;
@@ -1002,15 +1236,21 @@ export class GameServer {
     room.activeSabotage = null;
     const endedAt = Date.now();
     const durationSeconds = Math.max(0, Math.round((endedAt - room.matchStartedAt) / 1000));
-    const players = [...room.players.values()].map((player) => ({
-      id: player.id, accountId: player.accountId, displayName: player.displayName,
-      role: player.role, faction: player.faction, won: player.faction === winner,
-      alive: player.alive, connected: player.connected, stats: player.matchStats,
-      score: this.scorePlayer(player, winner),
-      survivalSeconds: player.eliminatedAt
-        ? Math.max(0, Math.round((player.eliminatedAt - room.matchStartedAt) / 1000))
-        : durationSeconds
-    }));
+    const players = [...room.players.values()].map((player) => {
+      const won = room.specialWinnerIds.has(player.id)
+        || (winner !== "neutral" && player.faction === winner)
+        || (winner !== "neutral" && player.role === "survivor" && player.alive)
+        || (winner === "neutral" && reason === "survivor-standing" && player.role === "survivor" && player.alive);
+      return {
+        id: player.id, accountId: player.accountId, displayName: player.displayName,
+        role: player.role, faction: player.faction, won,
+        alive: player.alive, connected: player.connected, stats: player.matchStats,
+        score: this.scorePlayer(player, won),
+        survivalSeconds: player.eliminatedAt
+          ? Math.max(0, Math.round((player.eliminatedAt - room.matchStartedAt) / 1000))
+          : durationSeconds
+      };
+    });
     this.setPhase(room, PHASES.RESULTS, null);
     const results = { winner, reason, durationSeconds, players, taskProgress: { completed: room.taskCompleted, total: room.taskTotal } };
     this.io.to(room.code).emit("matchEnded", results);
@@ -1029,9 +1269,9 @@ export class GameServer {
     }
   }
 
-  scorePlayer(player, winner) {
+  scorePlayer(player, won) {
     const stats = player.matchStats;
-    return (player.faction === winner ? 100 : 25) + stats.tasksCompleted * 20
+    return (won ? 100 : 25) + stats.tasksCompleted * 20
       + stats.sabotagesRepaired * 25 + stats.eliminations * 35
       + stats.correctVotes * 20 + stats.evidenceFound * 5;
   }
@@ -1066,7 +1306,7 @@ export class GameServer {
         this.io.to(room.code).emit("worldSnapshot", {
           serverTime: now,
           phase: room.phase,
-          players: [...room.players.values()].map(snapshotPlayer),
+          players: [...room.players.values()].map((player) => snapshotPlayer(player, room)),
           incidents: [...room.incidents.values()].filter((incident) => !incident.reported).map((incident) => ({ id: incident.id, x: incident.x, z: incident.z, roomId: incident.roomId }))
         });
       }

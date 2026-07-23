@@ -38,9 +38,8 @@ export const ASSET_MANIFEST = Object.freeze({
     type: "image", category: "role-reveal", required: false
   },
   playerReference: {
-    path: "/assets/art/Players/Player-sharedassets0.assets-55.png",
-    type: "image", category: "character-reference", required: false,
-    provisional: true
+    path: "/assets/player-models/base/idle/idle.png",
+    type: "image", category: "character", required: false
   }
 });
 

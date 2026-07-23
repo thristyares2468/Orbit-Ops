@@ -41,6 +41,22 @@ function player(id, faction, position = { x: 0, z: 0 }) {
   return result;
 }
 
+function assignRole(member, role, faction, usesLeft = null) {
+  member.role = role;
+  member.faction = faction;
+  member.roleState = {
+    usesLeft,
+    cooldownEndsAt: 0,
+    activeUntil: 0,
+    protectedUntil: 0,
+    targetId: null,
+    trackedTargetId: null,
+    shieldTargetId: null,
+    morphTargetId: null
+  };
+  return member;
+}
+
 test("the server owns elimination, incident, voting, and victory resolution", () => {
   const io = new RecordingIo();
   server = new GameServer(io);
@@ -108,4 +124,83 @@ test("a disconnected host is reassigned to a connected human", () => {
     previousHostId: originalHost.id,
     hostId: successor.id
   });
+});
+
+test("a Medic shield is server-authoritative and consumed by one elimination", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  const room = server.createRoom("private", { eliminationCooldownSeconds: 10 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 20_000;
+  room.taskTotal = 15;
+
+  const operative = player("operative", "operative");
+  const medic = assignRole(player("medic", "crew", { x: 0.25, z: 0 }), "medic", "crew", 1);
+  const protectedCrew = player("protected", "crew", { x: 0.5, z: 0 });
+  const witness = player("witness", "crew", { x: 0.75, z: 0 });
+  operative.lastEliminationAt = Date.now() - 11_000;
+  for (const member of [operative, medic, protectedCrew, witness]) room.players.set(member.id, member);
+
+  server.roleAction(room, medic, { targetId: protectedCrew.id });
+  assert.equal(medic.roleState.shieldTargetId, protectedCrew.id);
+
+  const blocked = server.eliminationAttempt(room, operative, protectedCrew.id);
+  assert.equal(blocked.blocked, true);
+  assert.equal(protectedCrew.alive, true);
+  assert.equal(medic.roleState.shieldTargetId, null);
+  assert.ok(io.events.some((entry) => entry.event === "shieldBlocked" && entry.payload.playerId === protectedCrew.id));
+
+  operative.lastEliminationAt = Date.now() - 11_000;
+  const secondAttempt = server.eliminationAttempt(room, operative, protectedCrew.id);
+  assert.ok(secondAttempt.incidentId);
+  assert.equal(protectedCrew.alive, false);
+});
+
+test("the Sheriff eliminates an Operative and misfires on an innocent", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  const hitRoom = server.createRoom("private", {});
+  hitRoom.phase = PHASES.ACTIVE;
+  hitRoom.matchStartedAt = Date.now() - 20_000;
+  hitRoom.taskTotal = 15;
+  const sheriff = assignRole(player("sheriff", "crew"), "sheriff", "crew");
+  const operative = player("operative", "operative", { x: 0.5, z: 0 });
+  const crew = player("crew", "crew", { x: 0.75, z: 0 });
+  for (const member of [sheriff, operative, crew]) hitRoom.players.set(member.id, member);
+
+  const hit = server.roleAction(hitRoom, sheriff, { targetId: operative.id });
+  assert.equal(hit.effect, "sheriff-hit");
+  assert.equal(operative.alive, false);
+
+  const missRoom = server.createRoom("private", {});
+  missRoom.phase = PHASES.ACTIVE;
+  missRoom.matchStartedAt = Date.now() - 20_000;
+  missRoom.taskTotal = 15;
+  const secondSheriff = assignRole(player("sheriff-two", "crew"), "sheriff", "crew");
+  const innocent = player("innocent", "crew", { x: 0.5, z: 0 });
+  const secondOperative = player("operative-two", "operative", { x: 1, z: 0 });
+  for (const member of [secondSheriff, innocent, secondOperative]) missRoom.players.set(member.id, member);
+
+  const misfire = server.roleAction(missRoom, secondSheriff, { targetId: innocent.id });
+  assert.equal(misfire.effect, "sheriff-misfire");
+  assert.equal(secondSheriff.alive, false);
+  assert.equal(innocent.alive, true);
+});
+
+test("the Operations Hub emergency button starts a meeting and consumes the caller allowance", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  const room = server.createRoom("private", { emergencyMeetings: 1 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 20_000;
+  const caller = player("caller", "crew", { x: 0, z: 0 });
+  const operative = player("operative", "operative", { x: 1, z: 0 });
+  const witness = player("witness", "crew", { x: 1, z: 0 });
+  for (const member of [caller, operative, witness]) room.players.set(member.id, member);
+
+  const result = server.callMeeting(room, caller);
+  assert.ok(result.meetingId);
+  assert.equal(caller.emergencyMeetings, 1);
+  assert.equal(room.phase, PHASES.INCIDENT);
+  assert.ok(io.events.some((entry) => entry.event === "meetingStarted" && entry.payload.incidentRoom === null));
 });

@@ -31,7 +31,7 @@ app.use((request, response, next) => {
 });
 app.use(express.json({ limit: "32kb" }));
 
-app.use("/vendor/three", express.static(join(here, "node_modules", "three"), {
+app.use("/vendor/phaser", express.static(join(here, "node_modules", "phaser"), {
   maxAge: process.env.NODE_ENV === "production" ? "30d" : 0,
   immutable: process.env.NODE_ENV === "production"
 }));

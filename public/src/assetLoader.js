@@ -1,4 +1,3 @@
-import * as THREE from "/vendor/three/build/three.module.js";
 import { ASSET_GROUPS, ASSET_MANIFEST } from "./assetManifest.js";
 
 const DEFAULT_TIMEOUT_MS = 12_000;
@@ -21,7 +20,6 @@ export class AssetLoader {
     this.inFlight = new Map();
     this.loadedCount = 0;
     this.totalCount = 0;
-    this.textureLoader = new THREE.TextureLoader();
   }
 
   async loadGroup(groupName = "essential") {
@@ -67,20 +65,7 @@ export class AssetLoader {
   }
 
   loadDefinition(definition) {
-    if (definition.type === "texture") {
-      return withTimeout(new Promise((resolve, reject) => {
-        this.textureLoader.load(definition.path, (texture) => {
-          texture.colorSpace = definition.colourSpace === "srgb" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-          if (definition.wrap === "repeat") {
-            texture.wrapS = THREE.RepeatWrapping;
-            texture.wrapT = THREE.RepeatWrapping;
-            texture.repeat.set(...(definition.repeat ?? [1, 1]));
-          }
-          resolve(texture);
-        }, undefined, reject);
-      }), DEFAULT_TIMEOUT_MS, definition.path);
-    }
-    if (definition.type === "image") {
+    if (definition.type === "texture" || definition.type === "image") {
       return withTimeout(new Promise((resolve, reject) => {
         const image = new Image();
         image.decoding = "async";
@@ -103,8 +88,6 @@ export class AssetLoader {
   }
 
   dispose(key) {
-    const asset = this.cache.get(key);
-    if (asset?.dispose) asset.dispose();
     this.cache.delete(key);
   }
 

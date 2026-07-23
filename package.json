@@ -2,7 +2,8 @@
   "name": "orbit-ops",
   "version": "1.0.0",
   "private": true,
-  "description": "Orbit Ops - a server-authoritative 3D social deduction game aboard the O.S.V. Meridian.",
+  "license": "GPL-3.0-only",
+  "description": "Orbit Ops - a server-authoritative 2D social deduction game aboard the O.S.V. Meridian.",
   "type": "module",
   "main": "server.js",
   "engines": {
@@ -15,14 +16,14 @@
     "db:seed": "node database/seed.js",
     "assets:inventory": "node scripts/generateAssetCatalog.mjs",
     "test": "node --test tests/*.test.js",
-    "check": "node --check server.js && node --check server/gameServer.js && node --check public/src/main.js"
+    "check": "node --check server.js && node --check server/gameServer.js && node --check public/src/main.js && node --check public/src/game.js && node --check public/src/ui.js && node --check public/src/roleData.js && node --check public/src/mapSchema.js && node --check public/src/game2d/MapBuilder.js && node --check public/src/game2d/MeridianScene.js && node --check public/src/game2d/CharacterSprite.js"
   },
   "dependencies": {
     "bcryptjs": "3.0.3",
     "express": "5.2.1",
+    "phaser": "4.2.1",
     "pg": "8.22.0",
     "socket.io": "4.8.3",
-    "socket.io-client": "4.8.3",
-    "three": "0.185.1"
+    "socket.io-client": "4.8.3"
   }
 }

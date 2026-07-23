@@ -1,8 +1,8 @@
 # Orbit Ops
 
-Orbit Ops is a playable, server-authoritative 3D social-deduction game set aboard the O.S.V. Meridian. One Node.js service hosts the Three.js client, Socket.IO simulation, Express health route, and optional Neon PostgreSQL persistence.
+Orbit Ops is a playable, server-authoritative 2D social-deduction game set aboard the O.S.V. Meridian. One Node.js service hosts the Phaser client, Socket.IO simulation, Express health route, and optional Neon PostgreSQL persistence.
 
-The current map and astronaut are intentionally procedural placeholders. The supplied non-logo artwork is preserved, catalogued, and separated from gameplay rules so authored map/asset-use code can replace the placeholders without rewriting the multiplayer systems.
+The current top-down room layout uses the supplied non-logo map, astronaut, task, meeting, voting, and transition artwork. Room-to-atlas placement remains intentionally provisional so authored map and asset-use code can replace it without rewriting the multiplayer systems.
 
 ## Current feature set
 
@@ -10,10 +10,10 @@ The current map and astronaut are intentionally procedural placeholders. The sup
 - Public matchmaking with all-ready auto-launch, private room codes, practice simulations with bots, host settings, ready state, and host reassignment
 - 45-second reconnect reservation with rotated rejoin tokens
 - 20 Hz authoritative movement simulation and 10 Hz world snapshots
-- Secret Crew/Signal Operative assignment and role-private fake tasks
+- Server-private role assignment with Engineer, Medic, Sheriff, Tracker, Morphling, Swooper, Janitor, Jester, Survivor, and base Crew/Operative roles
 - Ten server-sequenced assignment interfaces using supplied task artwork
 - Six sabotage systems, including timed critical failures and multi-station repair; practice mode removes action cooldowns for testing
-- Server-validated elimination, incident evidence, reporting, meetings, discussion, voting, removal, and win conditions
+- Server-validated role abilities, elimination, incident evidence, emergency-button calls, reporting, meetings, discussion, voting, removal, and faction/neutral win conditions
 - Living/dead chat separation, input validation, payload limits, action rate limits, and no direct client database access
 - Security telemetry, delayed door logs, Operative maintenance routes, spectator state, match results, and persistent statistics
 - Responsive low-chrome HUD, minimap, settings, accessibility options, synthesized fallback audio, and a lazy-loaded supplied-art archive
@@ -39,20 +39,19 @@ npm run dev
 
 | Input | Action |
 | --- | --- |
-| `W A S D` | Move |
-| Mouse | Third-person camera |
+| `W A S D` or arrow keys | Move |
 | `Shift` | Sprint |
-| `C` or `Ctrl` | Crouch |
-| `Space` | Jump |
+| `C` or `Ctrl` | Stealth-walk |
 | `E` | Use a nearby station, repair, console, or reportable incident |
 | `R` | Report a nearby incident |
 | `Q` | Operative elimination attempt |
 | `F` | Operative sabotage panel |
+| `G` | Use the current role ability |
 | `Tab` | Meridian map |
 | `Enter` | Focus meeting chat |
 | `Esc` | Pause |
 
-Click the game viewport once to capture the pointer. The server decides whether interactions are valid; client buttons and proximity prompts are only requests.
+The server decides whether interactions are valid; client buttons and proximity prompts are only requests.
 
 ## Project layout
 
@@ -64,10 +63,14 @@ database/schema.sql               Neon/PostgreSQL schema
 database/repositories/            Parameterized account and match queries
 public/index.html                 Application surfaces and HUD
 public/style.css                  Responsive visual system
-public/src/game.js                Client orchestration and render loop
-public/src/world.js               Replaceable procedural map adapter
-public/src/characterFactory.js    Replaceable procedural character adapter
-public/src/shipData.js            Placeholder room graph, stations, tasks, collision data
+public/src/game.js                Client orchestration and Phaser bridge
+public/src/mapSchema.js           Reusable map validation and corridor generation
+public/src/shipData.js            Shared Meridian map definition and authoritative geometry
+public/src/game2d/MapBuilder.js   Layered room/corridor/station Phaser construction
+public/src/game2d/MeridianScene.js Replaceable top-down room renderer
+public/src/game2d/CharacterSprite.js Channel-aware player animation and recolouring
+public/src/game2d/assets.js        Stable 2D map and station asset mappings
+public/src/roleData.js             Shared role roster, UI metadata, cooldowns, and icons
 public/src/tasks.js               Assignment interfaces and supplied task art mapping
 public/src/assetManifest.js       Runtime-critical asset manifest
 public/src/artCatalog.js          Generated full non-logo catalog
@@ -76,7 +79,24 @@ tests/                             Authoritative rule and real Socket.IO tests
 render.yaml                       Render Blueprint configuration
 ```
 
-The two main replacement boundaries for the future authored map are `public/src/world.js` and `public/src/shipData.js`. Character/model integration is isolated in `public/src/characterFactory.js`. Server rules reference stable room and station IDs from `shipData.js`, so new geometry should retain or deliberately migrate those IDs.
+The map follows a data/build split without importing compiled Unity code or third-party map art. `MERIDIAN_MAP`
+in `public/src/shipData.js` is the shared source of truth for room transforms, adjacency, generated
+orthogonal corridors, prop collision rectangles, station anchors, spawn points, camera bounds,
+ordered visible render layers, and non-rendered object groups. `public/src/game2d/MapBuilder.js`
+turns that definition into disposable Phaser background, corridor, room-local, and station
+containers. The authoritative server reads the same floor and prop geometry for movement and
+interaction checks.
+
+This layered/object-group organization adapts the useful public-domain map-loading pattern in the
+project-owner-supplied Python fan conversion: visible map layers are built in order, while named
+object groups carry collision, spawn, and interaction data. Orbit Ops uses its own Meridian
+definition and supplied artwork; the conversion's bundled original-game TMX map and ripped assets
+are deliberately excluded.
+
+Future authored map code can replace the `MERIDIAN_MAP` definition and stable asset keys without
+putting gameplay rules inside Phaser. Existing room and station IDs should be retained or migrated
+deliberately because tasks, sabotage, meetings, bot navigation, and persistence refer to them.
+Character sheet integration remains isolated in `public/src/game2d/CharacterSprite.js`.
 
 ## Supplied assets
 
@@ -86,13 +106,23 @@ Important runtime mappings:
 
 | Asset | Current use |
 | --- | --- |
-| `Background/Stars-sharedassets0.assets-56.png` | Loading/menu background and 3D sky texture |
+| `Background/Stars-sharedassets0.assets-56.png` | Loading/menu background and Phaser world backdrop |
 | `Background/Paralax1-sharedassets0.assets-115.png` | Essential anomaly/environment layer in the asset loader |
+| Seventeen images under `Maps/`, plus `Tasks/ReactorRoom` | Provisional top-down room art for every playable Meridian room |
+| `player-models/base/idle`, `walk`, and `death` frames | Live 58×76 player model, movement animation, and elimination animation |
+| `Tasks/Consolas_0`, `Emergency`, `DoorLog`, `panel_doors_bg`, and reactor panel art | Live world station markers |
 | `Tasks/grid-sharedassets0.assets-156.png` | Task-console holographic surface |
 | Ten task images including `Radio`, `Calibrator`, `SetCourse`, `ProcessData`, `SortGame`, `MonitorOxy`, `BoardingPass`, `engineAlign_base`, `MedScan`, and `Wifi` | Reference art for the ten playable assignments |
-| `Voting`, `DISCUSS!`, `SHHHHH!`, `Maps`, `Players`, `Gui`, `Accessories & Pets`, and remaining images | Catalogued, lazy-rendered in the Asset Archive, and ready for authored integration |
+| `Voting`, `DISCUSS!`, and `SHHHHH!` | Voting, meeting, and role-reveal presentation |
+| `Gui`, `Accessories & Pets`, and remaining images | Catalogued, lazy-rendered in the Asset Archive, and ready for authored integration |
 
-No audio or browser-ready 3D model files were present in the supplied asset folder; it contains PNG artwork. WebAudio cues and procedural geometry therefore keep the game playable until authored audio, map, and model code is provided.
+No audio files were present in the supplied asset folder, so WebAudio cues keep the game playable until authored audio is provided.
+
+The new player frame archive is colour-mapped by source channel rather than hue-shifted as one
+image: red becomes the main suit colour, blue becomes the darker suit shadow, and green becomes the
+player's visor colour. The original model proportions remain fixed at the approved on-screen size.
+See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for the Town Of Us R and player-animation
+asset provenance and license boundaries.
 
 Regenerate the catalog after adding or removing non-logo art:
 
@@ -158,11 +188,11 @@ The project has also been browser-playtested through loading, guest authenticati
 
 ## Known limitations and next integration points
 
-- The Meridian geometry, collision volumes, room layout, and astronaut mesh are explicit placeholders pending the owner's authored map/asset-use code.
-- Supplied transition, map, cosmetics, and animation-frame art is preserved and browsable but not all of it is yet mapped to final gameplay presentation.
+- The Meridian room transforms, collision volumes, and room-to-image assignments remain authored-data placeholders, but now pass through the shared validated map schema and layered Phaser builder.
+- Supplied map, player, station, task, voting, meeting, role-reveal, role-icon, walk, and standard death art is live in gameplay. The three irregular cinematic death sheets are retained as reference assets for a later attacker/victim animation pass.
 - Audio is synthesized because no supplied audio files were found.
 - The controls are desktop-first; responsive menus work at narrow widths, but touch gameplay controls are not implemented.
 - Practice bots exercise navigation, tasks, sabotage, elimination, and voting heuristics; they are training opponents, not production matchmaking AI.
 - Render's free service may cold-start, and in-memory rooms do not survive a process restart. Durable match/account data remains in Neon.
 
-Recommended next step: provide the authored map and asset-use code, then replace `world.js`, `shipData.js`, and `characterFactory.js` behind their current stable interfaces before adding final animation/audio packages and GLB optimisation.
+Recommended next step: provide the authored map and asset-use code, then replace the provisional mappings in `game2d/assets.js`, `shipData.js`, and `game2d/CharacterSprite.js` behind their current stable interfaces before adding final animation and audio packages.

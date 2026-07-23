@@ -1,20 +1,41 @@
-import * as THREE from "/vendor/three/build/three.module.js";
 import { AudioManager } from "./audio.js";
-import { ThirdPersonCamera } from "./camera.js";
-import { CharacterView } from "./characterFactory.js";
+import { MeridianScene } from "./game2d/MeridianScene.js";
 import { InputController } from "./input.js";
-import { TASK_DEFINITIONS, roomAt } from "./shipData.js";
+import { getRoleDefinition } from "./roleData.js";
+import { roomAt, STATIONS } from "./shipData.js";
 import { TaskInterface } from "./tasks.js";
-import { MeridianWorld } from "./world.js";
 import { applyDocumentSettings, saveSettings } from "./settings.js";
 
 const SESSION_KEY = "orbitOps.accountSession.v1";
 const REJOIN_KEY = "orbitOps.rejoinSession.v1";
 const APPEARANCE_KEY = "orbitOps.appearance.v1";
+const INTERACTION_RANGE = 2.8;
 
 function defaultAppearance() {
-  try { return { colour: "cyan", visor: "#9defff", symbol: "orbit", number: 7, accessory: "antenna", ...JSON.parse(localStorage.getItem(APPEARANCE_KEY) ?? "{}") }; }
-  catch { return { colour: "cyan", visor: "#9defff", symbol: "orbit", number: 7, accessory: "antenna" }; }
+  try {
+    return {
+      colour: "cyan",
+      visor: "#9defff",
+      symbol: "orbit",
+      number: 7,
+      accessory: "antenna",
+      ...JSON.parse(localStorage.getItem(APPEARANCE_KEY) ?? "{}")
+    };
+  } catch {
+    return { colour: "cyan", visor: "#9defff", symbol: "orbit", number: 7, accessory: "antenna" };
+  }
+}
+
+function nearestInteractable(position, incidents = []) {
+  if (!position) return null;
+  let nearest = null;
+  for (const station of [...STATIONS, ...incidents.map((incident) => ({ ...incident, type: "incident" }))]) {
+    const distance = Math.hypot(position.x - station.x, position.z - station.z);
+    if (distance <= INTERACTION_RANGE && (!nearest || distance < nearest.distance)) {
+      nearest = { station, distance };
+    }
+  }
+  return nearest;
 }
 
 export class OrbitOpsGame {
@@ -29,35 +50,49 @@ export class OrbitOpsGame {
     this.playerId = null;
     this.privateState = null;
     this.latestSnapshots = new Map();
-    this.characters = new Map();
+    this.latestIncidents = [];
     this.currentPhase = "menu";
     this.activeSabotage = null;
     this.nearest = null;
-    this.running = true;
     this.lastFrameAt = performance.now();
     this.lastInputSentAt = 0;
     this.frameSamples = [];
+    this.sceneReady = false;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: settings.graphicsQuality !== "low", powerPreference: "high-performance" });
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(58, 1, 0.1, 250);
-    this.input = new InputController(canvas, () => this.settings);
+    this.input = new InputController();
     this.audio = new AudioManager(() => this.settings);
-    this.cameraController = new ThirdPersonCamera(this.camera, () => this.settings);
-    this.world = new MeridianWorld(this.scene, assets, settings);
     this.taskInterface = new TaskInterface(network, this.audio);
+    this.phaserScene = new MeridianScene(this);
+    this.phaserGame = new window.Phaser.Game({
+      type: window.Phaser.WEBGL,
+      canvas,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      backgroundColor: "#02060c",
+      scale: {
+        mode: window.Phaser.Scale.RESIZE,
+        width: window.innerWidth,
+        height: window.innerHeight
+      },
+      render: {
+        antialias: settings.graphicsQuality !== "low",
+        roundPixels: settings.graphicsQuality !== "high",
+        powerPreference: "high-performance"
+      },
+      input: { keyboard: false, mouse: false, touch: false },
+      scene: [this.phaserScene]
+    });
 
-    this.applyGraphicsSettings();
     this.bindNetwork();
     this.bindUI();
-    this.resize();
-    window.addEventListener("resize", () => this.resize());
-    canvas.addEventListener("webglcontextlost", (event) => { event.preventDefault(); this.ui.toast("Graphics context lost. Waiting for recovery…", true); });
-    canvas.addEventListener("webglcontextrestored", () => { this.ui.toast("Graphics context restored."); this.applyGraphicsSettings(); });
-    requestAnimationFrame((time) => this.frame(time));
+  }
+
+  onSceneReady(scene) {
+    this.phaserScene = scene;
+    this.sceneReady = true;
+    this.applyGraphicsSettings();
+    if (this.room?.players) this.syncCharacterMetadata(this.room.players);
+    if (this.latestIncidents.length) scene.syncIncidents(this.latestIncidents);
   }
 
   bindNetwork() {
@@ -69,34 +104,101 @@ export class OrbitOpsGame {
       this.audio.playCue("reconnect");
     });
     this.network.on("roomState", (room) => this.updateRoom(room));
-    this.network.on("matchReset", ({ room }) => { this.currentPhase = "lobby"; this.privateState = null; this.ui.closeGameplayModals(); this.ui.showLobby(room, this.playerId); });
+    this.network.on("matchReset", ({ room }) => {
+      this.currentPhase = "lobby";
+      this.privateState = null;
+      this.ui.closeGameplayModals();
+      this.ui.showLobby(room, this.playerId);
+    });
     this.network.on("countdown", () => { this.currentPhase = "countdown"; this.ui.showGame(); });
     this.network.on("roleAssigned", (state) => this.handlePrivateState(state));
-    this.network.on("matchStarted", (payload) => { this.currentPhase = "active"; this.ui.showGame(); this.ui.updateTaskProgress(payload.taskProgress); this.input.setEnabled(true); });
-    this.network.on("phaseChanged", ({ phase, endsAt }) => { this.currentPhase = phase; this.ui.setPhase(phase, endsAt); if (phase !== "active") this.input.setEnabled(false); });
+    this.network.on("matchStarted", (payload) => {
+      this.currentPhase = "active";
+      this.ui.showGame();
+      this.ui.updateTaskProgress(payload.taskProgress);
+      this.input.setEnabled(true);
+    });
+    this.network.on("phaseChanged", ({ phase, endsAt }) => {
+      this.currentPhase = phase;
+      this.ui.setPhase(phase, endsAt);
+      if (phase !== "active") this.input.setEnabled(false);
+    });
     this.network.on("worldSnapshot", (snapshot) => this.applyWorldSnapshot(snapshot));
-    this.network.on("taskStarted", (payload) => { this.input.setEnabled(false); this.taskInterface.open(payload); this.audio.playCue("interact"); });
+    this.network.on("taskStarted", (payload) => {
+      this.input.setEnabled(false);
+      this.taskInterface.open(payload);
+      this.audio.playCue("interact");
+    });
     this.network.on("taskCompleted", (payload) => {
-      if (this.privateState && !this.privateState.completedTaskIds.includes(payload.taskId)) this.privateState.completedTaskIds.push(payload.taskId);
+      if (this.privateState && !this.privateState.completedTaskIds.includes(payload.taskId)) {
+        this.privateState.completedTaskIds.push(payload.taskId);
+      }
       if (this.privateState) this.ui.renderTasks(this.privateState.tasks, this.privateState.completedTaskIds);
       this.ui.updateTaskProgress(payload.sharedProgress);
     });
-    this.network.on("taskProgress", (progress) => { if (progress.total !== undefined && progress.completed !== undefined) this.ui.updateTaskProgress(progress); });
-    this.network.on("sabotageStarted", (sabotage) => { this.activeSabotage = sabotage; this.ui.updateSabotage(sabotage); this.audio.setEmergency(true); this.audio.playCue("alarm"); });
-    this.network.on("sabotageUpdated", (sabotage) => { this.activeSabotage = sabotage; this.ui.updateSabotage(sabotage); });
-    this.network.on("sabotageEnded", () => { this.activeSabotage = null; this.ui.clearSabotage(); this.audio.setEmergency(false); this.ui.toast("Sabotage resolved."); });
-    this.network.on("playerEliminated", ({ playerId }) => { this.audio.playCue("eliminate"); if (playerId === this.playerId && this.privateState) { this.privateState.alive = false; this.ui.toast("Your suit is offline. You are now an orbital echo."); } });
-    this.network.on("meetingStarted", (payload) => { this.ui.showMeeting(payload); this.audio.playCue("report"); this.input.setEnabled(false); });
+    this.network.on("taskProgress", (progress) => {
+      if (progress.total !== undefined && progress.completed !== undefined) this.ui.updateTaskProgress(progress);
+    });
+    this.network.on("sabotageStarted", (sabotage) => {
+      this.activeSabotage = sabotage;
+      this.ui.updateSabotage(sabotage);
+      this.audio.setEmergency(true);
+      this.audio.playCue("alarm");
+    });
+    this.network.on("sabotageUpdated", (sabotage) => {
+      this.activeSabotage = sabotage;
+      this.ui.updateSabotage(sabotage);
+    });
+    this.network.on("sabotageEnded", () => {
+      this.activeSabotage = null;
+      this.ui.clearSabotage();
+      this.audio.setEmergency(false);
+      this.ui.toast("Sabotage resolved.");
+    });
+    this.network.on("playerEliminated", ({ playerId }) => {
+      this.audio.playCue("eliminate");
+      if (playerId === this.playerId && this.privateState) {
+        this.privateState.alive = false;
+        this.ui.toast("Your suit is offline. You are now an orbital echo.");
+      }
+    });
+    this.network.on("shieldBlocked", ({ playerId, attackerId, protection }) => {
+      if (playerId === this.playerId) this.ui.toast(`${protection === "vest" ? "Your vest" : "A Medic shield"} blocked an elimination.`);
+      else if (attackerId === this.playerId) this.ui.toast("The target was protected.");
+    });
+    this.network.on("incidentCleaned", ({ incidentId }) => {
+      this.latestIncidents = this.latestIncidents.filter((incident) => incident.id !== incidentId);
+      if (this.sceneReady) this.phaserScene.syncIncidents(this.latestIncidents);
+    });
+    this.network.on("meetingStarted", (payload) => {
+      this.ui.showMeeting(payload);
+      this.audio.playCue("report");
+      this.input.setEnabled(false);
+    });
     this.network.on("discussionStarted", ({ endsAt }) => this.ui.setDiscussion(endsAt));
     this.network.on("votingStarted", ({ endsAt }) => this.ui.setVoting(endsAt));
-    this.network.on("voteResult", (payload) => { this.ui.showVoteResult(payload); this.audio.playCue("vote"); });
-    this.network.on("matchResumed", () => { this.currentPhase = "active"; this.ui.closeModal("meeting"); this.input.setEnabled(true); });
+    this.network.on("voteResult", (payload) => {
+      this.ui.showVoteResult(payload);
+      this.audio.playCue("vote");
+    });
+    this.network.on("matchResumed", () => {
+      this.currentPhase = "active";
+      this.ui.closeModal("meeting");
+      this.input.setEnabled(true);
+    });
     this.network.on("chatMessage", (payload) => this.ui.appendChat(payload));
-    this.network.on("matchEnded", (results) => { this.currentPhase = "results"; this.input.setEnabled(false); this.ui.showResults(results); });
+    this.network.on("matchEnded", (results) => {
+      this.currentPhase = "results";
+      this.input.setEnabled(false);
+      this.ui.showResults(results);
+    });
     this.network.on("databaseSaveStatus", (payload) => this.ui.setSaveStatus(payload));
     this.network.on("errorMessage", ({ message }) => this.ui.toast(message, true));
     this.network.on("network:disconnected", () => { if (this.room) this.ui.setConnection(false); });
-    this.network.on("network:connected", () => { this.ui.setConnection(true); if (this.auth && this.room) this.resumeRoom().catch(() => {}); });
+    this.network.on("network:connected", () => {
+      this.ui.setConnection(true);
+      if (this.auth && this.room) this.resumeRoom().catch(() => {});
+    });
   }
 
   bindUI() {
@@ -118,6 +220,8 @@ export class OrbitOpsGame {
       vote: (payload) => this.network.request("submitVote", payload),
       report: () => this.interactWithIncident(),
       primaryAbility: () => this.tryEliminate(),
+      roleAbility: () => this.performRoleAction(),
+      emergencyMeeting: () => this.callEmergencyMeeting(),
       sabotage: (payload) => this.network.request("sabotageRequest", payload),
       saveSettings: (payload) => this.applySettings(payload),
       modalChanged: ({ open, name }) => this.onModalChanged(open, name)
@@ -147,8 +251,15 @@ export class OrbitOpsGame {
 
   handleAuthenticated(result) {
     const account = result.account;
-    this.auth = { accountId: account?.id ?? null, displayName: account?.displayName ?? result.displayName, guest: result.guest ?? !account, token: result.token ?? this.auth?.token ?? null };
-    if (result.token) localStorage.setItem(SESSION_KEY, JSON.stringify({ token: result.token, expiresAt: result.expiresAt }));
+    this.auth = {
+      accountId: account?.id ?? null,
+      displayName: account?.displayName ?? result.displayName,
+      guest: result.guest ?? !account,
+      token: result.token ?? this.auth?.token ?? null
+    };
+    if (result.token) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ token: result.token, expiresAt: result.expiresAt }));
+    }
     this.ui.setAuthMessage("Clearance accepted.");
     this.ui.showMainMenu(this.auth);
     this.resumeRoom().catch(() => {});
@@ -157,9 +268,13 @@ export class OrbitOpsGame {
   async logout() {
     const token = this.auth?.token;
     await this.network.request("logout", { token }).catch(() => {});
-    localStorage.removeItem(SESSION_KEY); localStorage.removeItem(REJOIN_KEY);
-    this.auth = null; this.room = null; this.playerId = null;
-    this.clearCharacters(); this.ui.showScreen("auth");
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(REJOIN_KEY);
+    this.auth = null;
+    this.room = null;
+    this.playerId = null;
+    this.clearCharacters();
+    this.ui.showScreen("auth");
   }
 
   async join(event, payload = {}) {
@@ -172,7 +287,9 @@ export class OrbitOpsGame {
     this.playerId = payload.playerId;
     this.room = payload.room;
     this.currentPhase = payload.room.phase;
-    if (payload.rejoinToken) localStorage.setItem(REJOIN_KEY, JSON.stringify({ token: payload.rejoinToken, displayName: this.auth?.displayName }));
+    if (payload.rejoinToken) {
+      localStorage.setItem(REJOIN_KEY, JSON.stringify({ token: payload.rejoinToken, displayName: this.auth?.displayName }));
+    }
     this.updateRoom(payload.room);
     if (payload.room.phase === "lobby") this.ui.showLobby(payload.room, this.playerId);
     else this.ui.showGame();
@@ -202,52 +319,47 @@ export class OrbitOpsGame {
   }
 
   syncCharacterMetadata(players) {
-    const ids = new Set(players.map((player) => player.id));
-    for (const player of players) {
-      if (!this.characters.has(player.id)) {
-        const snapshot = this.latestSnapshots.get(player.id) ?? { x: 0, z: 0, yaw: 0, alive: player.alive, animation: "idle" };
-        const view = new CharacterView({ ...player, ...snapshot });
-        view.applySnapshot(snapshot, true);
-        const nameplate = view.group.getObjectByName("nameplate");
-        if (nameplate && player.id === this.playerId) nameplate.visible = false;
-        this.characters.set(player.id, view);
-        this.scene.add(view.group);
-      }
-    }
-    for (const [id, view] of this.characters) {
-      if (!ids.has(id)) { this.scene.remove(view.group); view.dispose(); this.characters.delete(id); }
-    }
+    if (!this.sceneReady) return;
+    this.phaserScene.syncPlayers(players, this.playerId, this.latestSnapshots);
   }
 
   handlePrivateState(state) {
     this.privateState = { ...state, completedTaskIds: [...(state.completedTaskIds ?? [])] };
     this.ui.setPrivateState(this.privateState);
+    if (this.sceneReady) this.phaserScene.applyPrivateRoleState(this.privateState);
   }
 
   applyWorldSnapshot(snapshot) {
     this.currentPhase = snapshot.phase;
-    for (const player of snapshot.players) {
-      this.latestSnapshots.set(player.id, player);
-      this.characters.get(player.id)?.applySnapshot(player, false);
-    }
-    this.world.syncIncidents(snapshot.incidents ?? []);
+    for (const player of snapshot.players ?? []) this.latestSnapshots.set(player.id, player);
+    this.latestIncidents = snapshot.incidents ?? [];
+    if (this.sceneReady) this.phaserScene.applySnapshot(snapshot);
   }
 
   async leaveRoom() {
     await this.network.request("leaveRoom").catch(() => {});
     localStorage.removeItem(REJOIN_KEY);
-    this.room = null; this.playerId = null; this.privateState = null; this.currentPhase = "menu";
-    this.clearCharacters(); this.world.syncIncidents([]); this.ui.closeGameplayModals(); this.ui.showMainMenu(this.auth);
+    this.room = null;
+    this.playerId = null;
+    this.privateState = null;
+    this.currentPhase = "menu";
+    this.latestIncidents = [];
+    this.clearCharacters();
+    if (this.sceneReady) this.phaserScene.syncIncidents([]);
+    this.ui.closeGameplayModals();
+    this.ui.showMainMenu(this.auth);
   }
 
   async returnToLobby() {
     const result = await this.network.request("returnToLobby");
-    this.privateState = null; this.updateRoom(result.room); this.ui.showLobby(result.room, this.playerId);
+    this.privateState = null;
+    this.updateRoom(result.room);
+    this.ui.showLobby(result.room, this.playerId);
   }
 
   clearCharacters() {
-    for (const view of this.characters.values()) { this.scene.remove(view.group); view.dispose(); }
-    this.characters.clear(); this.latestSnapshots.clear();
+    if (this.sceneReady) this.phaserScene.clearCharacters();
+    this.latestSnapshots.clear();
   }
 
   async interact() {
@@ -257,8 +369,11 @@ export class OrbitOpsGame {
     else if (station.type === "repair") await this.network.request("repairSabotage", { stationId: station.id });
     else if (station.type === "meeting") await this.network.request("callMeeting");
     else if (station.type === "maintenance") await this.network.request("useMaintenance", { stationId: station.id });
-    else if (station.type === "security" || station.type === "doorLogs") this.ui.showSecurity(await this.network.request("requestSecurity"));
-    else if (station.type === "incident") await this.network.request("reportIncident", { incidentId: station.id });
+    else if (station.type === "security" || station.type === "doorLogs") {
+      this.ui.showSecurity(await this.network.request("requestSecurity"));
+    } else if (station.type === "incident") {
+      await this.network.request("reportIncident", { incidentId: station.id });
+    }
     this.audio.playCue("interact");
   }
 
@@ -269,18 +384,82 @@ export class OrbitOpsGame {
   }
 
   tryEliminate() {
-    if (this.privateState?.faction !== "operative" || !this.privateState.alive) throw new Error("Elimination is unavailable.");
-    const local = this.characters.get(this.playerId)?.group.position;
+    if (this.privateState?.faction !== "operative" || !this.privateState.alive) {
+      throw new Error("Elimination is unavailable.");
+    }
+    const local = this.latestSnapshots.get(this.playerId);
     if (!local) throw new Error("Local player position is unavailable.");
-    let target = null; let best = 3.2;
+    let target = null;
+    let best = 3.2;
     for (const player of this.room?.players ?? []) {
       if (player.id === this.playerId || !player.alive) continue;
-      const snapshot = this.latestSnapshots.get(player.id); if (!snapshot) continue;
+      const snapshot = this.latestSnapshots.get(player.id);
+      if (!snapshot || snapshot.alive === false) continue;
       const distance = Math.hypot(local.x - snapshot.x, local.z - snapshot.z);
-      if (distance < best) { target = player; best = distance; }
+      if (distance < best) {
+        target = player;
+        best = distance;
+      }
     }
     if (!target) throw new Error("No valid target is in range.");
     return this.network.request("eliminationAttempt", { targetId: target.id });
+  }
+
+  nearestRoleTarget(targeting) {
+    const local = this.latestSnapshots.get(this.playerId);
+    if (!local) throw new Error("Local player position is unavailable.");
+    if (targeting === "incident") {
+      let nearest = null;
+      let best = 3.2;
+      for (const incident of this.latestIncidents) {
+        const distance = Math.hypot(local.x - incident.x, local.z - incident.z);
+        if (distance < best) {
+          nearest = incident;
+          best = distance;
+        }
+      }
+      return nearest;
+    }
+    if (targeting !== "player") return null;
+    let nearest = null;
+    let best = 3.2;
+    for (const player of this.room?.players ?? []) {
+      if (player.id === this.playerId) continue;
+      const snapshot = this.latestSnapshots.get(player.id);
+      if (!snapshot || snapshot.alive === false) continue;
+      const distance = Math.hypot(local.x - snapshot.x, local.z - snapshot.z);
+      if (distance < best) {
+        nearest = player;
+        best = distance;
+      }
+    }
+    return nearest;
+  }
+
+  async performRoleAction() {
+    if (!this.privateState?.alive) throw new Error("Your role ability is unavailable.");
+    const definition = getRoleDefinition(this.privateState.role);
+    if (!definition.ability) throw new Error("Your current role has no active ability.");
+    const target = this.nearestRoleTarget(definition.ability.targeting);
+    if (definition.ability.targeting !== "none" && !target) {
+      throw new Error(definition.ability.targeting === "incident"
+        ? "No incident is in ability range."
+        : "No player is in ability range.");
+    }
+    const payload = definition.ability.targeting === "incident"
+      ? { incidentId: target.id }
+      : definition.ability.targeting === "player" ? { targetId: target.id } : {};
+    const result = await this.network.request("roleAction", payload);
+    if (result.privateState) this.handlePrivateState(result.privateState);
+    this.ui.toast(`${definition.name}: ${definition.ability.label} activated.`);
+    return result;
+  }
+
+  callEmergencyMeeting() {
+    if (this.nearest?.station?.type !== "meeting") {
+      throw new Error("Move to the Operations Hub emergency button.");
+    }
+    return this.network.request("callMeeting");
   }
 
   applySettings(changes) {
@@ -295,28 +474,36 @@ export class OrbitOpsGame {
   }
 
   applyGraphicsSettings() {
-    const ratios = { low: 0.72, medium: 1, high: Math.min(1.5, window.devicePixelRatio) };
-    this.renderer.setPixelRatio(ratios[this.settings.graphicsQuality] ?? 1);
-    this.renderer.shadowMap.enabled = this.settings.graphicsQuality !== "low";
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.resize();
+    if (this.sceneReady) this.phaserScene.applySettings(this.settings);
   }
 
   onModalChanged(open, name) {
     if (name === "settings" && open) this.ui.fillSettings(this.settings);
     if (name === "profile" && open && this.auth && !this.auth.guest) {
-      this.network.request("requestProfile").then((result) => this.renderProfile(result.profile)).catch((error) => this.ui.toast(error.message, true));
+      this.network.request("requestProfile")
+        .then((result) => this.renderProfile(result.profile))
+        .catch((error) => this.ui.toast(error.message, true));
     }
     if (name === "minimap" && open) this.drawMinimap();
     if (open) this.input.setEnabled(false);
-    else if (this.currentPhase === "active" && !document.querySelector(".modal:not(.is-hidden)")) this.input.setEnabled(true);
+    else if (this.currentPhase === "active" && !document.querySelector(".modal:not(.is-hidden)")) {
+      this.input.setEnabled(true);
+    }
   }
 
   renderProfile(profile) {
-    const content = document.getElementById("profile-content"); content.replaceChildren();
-    if (!profile) { const p = document.createElement("p"); p.textContent = "Profile is unavailable."; content.append(p); return; }
-    const heading = document.createElement("h3"); heading.textContent = profile.account.display_name;
-    const stats = document.createElement("p"); stats.textContent = `${profile.stats.games_played} operations · ${profile.stats.total_wins} victories · ${profile.stats.tasks_completed} assignments`;
+    const content = document.getElementById("profile-content");
+    content.replaceChildren();
+    if (!profile) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = "Profile is unavailable.";
+      content.append(paragraph);
+      return;
+    }
+    const heading = document.createElement("h3");
+    heading.textContent = profile.account.display_name;
+    const stats = document.createElement("p");
+    stats.textContent = `${profile.stats.games_played} operations · ${profile.stats.total_wins} victories · ${profile.stats.tasks_completed} assignments`;
     content.append(heading, stats);
   }
 
@@ -324,36 +511,36 @@ export class OrbitOpsGame {
     const local = this.latestSnapshots.get(this.playerId);
     this.ui.drawMinimap({
       playerPosition: local,
-      tasks: this.privateState?.tasks ?? [], completedTaskIds: this.privateState?.completedTaskIds ?? [],
+      tasks: this.privateState?.tasks ?? [],
+      completedTaskIds: this.privateState?.completedTaskIds ?? [],
       sabotage: this.activeSabotage
     });
   }
 
-  frame(time) {
-    if (!this.running) return;
-    const delta = Math.min(0.1, Math.max(0.001, (time - this.lastFrameAt) / 1000));
+  onRenderFrame(time, deltaMs) {
+    const delta = Math.min(0.1, Math.max(0.001, deltaMs / 1000));
     this.lastFrameAt = time;
-    this.frameSamples.push(1 / delta); if (this.frameSamples.length > 30) this.frameSamples.shift();
+    this.frameSamples.push(1 / delta);
+    if (this.frameSamples.length > 30) this.frameSamples.shift();
 
     const modalOpen = Boolean(document.querySelector(".modal:not(.is-hidden)"));
     const gameplayActive = this.currentPhase === "active" && this.room;
     const shouldEnableInput = Boolean(gameplayActive && !modalOpen);
     if (this.input.enabled !== shouldEnableInput) this.input.setEnabled(shouldEnableInput);
     if (gameplayActive && !modalOpen) this.handleInput(time);
-    for (const view of this.characters.values()) view.update(delta, this.settings.reducedMotion);
-    const localView = this.characters.get(this.playerId);
-    if (localView) {
-      this.cameraController.update(localView.group.position, this.input.yaw, this.input.pitch, delta, this.world.cameraObstacles);
-      this.nearest = gameplayActive && this.privateState?.alive ? this.world.nearestInteractable(localView.group.position) : null;
+
+    const local = this.latestSnapshots.get(this.playerId);
+    if (local) {
+      this.nearest = gameplayActive && this.privateState?.alive
+        ? nearestInteractable(local, this.latestIncidents)
+        : null;
       this.ui.updateInteraction(this.nearest);
-      const room = roomAt(localView.group.position.x, localView.group.position.z);
-      this.ui.updatePlayerHud(this.latestSnapshots.get(this.playerId), room?.name, this.network.pingMs);
+      this.ui.updateRoleAbility(Date.now());
+      const room = roomAt(local.x, local.z);
+      this.ui.updatePlayerHud(local, room?.name, this.network.pingMs);
     }
-    this.world.update(delta, time / 1000, this.activeSabotage);
-    const fps = this.frameSamples.reduce((sum, value) => sum + value, 0) / this.frameSamples.length;
+    const fps = this.frameSamples.reduce((sum, value) => sum + value, 0) / Math.max(1, this.frameSamples.length);
     this.ui.updateFps(fps, this.settings.showFps);
-    this.renderer.render(this.scene, this.camera);
-    requestAnimationFrame((nextTime) => this.frame(nextTime));
   }
 
   handleInput(time) {
@@ -364,16 +551,15 @@ export class OrbitOpsGame {
     if (this.input.consume("KeyE")) this.interact().catch((error) => this.ui.toast(error.message, true));
     if (this.input.consume("KeyR")) this.interactWithIncident().catch((error) => this.ui.toast(error.message, true));
     if (this.input.consume("KeyQ")) this.tryEliminate().catch((error) => this.ui.toast(error.message, true));
+    if (this.input.consume("KeyG")) this.performRoleAction().catch((error) => this.ui.toast(error.message, true));
     if (this.input.consume("KeyF") && this.privateState?.faction === "operative") this.ui.openModal("sabotage");
-    if (this.input.consume("Space")) this.network.request("jump").catch(() => {});
-    if (this.input.consume("Tab")) { this.ui.openModal("minimap"); this.drawMinimap(); }
+    if (this.input.consume("Tab")) {
+      this.ui.openModal("minimap");
+      this.drawMinimap();
+    }
     if (this.input.consume("Escape")) this.ui.openModal("pause");
-    if (this.input.consume("Enter") && ["discussion", "voting"].includes(this.currentPhase)) document.getElementById("meeting-chat-input").focus();
-  }
-
-  resize() {
-    const width = window.innerWidth; const height = window.innerHeight;
-    this.camera.aspect = width / Math.max(1, height); this.camera.updateProjectionMatrix();
-    this.renderer.setSize(width, height, false);
+    if (this.input.consume("Enter") && ["discussion", "voting"].includes(this.currentPhase)) {
+      document.getElementById("meeting-chat-input").focus();
+    }
   }
 }
