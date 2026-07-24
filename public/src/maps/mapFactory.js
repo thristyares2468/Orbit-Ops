@@ -15,6 +15,8 @@ const DEFAULT_LAYERS = Object.freeze([
   Object.freeze({ id: "stations", kind: "stations", visible: true, order: 3, depth: 210 })
 ]);
 
+const DECAL_LAYER = Object.freeze({ id: "decals", kind: "decals", visible: true, order: 2.2, depth: -200 });
+
 const DEFAULT_BACKGROUNDS = Object.freeze([
   Object.freeze({ type: "tile", assetKey: "stars", alpha: 0.58, depth: -1000 }),
   Object.freeze({ type: "image", assetKey: "parallax1", alpha: 0.11, depth: -990, sizeRatio: 0.72 })
@@ -47,6 +49,7 @@ export function createMapDefinition({
   stations = [],
   spawnPoints,
   collisionRects = [],
+  decals = [],
   corridorWidth = 4,
   theme = {}
 }) {
@@ -78,6 +81,7 @@ export function createMapDefinition({
   ]);
   const frozenSpawns = Object.freeze(spawnPoints.map((spawn) => Object.freeze([...spawn])));
   const frozenCollisions = freezeItems(collisionRects);
+  const frozenDecals = freezeItems(decals);
   const worldScale = theme.worldScale ?? 60;
   const worldPadding = theme.worldPadding ?? worldScale * 6.5;
   const objectGroups = Object.freeze([
@@ -105,6 +109,7 @@ export function createMapDefinition({
     taskDefinitions: frozenTasks,
     sabotageDefinitions: frozenSabotages,
     collisionRects: frozenCollisions,
+    decals: frozenDecals,
     stations: allStations,
     spawnPoints: frozenSpawns,
     objectGroups,
@@ -112,7 +117,7 @@ export function createMapDefinition({
       worldScale,
       worldPadding,
       camera: Object.freeze({ clampToBounds: true, roundPixels: true }),
-      layers: DEFAULT_LAYERS,
+      layers: frozenDecals.length ? Object.freeze([...DEFAULT_LAYERS, DECAL_LAYER]) : DEFAULT_LAYERS,
       backgrounds: DEFAULT_BACKGROUNDS,
       corridor: Object.freeze({
         depth: -300,

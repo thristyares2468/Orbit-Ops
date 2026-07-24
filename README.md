@@ -7,6 +7,7 @@ The host can select one of four isolated maps: **The Skeld**, **MIRA HQ**, **Pol
 ## Current feature set
 
 - Guest, registration, login, hashed passwords, opaque HMAC-hashed sessions, logout, profile, and saved settings
+- A walkable dropship lobby built from the supplied Lobby artwork: players move, gather, and chat in-world before launch, with the host's parameters, room code, crew manifest, and a boarding-console launch point layered over the live scene
 - Public matchmaking with all-ready auto-launch, private room codes, practice simulations with bots, host settings, ready state, and host reassignment
 - 45-second reconnect reservation with rotated rejoin tokens
 - 20 Hz authoritative movement simulation and 10 Hz world snapshots
@@ -42,7 +43,7 @@ npm run dev
 | `W A S D` or arrow keys | Move |
 | `Shift` | Sprint |
 | `C` or `Ctrl` | Stealth-walk |
-| `E` | Use a nearby station, repair, console, or reportable incident |
+| `E` | Use a nearby station, repair, console, reportable incident, or the lobby boarding console |
 | `R` | Report a nearby incident |
 | `Q` | Operative elimination attempt |
 | `F` | Operative sabotage panel |
@@ -67,6 +68,8 @@ public/src/game.js                Client orchestration and Phaser bridge
 public/src/mapSchema.js           Reusable map validation and corridor generation
 public/src/shipData.js            Four-map registry and authoritative geometry lookup
 public/src/maps/                  Isolated Skeld, MIRA HQ, Polus, and Airship definitions
+public/src/maps/lobbyDropship.js  Pre-match dropship lobby map (never a selectable match map)
+public/assets/lobby/              Sprites split out of the supplied Lobby sheet
 public/src/game2d/MapBuilder.js   Layered room/corridor/station Phaser construction
 public/src/game2d/MeridianScene.js Replaceable top-down room renderer
 public/src/game2d/CharacterSprite.js Channel-aware player animation and recolouring
@@ -116,6 +119,7 @@ Important runtime mappings:
 | `Background/Stars-sharedassets0.assets-56.png` | Loading/menu background and Phaser world backdrop |
 | `Background/Paralax1-sharedassets0.assets-115.png` | Essential anomaly/environment layer in the asset loader |
 | `Maps/Cafeteria`, `Engine`, `MedBay`, `Weapons`, and `Navigation` | Verified Skeld room art; mixed sheets use deliberate crops with preserved aspect ratio |
+| `Maps/Lobby/Lobby-sharedassets0.assets-54.png` | Split losslessly into `public/assets/lobby/` and rendered as the pre-match dropship lobby |
 | `Maps/launchPadWalls` | Verified MIRA HQ Launchpad room art |
 | `room_O2`, `room_broadcast`, `room_science`, `room_specimen`, `room_tunnel2`, `room_weapon`, and `room_storage` | Verified Polus room art |
 | `HQAssets*`, `PlanetSprites*`, `ReactorRoom`, and other packed sheets | Retained in the archive for future extraction; never stretched across a room |

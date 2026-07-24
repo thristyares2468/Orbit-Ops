@@ -1,3 +1,4 @@
+import { LOBBY_DROPSHIP, LOBBY_MAP_ID } from "./maps/lobbyDropship.js";
 import { MIRA_HQ } from "./maps/miraHq.js";
 import { mapIsWalkable, mapRoomAt } from "./maps/mapFactory.js";
 import { POLUS } from "./maps/polus.js";
@@ -19,8 +20,14 @@ export const MAP_LIST = Object.freeze(MAP_IDS.map((id) => Object.freeze({
   description: MAP_DEFINITIONS[id].description
 })));
 
+// The dropship lobby is a real map for movement, collision, and rendering, but it is
+// deliberately absent from MAP_IDS/MAP_LIST so it never appears as a playable selection.
+const ALL_MAP_DEFINITIONS = Object.freeze({ ...MAP_DEFINITIONS, [LOBBY_MAP_ID]: LOBBY_DROPSHIP });
+
+export { LOBBY_MAP_ID };
+
 export function getMapDefinition(mapId = DEFAULT_MAP_ID) {
-  return MAP_DEFINITIONS[mapId] ?? MAP_DEFINITIONS[DEFAULT_MAP_ID];
+  return ALL_MAP_DEFINITIONS[mapId] ?? ALL_MAP_DEFINITIONS[DEFAULT_MAP_ID];
 }
 
 export function getMapList() {

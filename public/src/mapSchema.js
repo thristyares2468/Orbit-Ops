@@ -143,12 +143,14 @@ export function validateMapDefinition(map) {
   const stations = Array.isArray(map?.stations) ? map.stations : [];
   const spawns = Array.isArray(map?.spawnPoints) ? map.spawnPoints : [];
   const collisionRects = Array.isArray(map?.collisionRects) ? map.collisionRects : [];
+  const decals = Array.isArray(map?.decals) ? map.decals : [];
   const zones = Array.isArray(map?.zones) ? map.zones : [];
   const objectGroups = Array.isArray(map?.objectGroups) ? map.objectGroups : [];
   const renderLayers = Array.isArray(map?.render?.layers) ? map.render.layers : [];
   const roomIds = new Set();
   const stationIds = new Set();
   const collisionIds = new Set();
+  const decalIds = new Set();
   const zoneIds = new Set();
   const objectGroupIds = new Set();
   const renderLayerIds = new Set();
@@ -197,6 +199,14 @@ export function validateMapDefinition(map) {
     if (rect.roomId && !roomIds.has(rect.roomId)) errors.push(`Collision ${rect.id ?? "(missing)"} references an unknown room.`);
     if (![rect.x, rect.z, rect.width, rect.depth].every(finite) || rect.width <= 0 || rect.depth <= 0) {
       errors.push(`Collision ${rect.id ?? "(missing)"} has invalid geometry.`);
+    }
+  }
+  for (const decal of decals) {
+    if (!decal.id || decalIds.has(decal.id)) errors.push(`Duplicate or missing decal id: ${decal.id ?? "(missing)"}.`);
+    decalIds.add(decal.id);
+    if (!decal.assetKey) errors.push(`Decal ${decal.id ?? "(missing)"} requires an assetKey.`);
+    if (![decal.x, decal.z, decal.width, decal.depth].every(finite) || decal.width <= 0 || decal.depth <= 0) {
+      errors.push(`Decal ${decal.id ?? "(missing)"} has invalid geometry.`);
     }
   }
   for (const group of objectGroups) {

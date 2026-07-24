@@ -64,6 +64,7 @@ export class MapBuilder {
       zones: (layer) => this.buildZones(layer),
       corridors: (layer) => this.buildCorridors(layer),
       rooms: (layer) => this.buildRooms(layer),
+      decals: (layer) => this.buildDecals(layer),
       props: (layer) => this.buildProps(layer),
       stations: (layer) => this.buildStations(layer)
     };
@@ -159,7 +160,7 @@ export class MapBuilder {
       fillRoomShape(floor, room, width, height, room.colour, 0.96, 0, style.radius * detail);
 
       const proceduralFloor = this.scene.add.graphics();
-      if (!room.assetKey) {
+      if (!room.assetKey && room.chrome !== false) {
         proceduralFloor.lineStyle(Math.max(1, 2 * detail), room.gridColour ?? 0xe9bf9e, room.gridAlpha ?? 0.08);
         for (let x = -width / 2 + 70 * detail; x < width / 2 - 40 * detail; x += 92 * detail) {
           proceduralFloor.lineBetween(x, -height / 2 + 34 * detail, x, height / 2 - 34 * detail);
@@ -189,11 +190,13 @@ export class MapBuilder {
       }
 
       const walls = this.scene.add.graphics();
-      fillRoomShape(walls, room, width, height, 0x02070d, 0.18, 6 * detail, 19 * detail);
-      walls.lineStyle(Math.max(1, 5 * detail), style.frame, style.frameAlpha);
-      strokeRoomShape(walls, room, width, height, 0, style.radius * detail);
-      walls.lineStyle(Math.max(1, detail), 0xd7fbff, 0.16);
-      strokeRoomShape(walls, room, width, height, 8 * detail, 18 * detail);
+      if (room.chrome !== false) {
+        fillRoomShape(walls, room, width, height, 0x02070d, 0.18, 6 * detail, 19 * detail);
+        walls.lineStyle(Math.max(1, 5 * detail), style.frame, style.frameAlpha);
+        strokeRoomShape(walls, room, width, height, 0, style.radius * detail);
+        walls.lineStyle(Math.max(1, detail), 0xd7fbff, 0.16);
+        strokeRoomShape(walls, room, width, height, 8 * detail, 18 * detail);
+      }
 
       const label = room.label === false
         ? null
@@ -217,10 +220,24 @@ export class MapBuilder {
     }
   }
 
+  buildDecals(layerDefinition) {
+    const layer = this.createLayer(layerDefinition.id, layerDefinition.depth ?? -200);
+    for (const decal of this.map.decals ?? []) {
+      const point = worldToScreen(decal.x, decal.z, this.map);
+      const image = this.scene.add.image(point.x, point.y, decal.assetKey)
+        .setDisplaySize(decal.width * this.metrics.scale, decal.depth * this.metrics.scale)
+        .setAlpha(decal.alpha ?? 1)
+        .setFlipX(Boolean(decal.flipX));
+      if (Number.isFinite(decal.angle)) image.setAngle(decal.angle);
+      image.setData({ decalId: decal.id, mapLayer: "decals" });
+      layer.add(image);
+    }
+  }
+
   buildProps(layerDefinition) {
     const detail = this.detailScale;
     const layer = this.createLayer(layerDefinition.id, layerDefinition.depth ?? this.map.render.prop.depth);
-    for (const prop of this.collisionRects) {
+    for (const prop of this.collisionRects.filter((rect) => rect.prop !== false)) {
       const point = worldToScreen(prop.x, prop.z, this.map);
       const width = prop.width * this.metrics.scale;
       const height = prop.depth * this.metrics.scale;

@@ -8,6 +8,7 @@ import {
   visibleMapLayers
 } from "../public/src/mapSchema.js";
 import {
+  LOBBY_MAP_ID,
   MAP_DEFINITIONS,
   MAP_IDS,
   getMapDefinition,
@@ -43,6 +44,26 @@ test("all four maps have isolated, valid server geometry and interactions", () =
       assert.equal(isWalkable(mapId, collision.x, collision.z), false);
       assert.equal(pointInCollisionRect(collision.x, collision.z, collision, 0.55), true);
     }
+  }
+});
+
+test("the dropship lobby is a valid map that is never selectable as a match map", () => {
+  const lobby = getMapDefinition(LOBBY_MAP_ID);
+  assert.equal(lobby.id, "lobby-dropship");
+  assert.ok(!MAP_IDS.includes(LOBBY_MAP_ID), "the lobby must not appear in the map selector");
+  assert.equal(Object.keys(MAP_DEFINITIONS).length, 4);
+  assert.deepEqual(validateMapDefinition(lobby), { valid: true, errors: [] }, lobby.name);
+  assert.deepEqual(visibleMapLayers(lobby).map((layer) => layer.id), [
+    "backgrounds", "zones", "corridors", "rooms", "decals", "props", "stations"
+  ]);
+  assert.ok(lobby.decals.length > 0, "the lobby is drawn from the supplied dropship artwork");
+  assert.equal(lobby.taskDefinitions.length, 0);
+  assert.equal(lobby.sabotageDefinitions.length, 0);
+  assert.equal(stationById(LOBBY_MAP_ID, "lobby-launch")?.type, "launch");
+  assert.ok(lobby.spawnPoints.length >= 16, "every seat in a full room needs a spawn");
+  assert.ok(lobby.spawnPoints.every(([x, z]) => isWalkable(LOBBY_MAP_ID, x, z, 0.55)));
+  for (const crate of lobby.collisionRects) {
+    assert.equal(isWalkable(LOBBY_MAP_ID, crate.x, crate.z), false, crate.id);
   }
 });
 

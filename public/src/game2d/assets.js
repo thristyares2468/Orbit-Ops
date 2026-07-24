@@ -33,6 +33,11 @@ export const PHASER_ASSETS = Object.freeze({
   securityConsole: "/assets/art/Tasks/DoorLog-sharedassets0.assets-145.png",
   repairConsole: "/assets/art/Tasks/reactorMeltdown_handprintBase-sharedassets0.assets-124.png",
   incidentMarker: "/assets/art/Tasks/glow-sharedassets0.assets-191.png",
+  lobbyDropship: "/assets/lobby/dropship.png",
+  lobbyCargoDoor: "/assets/lobby/cargo-door.png",
+  lobbyCrate: "/assets/lobby/crate.png",
+  lobbyLaptop: "/assets/lobby/laptop.png",
+  lobbyExhaust: "/assets/lobby/exhaust.png",
   "skeld-cafeteria": "/assets/art/Maps/Cafeteria/Cafeteria-sharedassets0.assets-210.png",
   "skeld-engine": "/assets/art/Maps/Engine-sharedassets0.assets-147.png",
   "skeld-reactor": "/assets/art/Tasks/ReactorRoom-sharedassets0.assets-132.png",
@@ -162,5 +167,6 @@ export const STATION_ASSET_KEYS = Object.freeze({
   doorLogs: "securityConsole",
   maintenance: "maintenanceConsole",
   repair: "repairConsole",
-  incident: "incidentMarker"
+  incident: "incidentMarker",
+  launch: "lobbyLaptop"
 });

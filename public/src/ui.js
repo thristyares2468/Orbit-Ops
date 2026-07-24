@@ -64,10 +64,11 @@ export class GameUI {
     this.meetingPhase = null;
     this.assetArchiveBuilt = false;
     this.elements = {
-      loading: byId("loading-screen"), app: byId("app"), auth: byId("auth-screen"), menu: byId("main-menu"), lobby: byId("lobby-screen"),
+      loading: byId("loading-screen"), app: byId("app"), auth: byId("auth-screen"), menu: byId("main-menu"), lobbyHud: byId("lobby-hud"),
       hud: byId("hud"), results: byId("results-screen"), disconnect: byId("disconnect-overlay"), roleReveal: byId("role-reveal"),
       minimap: byId("minimap"), task: byId("task-modal"), meeting: byId("meeting-modal"), sabotage: byId("sabotage-modal"), security: byId("security-modal"),
-      pause: byId("pause-modal"), settings: byId("settings-modal"), howto: byId("howto-modal"), profile: byId("profile-modal"), assets: byId("assets-modal")
+      pause: byId("pause-modal"), settings: byId("settings-modal"), howto: byId("howto-modal"), profile: byId("profile-modal"), assets: byId("assets-modal"),
+      lobbySettings: byId("lobby-settings-modal")
     };
     paintMenuCrew().catch(() => {});
     this.bindStaticEvents();
@@ -91,6 +92,7 @@ export class GameUI {
     byId("join-code-form").addEventListener("submit", (event) => { event.preventDefault(); this.invoke("joinRoom", { code: byId("join-code").value }); });
     byId("logout-button").addEventListener("click", () => this.invoke("logout"));
     byId("leave-room").addEventListener("click", () => this.invoke("leaveRoom"));
+    byId("lobby-code-copy").addEventListener("click", () => this.copyRoomCode());
     byId("pause-leave").addEventListener("click", () => this.invoke("leaveRoom"));
     byId("ready-button").addEventListener("click", () => this.invoke("ready", { ready: !this.myPlayer()?.ready }));
     byId("start-match").addEventListener("click", () => this.invoke("startMatch"));
@@ -130,6 +132,17 @@ export class GameUI {
     }
   }
 
+  async copyRoomCode() {
+    const code = this.room?.code;
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      this.toast(`Room code ${code} copied.`);
+    } catch {
+      this.toast(`Room code is ${code}.`);
+    }
+  }
+
   showAuthTab(tab) {
     document.querySelectorAll("[data-auth-tab]").forEach((button) => button.classList.toggle("is-active", button.dataset.authTab === tab));
     for (const name of ["guest", "login", "register"]) setVisible(byId(`${name}-form`), name === tab);
@@ -164,9 +177,13 @@ export class GameUI {
 
   enterApp() { setVisible(this.elements.loading, false); setVisible(this.elements.app, true); this.showScreen("auth"); }
 
+  // "lobby" and "game" are both played inside the Phaser world, so they show an
+  // overlay rather than one of the full-screen menu surfaces.
   showScreen(name) {
-    for (const key of ["auth", "menu", "lobby", "results"]) setVisible(this.elements[key], key === name);
-    if (["auth", "menu", "lobby", "results"].includes(name)) setVisible(this.elements.hud, false);
+    for (const key of ["auth", "menu", "results"]) setVisible(this.elements[key], key === name);
+    setVisible(this.elements.lobbyHud, name === "lobby");
+    setVisible(this.elements.hud, name === "game");
+    if (name !== "lobby") this.closeModal("lobbySettings");
   }
 
   showMainMenu(auth) {
@@ -187,7 +204,9 @@ export class GameUI {
     this.room = room;
     byId("lobby-code").textContent = room.code;
     byId("lobby-mode").textContent = titleCase(room.mode);
+    byId("lobby-count").textContent = `${room.players.length} / ${room.settings.maxPlayers}`;
     setVisible(byId("practice-role-wrap"), room.mode === "practice");
+    this.renderLobbySettings(room);
     this.renderRoster(room.players);
     this.syncHostControls();
     this.updateTaskProgress(room.taskProgress);
@@ -198,6 +217,26 @@ export class GameUI {
   }
 
   myPlayer() { return this.room?.players.find((player) => player.id === this.playerId) ?? null; }
+
+  renderLobbySettings(room) {
+    const list = byId("lobby-settings-list");
+    list.replaceChildren();
+    const rows = [
+      ["Map", getMapDefinition(room.mapId).name],
+      ["Operatives", room.settings.operativeCount],
+      ["Max crew", room.settings.maxPlayers],
+      ["Assignments", room.settings.assignmentQuantity],
+      ["Emergency calls", room.settings.emergencyMeetings],
+      ["Discussion", `${room.settings.discussionSeconds}s`],
+      ["Voting", `${room.settings.votingSeconds}s`],
+      ["Anonymous votes", room.settings.anonymousVoting ? "On" : "Off"]
+    ];
+    for (const [label, value] of rows) {
+      const term = document.createElement("dt"); term.textContent = label;
+      const detail = document.createElement("dd"); detail.textContent = String(value);
+      list.append(term, detail);
+    }
+  }
 
   renderRoster(players = []) {
     const list = byId("lobby-player-list");
@@ -210,7 +249,9 @@ export class GameUI {
       const name = document.createElement("b"); name.textContent = player.displayName;
       const detail = document.createElement("small"); detail.textContent = `${titleCase(player.appearance?.symbol)}-${player.appearance?.number} ${player.bot ? "// SIM" : player.guest ? "// GUEST" : ""}`;
       identity.append(name, detail);
-      const status = document.createElement("small"); status.textContent = player.isHost ? "HOST" : player.ready ? "READY" : player.connected ? "STANDBY" : "LINK LOST";
+      const status = document.createElement("small");
+      status.className = player.ready && !player.isHost ? "is-ready" : "";
+      status.textContent = player.isHost ? "HOST" : player.ready ? "READY" : player.connected ? "STANDBY" : "LINK LOST";
       row.append(swatch, identity, status); list.append(row);
     }
   }
@@ -221,8 +262,11 @@ export class GameUI {
     const connectedHumans = this.room?.players.filter((player) => player.connected && !player.bot) ?? [];
     const everyoneReady = connectedHumans.length > 0 && connectedHumans.every((player) => player.ready);
     byId("start-match").disabled = !host || (this.room?.mode !== "practice" && !everyoneReady);
-    byId("start-match").title = this.room?.mode !== "practice" && !everyoneReady ? "Every connected player must be ready." : "";
+    byId("start-match").title = !host
+      ? "Only the room host can launch."
+      : this.room?.mode !== "practice" && !everyoneReady ? "Every connected player must be ready." : "";
     byId("host-settings").querySelectorAll("input, select").forEach((input) => { input.disabled = !host; });
+    byId("setting-map").closest(".map-setting")?.classList.toggle("is-locked", !host);
     const settings = this.room?.settings;
     if (settings) {
       byId("setting-max-players").value = settings.maxPlayers;
@@ -253,10 +297,7 @@ export class GameUI {
     });
   }
 
-  showGame() {
-    for (const key of ["auth", "menu", "lobby", "results"] ) setVisible(this.elements[key], false);
-    setVisible(this.elements.hud, true);
-  }
+  showGame() { this.showScreen("game"); }
 
   setPrivateState(state) {
     const previousRole = this.privateState?.role;
@@ -330,14 +371,15 @@ export class GameUI {
     update(); this.phaseTimer = setInterval(update, 250);
   }
 
-  updateInteraction(nearest) {
+  updateInteraction(nearest, inLobby = false) {
     const prompt = byId("interaction-prompt");
     setVisible(byId("report-button"), false);
     setVisible(byId("meeting-button"), false);
     if (!nearest) { setVisible(prompt, false); return; }
-    const labels = { task: "Access assignment", repair: "Repair system", meeting: "Call emergency meeting", security: "Open camera telemetry", doorLogs: "Review door logs", maintenance: "Enter maintenance route", incident: "Report incident" };
+    const labels = { task: "Access assignment", repair: "Repair system", meeting: "Call emergency meeting", security: "Open camera telemetry", doorLogs: "Review door logs", maintenance: "Enter maintenance route", incident: "Report incident", launch: "Launch the operation" };
     prompt.querySelector("span").textContent = labels[nearest.station.type] ?? "Interact";
     setVisible(prompt, true);
+    if (inLobby) return;
     setVisible(byId("report-button"), nearest.station.type === "incident");
     const meetingAvailable = nearest.station.type === "meeting"
       && (this.room?.mode === "practice" || (this.privateState?.emergencyMeetings ?? 0) > 0);

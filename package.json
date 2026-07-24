@@ -16,7 +16,7 @@
     "db:seed": "node database/seed.js",
     "assets:inventory": "node scripts/generateAssetCatalog.mjs",
     "test": "node --test tests/*.test.js",
-    "check": "node --check server.js && node --check server/gameServer.js && node --check public/src/main.js && node --check public/src/game.js && node --check public/src/ui.js && node --check public/src/roleData.js && node --check public/src/mapSchema.js && node --check public/src/game2d/MapBuilder.js && node --check public/src/game2d/MeridianScene.js && node --check public/src/game2d/CharacterSprite.js"
+    "check": "node --check server.js && node --check server/gameServer.js && node --check public/src/main.js && node --check public/src/game.js && node --check public/src/ui.js && node --check public/src/roleData.js && node --check public/src/mapSchema.js && node --check public/src/maps/mapFactory.js && node --check public/src/maps/lobbyDropship.js && node --check public/src/game2d/MapBuilder.js && node --check public/src/game2d/MeridianScene.js && node --check public/src/game2d/CharacterSprite.js"
   },
   "dependencies": {
     "bcryptjs": "3.0.3",

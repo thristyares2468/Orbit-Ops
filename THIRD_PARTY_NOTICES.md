@@ -52,6 +52,15 @@ Source references supplied by the project owner:
 - `PC _ Computer - Among Us - Death Animations - Gun (New Version).png`
 - `PC _ Computer - Among Us - Death Animations - Knife Stab (New Version).png`
 
+## Dropship lobby sprites
+
+`public/assets/lobby/` holds five sprites separated out of the supplied
+`Maps/Lobby/Lobby-sharedassets0.assets-54.png` packed sheet: `dropship.png` (hull, wings, and both
+engine pods), `cargo-door.png`, `crate.png`, `laptop.png`, and `exhaust.png`. The split is lossless —
+each file is one connected drawn component copied pixel-for-pixel with its original alpha, with no
+resampling, recolouring, or re-encoding of the artwork itself. The original sheet is untouched in
+`public/assets/art/Maps/Lobby/` and remains the catalogued source of record.
+
 ## Python fan-conversion map architecture
 
 The project owner supplied `Among-Us-clone-main.zip`, a Python/Pygame fan conversion whose source

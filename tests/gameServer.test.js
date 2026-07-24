@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { MAP_IDS, getMapDefinition, isWalkable, stationById } from "../public/src/shipData.js";
+import { LOBBY_MAP_ID, MAP_IDS, getMapDefinition, isWalkable, stationById } from "../public/src/shipData.js";
 import { GameServer } from "../server/gameServer.js";
 import { PHASES } from "../server/constants.js";
 
@@ -210,6 +210,35 @@ test("every map emergency button starts a meeting and consumes the caller allowa
     for (const timer of room.timers) clearTimeout(timer);
     room.timers.clear();
   }
+});
+
+test("pre-match movement is simulated in the dropship lobby, not on the selected map", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  const room = server.createRoom("private", { mapId: "polus" });
+  assert.equal(room.phase, PHASES.LOBBY);
+  assert.equal(room.mapId, "polus");
+
+  const [spawnX, spawnZ] = getMapDefinition(LOBBY_MAP_ID).spawnPoints[0];
+  const walker = server.makePlayer({
+    id: "walker", socketId: "socket-walker", displayName: "Walker",
+    appearance: { colour: "cyan", symbol: "orbit", number: 7 },
+    x: spawnX, z: spawnZ, mapId: LOBBY_MAP_ID
+  });
+  room.players.set(walker.id, walker);
+  assert.equal(walker.currentRoom, "dropship-hold");
+
+  // Hold "east" long enough to reach the hull wall; the lobby geometry must contain it.
+  for (let step = 0; step < 60; step += 1) {
+    walker.input = { x: 1, z: 0, yaw: 0, sprint: false, crouch: false, seq: step };
+    walker.lastInputAt = Date.now();
+    server.tickPlayerMovement(room, walker, Date.now(), 0.05);
+  }
+  assert.ok(walker.position.x > spawnX, "lobby input moves the player");
+  assert.ok(isWalkable(LOBBY_MAP_ID, walker.position.x, walker.position.z), "player stays on the deck");
+  assert.equal(walker.currentRoom, "dropship-hold");
+  assert.equal(getMapDefinition("polus").rooms.some((item) => item.id === "dropship-hold"), false,
+    "the lobby deck belongs to the lobby map alone");
 });
 
 test("bot routes follow every authored corridor without targeting blocked room centres", () => {

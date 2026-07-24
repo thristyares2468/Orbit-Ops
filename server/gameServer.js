@@ -4,7 +4,8 @@ import { updateSettings } from "../database/repositories/accountsRepository.js";
 import { recordMatch } from "../database/repositories/statsRepository.js";
 import { login, logout, profile, register, resume } from "./authService.js";
 import {
-  DEFAULT_MAP_ID, MAP_DEFINITIONS, distance2D, getMapDefinition, isWalkable, roomAt, stationById
+  DEFAULT_MAP_ID, LOBBY_MAP_ID, MAP_DEFINITIONS, distance2D, getMapDefinition, isWalkable, roomAt,
+  stationById
 } from "../public/src/shipData.js";
 import {
   CREW_ROLE_IDS, NEUTRAL_ROLE_IDS, OPERATIVE_ROLE_IDS, ROLE_DEFINITIONS,
@@ -70,6 +71,12 @@ function privateRoleState(player) {
     shieldTargetId: state.shieldTargetId,
     morphTargetId: state.morphTargetId
   };
+}
+
+// Players stand in the shared dropship lobby until a match starts, so movement,
+// collision, and interaction all resolve against the lobby map while phase is LOBBY.
+function activeMapId(room) {
+  return room.phase === PHASES.LOBBY ? LOBBY_MAP_ID : room.mapId;
 }
 
 function makeStats() {
@@ -288,11 +295,9 @@ export class GameServer {
     socket.on("hostSettings", (payload, ack) => this.withPlayer(socket, "hostSettings", 10, 10_000, ack, (room, player) => {
       this.requireHost(room, player);
       if (room.phase !== PHASES.LOBBY) throw new Error("Match settings are locked after countdown.");
-      const previousMapId = room.mapId;
       room.settings = validateSettings({ ...room.settings, ...payload });
       room.mapId = room.settings.mapId;
       if (room.settings.operativeCount >= room.settings.maxPlayers) room.settings.operativeCount = Math.max(1, room.settings.maxPlayers - 1);
-      if (room.mapId !== previousMapId) this.positionPlayersAtMapSpawn(room);
       this.broadcastRoomState(room);
       return { ok: true, settings: room.settings };
     }));
@@ -426,12 +431,13 @@ export class GameServer {
     const duplicate = [...room.players.values()].some((candidate) => candidate.displayName.toLocaleLowerCase() === socket.data.auth.displayName.toLocaleLowerCase());
     if (duplicate) throw new Error("That display name is already present in this room.");
 
-    const map = getMapDefinition(room.mapId);
+    const mapId = activeMapId(room);
+    const map = getMapDefinition(mapId);
     const spawn = map.spawnPoints[room.players.size % map.spawnPoints.length];
     const player = this.makePlayer({
       id: randomUUID(), socketId: socket.id, accountId: socket.data.auth.accountId,
       displayName: socket.data.auth.displayName, guest: socket.data.auth.guest,
-      appearance: socket.data.auth.appearance, x: spawn[0], z: spawn[1], mapId: room.mapId
+      appearance: socket.data.auth.appearance, x: spawn[0], z: spawn[1], mapId
     });
     room.players.set(player.id, player);
     if (!room.hostId) room.hostId = player.id;
@@ -493,26 +499,27 @@ export class GameServer {
 
   populatePracticeBots(room, targetPlayerCount) {
     const botNames = ["Kepler", "Vega", "Sagan", "Lyra", "Pioneer", "Aster"];
-    const map = getMapDefinition(room.mapId);
+    const mapId = activeMapId(room);
+    const map = getMapDefinition(mapId);
     while (room.players.size < Math.min(targetPlayerCount, room.settings.maxPlayers)) {
       const index = room.players.size;
       const spawn = map.spawnPoints[index % map.spawnPoints.length];
       const player = this.makePlayer({
         id: `bot-${randomUUID()}`, socketId: null, displayName: botNames[index - 1] ?? `Drone ${index}`,
         appearance: { colour: ["amber", "violet", "lime", "coral"][index % 4], symbol: ["delta", "nova", "pulse", "vector"][index % 4], number: index + 10 },
-        x: spawn[0], z: spawn[1], mapId: room.mapId, bot: true
+        x: spawn[0], z: spawn[1], mapId, bot: true
       });
       room.players.set(player.id, player);
     }
   }
 
-  positionPlayersAtMapSpawn(room) {
-    const map = getMapDefinition(room.mapId);
+  positionPlayersAtMapSpawn(room, mapId = activeMapId(room)) {
+    const map = getMapDefinition(mapId);
     let index = 0;
     for (const player of room.players.values()) {
       const spawn = map.spawnPoints[index++ % map.spawnPoints.length];
       player.position = { x: spawn[0], z: spawn[1] };
-      player.currentRoom = roomAt(room.mapId, spawn[0], spawn[1])?.id ?? map.rooms[0].id;
+      player.currentRoom = roomAt(mapId, spawn[0], spawn[1])?.id ?? map.rooms[0].id;
       player.botTarget = null;
       player.botPath = [];
       player.input = normaliseInput({});
@@ -737,12 +744,12 @@ export class GameServer {
     room.evidence = [];
     room.taskCompleted = 0;
     room.taskTotal = 0;
-    const map = getMapDefinition(room.mapId);
+    const map = getMapDefinition(LOBBY_MAP_ID);
     let spawnIndex = 0;
     for (const player of room.players.values()) {
       const spawn = map.spawnPoints[spawnIndex++ % map.spawnPoints.length];
       player.position = { x: spawn[0], z: spawn[1] };
-      player.currentRoom = roomAt(room.mapId, spawn[0], spawn[1])?.id ?? map.rooms[0].id;
+      player.currentRoom = roomAt(LOBBY_MAP_ID, spawn[0], spawn[1])?.id ?? map.rooms[0].id;
       player.ready = player.bot;
       player.alive = true;
       player.role = null;
@@ -1337,22 +1344,23 @@ export class GameServer {
   }
 
   tickPlayerMovement(room, player, now, delta) {
+    const mapId = activeMapId(room);
     const input = now - player.lastInputAt < 500 ? player.input : normaliseInput({});
     const baseSpeed = input.crouch ? PLAYER_SPEED.crouch : input.sprint ? PLAYER_SPEED.sprint : PLAYER_SPEED.walk;
     const factionMultiplier = player.faction === "operative" ? room.settings.operativeSpeed : room.settings.crewSpeed;
     const speed = baseSpeed * factionMultiplier;
     const next = { x: player.position.x + input.x * speed * delta, z: player.position.z + input.z * speed * delta };
-    if (isWalkable(room.mapId, next.x, next.z)) player.position = next;
+    if (isWalkable(mapId, next.x, next.z)) player.position = next;
     else {
       const slideX = { x: next.x, z: player.position.z };
       const slideZ = { x: player.position.x, z: next.z };
-      if (isWalkable(room.mapId, slideX.x, slideX.z)) player.position = slideX;
-      else if (isWalkable(room.mapId, slideZ.x, slideZ.z)) player.position = slideZ;
+      if (isWalkable(mapId, slideX.x, slideX.z)) player.position = slideX;
+      else if (isWalkable(mapId, slideZ.x, slideZ.z)) player.position = slideZ;
     }
     player.rotation = input.yaw;
     player.lastInputSeq = input.seq;
     player.animation = input.crouch ? "crouch" : Math.hypot(input.x, input.z) < 0.05 ? "idle" : input.sprint ? "sprint" : "walk";
-    const nextRoom = roomAt(room.mapId, player.position.x, player.position.z)?.id ?? player.currentRoom;
+    const nextRoom = roomAt(mapId, player.position.x, player.position.z)?.id ?? player.currentRoom;
     if (nextRoom !== player.currentRoom) {
       room.doorLogs.push({ from: player.currentRoom, to: nextRoom, at: now, playerId: player.id });
       room.doorLogs = room.doorLogs.slice(-40);

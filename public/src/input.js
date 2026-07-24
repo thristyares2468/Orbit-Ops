@@ -15,19 +15,20 @@ export class InputController {
   }
 
   onKeyDown(event) {
+    // Ignore keys typed while input is off (chat, modals, menus); otherwise they
+    // queue up and fire the instant control returns to the world.
+    if (!this.enabled) return;
     if (!this.keys.has(event.code)) this.pressed.add(event.code);
     this.keys.add(event.code);
-    if (["Tab", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code) && this.enabled) {
+    if (["Tab", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.code)) {
       event.preventDefault();
     }
   }
 
   setEnabled(enabled) {
     this.enabled = enabled;
-    if (!enabled) {
-      this.keys.clear();
-      this.pressed.clear();
-    }
+    this.keys.clear();
+    this.pressed.clear();
   }
 
   consume(code) {

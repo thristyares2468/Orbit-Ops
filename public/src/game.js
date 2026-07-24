@@ -2,7 +2,7 @@ import { AudioManager } from "./audio.js";
 import { MeridianScene } from "./game2d/MeridianScene.js";
 import { InputController } from "./input.js";
 import { getRoleDefinition } from "./roleData.js";
-import { getMapDefinition, roomAt } from "./shipData.js";
+import { LOBBY_MAP_ID, getMapDefinition, roomAt } from "./shipData.js";
 import { TaskInterface } from "./tasks.js";
 import { applyDocumentSettings, saveSettings } from "./settings.js";
 
@@ -108,6 +108,7 @@ export class OrbitOpsGame {
       this.currentPhase = "lobby";
       this.privateState = null;
       this.ui.closeGameplayModals();
+      this.updateRoom(room);
       this.ui.showLobby(room, this.playerId);
     });
     this.network.on("countdown", () => { this.currentPhase = "countdown"; this.ui.showGame(); });
@@ -310,12 +311,18 @@ export class OrbitOpsGame {
     }
   }
 
+  // Everything before the countdown happens in the shared dropship lobby; the
+  // host's selected map only becomes the live world once the match starts.
+  activeMapId() {
+    return this.currentPhase === "lobby" ? LOBBY_MAP_ID : this.room?.mapId;
+  }
+
   updateRoom(room) {
     if (!room) return;
     this.room = room;
     this.activeSabotage = room.activeSabotage;
     this.ui.updateRoom(room);
-    if (this.sceneReady) this.phaserScene.setMap(room.mapId);
+    if (this.sceneReady) this.phaserScene.setMap(this.activeMapId());
     this.syncCharacterMetadata(room.players);
   }
 
@@ -366,7 +373,8 @@ export class OrbitOpsGame {
   async interact() {
     const station = this.nearest?.station;
     if (!station) return;
-    if (station.type === "task") await this.network.request("beginTask", { stationId: station.id });
+    if (station.type === "launch") await this.network.request("startMatch");
+    else if (station.type === "task") await this.network.request("beginTask", { stationId: station.id });
     else if (station.type === "repair") await this.network.request("repairSabotage", { stationId: station.id });
     else if (station.type === "meeting") await this.network.request("callMeeting");
     else if (station.type === "maintenance") await this.network.request("useMaintenance", { stationId: station.id });
@@ -526,24 +534,41 @@ export class OrbitOpsGame {
     if (this.frameSamples.length > 30) this.frameSamples.shift();
 
     const modalOpen = Boolean(document.querySelector(".modal:not(.is-hidden)"));
-    const gameplayActive = this.currentPhase === "active" && this.room;
-    const shouldEnableInput = Boolean(gameplayActive && !modalOpen);
+    const typing = Boolean(document.activeElement?.closest?.("input, textarea, select"));
+    const inLobby = this.currentPhase === "lobby" && Boolean(this.room);
+    const gameplayActive = this.currentPhase === "active" && Boolean(this.room);
+    const shouldEnableInput = (inLobby || gameplayActive) && !modalOpen && !typing;
     if (this.input.enabled !== shouldEnableInput) this.input.setEnabled(shouldEnableInput);
-    if (gameplayActive && !modalOpen) this.handleInput(time);
+    if (shouldEnableInput) {
+      if (inLobby) this.handleLobbyInput(time);
+      else this.handleInput(time);
+    }
 
     const local = this.latestSnapshots.get(this.playerId);
     if (local) {
-      const map = getMapDefinition(this.room?.mapId);
-      this.nearest = gameplayActive && this.privateState?.alive
-        ? nearestInteractable(map, local, this.latestIncidents)
-        : null;
-      this.ui.updateInteraction(this.nearest);
-      this.ui.updateRoleAbility(Date.now());
+      const map = getMapDefinition(this.activeMapId());
+      this.nearest = inLobby
+        ? nearestInteractable(map, local)
+        : gameplayActive && this.privateState?.alive
+          ? nearestInteractable(map, local, this.latestIncidents)
+          : null;
+      this.ui.updateInteraction(this.nearest, inLobby);
+      if (!inLobby) this.ui.updateRoleAbility(Date.now());
       const room = roomAt(map.id, local.x, local.z);
       this.ui.updatePlayerHud(local, room?.name, this.network.pingMs);
     }
     const fps = this.frameSamples.reduce((sum, value) => sum + value, 0) / Math.max(1, this.frameSamples.length);
     this.ui.updateFps(fps, this.settings.showFps);
+  }
+
+  handleLobbyInput(time) {
+    if (time - this.lastInputSentAt > 50) {
+      this.lastInputSentAt = time;
+      this.network.send("playerInput", this.input.movement());
+    }
+    if (this.input.consume("KeyE")) this.interact().catch((error) => this.ui.toast(error.message, true));
+    if (this.input.consume("Enter")) document.getElementById("lobby-chat-input")?.focus();
+    if (this.input.consume("Escape")) this.ui.openModal("pause");
   }
 
   handleInput(time) {

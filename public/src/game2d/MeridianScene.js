@@ -33,7 +33,7 @@ export class MeridianScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor("#02060c");
     this.cameras.main.setRoundPixels(true);
-    this.setMap(this.bridge.room?.mapId ?? DEFAULT_MAP_ID);
+    this.setMap(this.bridge.activeMapId() ?? DEFAULT_MAP_ID);
 
     this.bridge.onSceneReady(this);
   }
