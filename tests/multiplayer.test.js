@@ -91,7 +91,7 @@ test("four clients join, receive private roles, and move through authoritative s
   const sockets = await Promise.all([0, 1, 2, 3].map(connectGuest));
   const created = await request(sockets[0], "createRoom", { mode: "private", settings: { operativeCount: 2, discussionSeconds: 10, votingSeconds: 10, eliminationCooldownSeconds: 10 } });
   const roomCode = created.room.code;
-  for (const mapId of ["mira-hq", "polus", "the-skeld", "the-airship"]) {
+  for (const mapId of ["mira-hq", "polus", "the-skeld"]) {
     const changed = await request(sockets[0], "hostSettings", { mapId });
     assert.equal(changed.settings.mapId, mapId);
   }

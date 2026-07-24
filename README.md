@@ -2,7 +2,7 @@
 
 Orbit Ops is a playable, server-authoritative 2D social-deduction game. One Node.js service hosts the Phaser client, Socket.IO simulation, Express health route, and optional Neon PostgreSQL persistence.
 
-The host can select one of four isolated maps: **The Skeld**, **MIRA HQ**, **Polus**, or **The Airship**. Each selection changes the authoritative room graph, world bounds, collision, spawn points, tasks, sabotages, emergency-button location, bot paths, Phaser deck, and player-map overlay together. Supplied non-logo artwork is kept within its original map family.
+The host can select one of three isolated maps: **The Skeld**, **MIRA HQ**, or **Polus**. Each selection changes the authoritative room graph, world bounds, collision, spawn points, tasks, sabotages, emergency-button location, bot paths, Phaser deck, and player-map overlay together. Supplied non-logo artwork is kept within its original map family.
 
 ## Current feature set
 
@@ -67,7 +67,7 @@ public/style.css                  Responsive visual system
 public/src/game.js                Client orchestration and Phaser bridge
 public/src/mapSchema.js           Reusable map validation and corridor generation
 public/src/shipData.js            Four-map registry and authoritative geometry lookup
-public/src/maps/                  Isolated Skeld, MIRA HQ, Polus, and Airship definitions
+public/src/maps/                  Isolated Skeld, MIRA HQ, and Polus definitions
 public/src/maps/lobbyDropship.js  Pre-match dropship lobby map (never a selectable match map)
 public/assets/lobby/              Sprites split out of the supplied Lobby sheet
 public/src/game2d/MapBuilder.js   Layered room/corridor/station Phaser construction
@@ -88,9 +88,9 @@ minimap sheets (`Gui/map-sharedassets0.assets-125.png` and `Gui/map_HQ-sharedass
 rather than authored by eye: rooms come from the saturated room blobs, and each corridor route is a
 clearance-weighted path across the sheet's real walkable pixels, reduced to axis-aligned `via`
 waypoints. Connections whose only path is a long way round are rejected rather than invented, so the
-adjacency graph matches the reference. Polus has an equivalent sheet
-(`Gui/mapPB-sharedassets0.assets-103.png`) and is not yet converted; the Airship has no reference art
-in the supplied pack at all and remains hand-authored.
+adjacency graph matches the reference. Polus is derived the same way from
+`Gui/mapPB-sharedassets0.assets-103.png`, with its open snowfields decomposed into walkable zones.
+The Airship was removed at the owner's request because the supplied pack contains no Airship art.
 
 The maps follow a data/build split without importing compiled Unity code or third-party map art.
 `public/src/shipData.js` exposes a registry whose four definitions live under `public/src/maps/`.
@@ -108,8 +108,7 @@ TMX map and ripped assets are deliberately excluded.
 
 The Skeld uses its two central hubs and east/west ship wings. MIRA HQ uses its long launchpad route
 and three-way headquarters junction. Polus uses its dropship, exposed outpost paths, laboratory, and
-specimen route. The Airship uses its large multi-wing deck, Gap Room, Meeting Room, Records, and
-Cargo Bay routes. The clickable HUD map and `Tab` overlay always render the selected server map,
+specimen route. The clickable HUD map and `Tab` overlay always render the selected server map,
 with private assignment, sabotage, and local-player markers layered on top.
 
 Future authored map code can replace any individual definition without putting gameplay rules
@@ -212,14 +211,13 @@ clients changing maps, joining, receiving private role/task state, starting a ma
 server snapshots, and being denied a Crew elimination request.
 
 The project has also been browser-playtested through map selection and rendered gameplay/player-map
-views for The Skeld, MIRA HQ, Polus, and The Airship. Database migration was not executed in this
+views for The Skeld, MIRA HQ, and Polus. Database migration was not executed in this
 checkout because no Neon `DATABASE_URL` was supplied.
 
 ## Known limitations and next integration points
 
 - The four room transforms and corridor routes are reference-authored approximations ready for the owner's later exact map code. They are intentionally isolated rather than combined into one deck.
 - The supplied asset pack contains several packed atlases whose filenames resemble rooms but whose pixels also contain props, effects, or task-animation frames. Only verified whole-room images and deliberate Skeld crops are rendered; other packed sheets stay available in the archive.
-- No supplied file is identifiable as Airship room art. The Airship therefore uses its own procedural deck treatment so artwork from another map is not mixed into it.
 - Supplied map, player, station, task, voting, meeting, role-reveal, role-icon, walk, and standard death art is live in gameplay. The three irregular cinematic death sheets are retained as reference assets for a later attacker/victim animation pass.
 - Audio is synthesized because no supplied audio files were found.
 - The controls are desktop-first; responsive menus work at narrow widths, but touch gameplay controls are not implemented.

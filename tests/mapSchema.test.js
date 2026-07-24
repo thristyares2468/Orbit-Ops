@@ -17,9 +17,9 @@ import {
 } from "../public/src/shipData.js";
 import { worldDetailScale, worldMetrics } from "../public/src/game2d/assets.js";
 
-test("all four maps have isolated, valid server geometry and interactions", () => {
-  assert.deepEqual(MAP_IDS, ["the-skeld", "mira-hq", "polus", "the-airship"]);
-  assert.equal(new Set(Object.values(MAP_DEFINITIONS).map((map) => map.rooms)).size, 4);
+test("all three maps have isolated, valid server geometry and interactions", () => {
+  assert.deepEqual(MAP_IDS, ["the-skeld", "mira-hq", "polus"]);
+  assert.equal(new Set(Object.values(MAP_DEFINITIONS).map((map) => map.rooms)).size, 3);
   for (const mapId of MAP_IDS) {
     const map = getMapDefinition(mapId);
     assert.deepEqual(validateMapDefinition(map), { valid: true, errors: [] }, map.name);
@@ -51,7 +51,7 @@ test("the dropship lobby is a valid map that is never selectable as a match map"
   const lobby = getMapDefinition(LOBBY_MAP_ID);
   assert.equal(lobby.id, "lobby-dropship");
   assert.ok(!MAP_IDS.includes(LOBBY_MAP_ID), "the lobby must not appear in the map selector");
-  assert.equal(Object.keys(MAP_DEFINITIONS).length, 4);
+  assert.equal(Object.keys(MAP_DEFINITIONS).length, 3);
   assert.deepEqual(validateMapDefinition(lobby), { valid: true, errors: [] }, lobby.name);
   assert.deepEqual(visibleMapLayers(lobby).map((layer) => layer.id), [
     "backgrounds", "zones", "corridors", "rooms", "decals", "props", "stations"
@@ -71,15 +71,13 @@ test("room artwork uses only verified whole-room images or deliberate crops", ()
   const allowedAssets = new Map([
     ["the-skeld", new Set(["skeld-cafeteria", "skeld-engine", "skeld-medbay", "skeld-weapons", "skeld-navigation"])],
     ["mira-hq", new Set(["mira-launchpad"])],
-    ["polus", new Set(["polus-o2", "polus-broadcast", "polus-science", "polus-specimen", "polus-tunnel", "polus-weapons", "polus-storage"])],
-    ["the-airship", new Set()]
+    ["polus", new Set(["polus-o2", "polus-broadcast", "polus-science", "polus-specimen", "polus-tunnel", "polus-weapons", "polus-storage", "polus-dropship"])]
   ]);
   for (const [mapId, allowed] of allowedAssets) {
     for (const room of getMapDefinition(mapId).rooms) {
       assert.ok(!room.assetKey || allowed.has(room.assetKey), `${mapId}:${room.id}:${room.assetKey}`);
     }
   }
-  assert.ok(getMapDefinition("the-airship").rooms.every((room) => !room.assetKey), "Airship uses its own procedural deck treatment");
 });
 
 test("canonical room sets are kept on their original maps", () => {
@@ -87,7 +85,6 @@ test("canonical room sets are kept on their original maps", () => {
   assert.ok(["cafeteria", "upper-engine", "reactor", "navigation"].every((id) => roomIds("the-skeld").has(id)));
   assert.ok(["launchpad", "greenhouse", "balcony", "decontamination"].every((id) => roomIds("mira-hq").has(id)));
   assert.ok(["dropship", "boiler-room", "specimen-room", "laboratory"].every((id) => roomIds("polus").has(id)));
-  assert.ok(["cockpit", "vault", "gap-room", "meeting-room", "cargo-bay"].every((id) => roomIds("the-airship").has(id)));
 });
 
 test("map silhouettes follow the supplied canonical reference layouts", () => {
@@ -99,17 +96,13 @@ test("map silhouettes follow the supplied canonical reference layouts", () => {
   assert.ok(room("polus", "dropship").z < room("polus", "office").z);
   assert.ok(room("polus", "specimen-room").x > room("polus", "office").x);
   assert.ok(getMapDefinition("polus").zones.length >= 4);
-  assert.equal(room("the-airship", "vault").shape, "ellipse");
-  assert.equal(room("the-airship", "records").shape, "ellipse");
-  assert.ok(getMapDefinition("the-airship").bounds.maxX - getMapDefinition("the-airship").bounds.minX > 170);
 });
 
 test("world rendering details and padding scale with each map", () => {
   const expectedScales = new Map([
     ["the-skeld", 42],
     ["mira-hq", 41],
-    ["polus", 39],
-    ["the-airship", 36]
+    ["polus", 39]
   ]);
   for (const [mapId, expectedScale] of expectedScales) {
     const map = getMapDefinition(mapId);
