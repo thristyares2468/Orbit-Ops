@@ -45,7 +45,7 @@ export const THE_SKELD = createMapDefinition({
     { id: "communications", name: "Communications", x: 19.1, z: 31.09, width: 15.28, depth: 11.53, colour: 0x24485b },
     { id: "admin", name: "Admin", x: 20.51, z: 8.18, width: 15.14, depth: 13.67, colour: 0x503040 },
     { id: "shields", name: "Shields", x: 35.45, z: 21.11, width: 13.94, depth: 15.95, shape: "octagon", colour: 0x3b285e },
-    { id: "o2", name: "O2", x: 24.93, z: -6.3, width: 11.12, depth: 10.45, shape: "octagon", colour: 0x1d4d4b },
+    { id: "o2", name: "O2", x: 24.93, z: -6.3, width: 11.12, depth: 10.45, shape: "octagon", assetKey: "skeld-o2", artAlpha: 0.9, colour: 0x1d4d4b },
     { id: "weapons", name: "Weapons", x: 35.45, z: -21.91, width: 13.94, depth: 15.68, shape: "octagon", assetKey: "skeld-weapons", artCrop: { x: 0, y: 0, width: 550, height: 450 }, artAlpha: 0.86, colour: 0x2c4552 },
     { id: "navigation", name: "Navigation", x: 59.84, z: -3.28, width: 10.45, depth: 14.07, shape: "octagon", assetKey: "skeld-navigation", artCrop: { x: 0, y: 0, width: 344, height: 420 }, artAlpha: 0.88, colour: 0x253b65 },
   ],

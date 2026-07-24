@@ -61,6 +61,16 @@ each file is one connected drawn component copied pixel-for-pixel with its origi
 resampling, recolouring, or re-encoding of the artwork itself. The original sheet is untouched in
 `public/assets/art/Maps/Lobby/` and remains the catalogued source of record.
 
+## Room artwork extracted from packed sheets
+
+`public/assets/rooms/` holds whole-room images cropped losslessly from the supplied packed map
+sheets so each room renders its real interior instead of a flat colour: `mira-cafeteria`,
+`mira-admin`, `mira-laboratory`, `mira-greenhouse`, `mira-medbay`, and `mira-storage` come from
+`Maps/HQAssets-*.png` and `Maps/compLabGreenHouseAdminWalls-*.png`; `skeld-o2` comes from
+`Maps/LifeSupport-*.png`. Each crop is a plain rectangular region copied pixel-for-pixel with its
+original alpha - no resampling, recolouring, or re-encoding of the artwork. The source sheets are
+untouched and remain the catalogued originals under `public/assets/art/Maps/`.
+
 ## Python fan-conversion map architecture
 
 The project owner supplied `Among-Us-clone-main.zip`, a Python/Pygame fan conversion whose source

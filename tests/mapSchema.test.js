@@ -69,8 +69,8 @@ test("the dropship lobby is a valid map that is never selectable as a match map"
 
 test("room artwork uses only verified whole-room images or deliberate crops", () => {
   const allowedAssets = new Map([
-    ["the-skeld", new Set(["skeld-cafeteria", "skeld-engine", "skeld-medbay", "skeld-weapons", "skeld-navigation"])],
-    ["mira-hq", new Set(["mira-launchpad"])],
+    ["the-skeld", new Set(["skeld-cafeteria", "skeld-engine", "skeld-medbay", "skeld-weapons", "skeld-navigation", "skeld-o2"])],
+    ["mira-hq", new Set(["mira-launchpad", "mira-cafeteria", "mira-admin", "mira-laboratory", "mira-greenhouse", "mira-medbay", "mira-storage"])],
     ["polus", new Set(["polus-o2", "polus-broadcast", "polus-science", "polus-specimen", "polus-tunnel", "polus-weapons", "polus-storage", "polus-dropship"])]
   ]);
   for (const [mapId, allowed] of allowedAssets) {

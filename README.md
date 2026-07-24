@@ -130,6 +130,8 @@ Important runtime mappings:
 | `Maps/Cafeteria`, `Engine`, `MedBay`, `Weapons`, and `Navigation` | Verified Skeld room art; mixed sheets use deliberate crops with preserved aspect ratio |
 | `Maps/Lobby/Lobby-sharedassets0.assets-54.png` | Split losslessly into `public/assets/lobby/` and rendered as the pre-match dropship lobby |
 | `Maps/launchPadWalls` | Verified MIRA HQ Launchpad room art |
+| `Maps/HQAssets`, `compLabGreenHouseAdminWalls` | Cropped into `public/assets/rooms/` for MIRA HQ's Cafeteria, Admin, Laboratory, Greenhouse, MedBay, and Storage |
+| `Maps/LifeSupport` | Cropped into `public/assets/rooms/skeld-o2.png` for the Skeld O2 room |
 | `room_O2`, `room_broadcast`, `room_science`, `room_specimen`, `room_tunnel2`, `room_weapon`, and `room_storage` | Verified Polus room art |
 | `HQAssets*`, `PlanetSprites*`, `ReactorRoom`, and other packed sheets | Retained in the archive for future extraction; never stretched across a room |
 | `player-models/base/idle`, `walk`, and `death` frames | Live 58×76 player model, movement animation, and elimination animation |
