@@ -74,6 +74,9 @@ export class CharacterSprite {
   }
 
   applySnapshot(snapshot, immediate = false) {
+    // A fresh snapshot always re-shows the sprite: vanished (ejected) players stay
+    // hidden for the living only because the living stop receiving their updates.
+    this.container.setVisible(true);
     const next = this.scene.mapPoint(snapshot.x, snapshot.z);
     this.lastTargetX = this.target.x;
     this.target = next;
@@ -100,13 +103,32 @@ export class CharacterSprite {
     this.trackedRing.setVisible(Boolean(tracked));
   }
 
-  update(deltaSeconds, reducedMotion = false) {
+  markDead(vanish = false) {
+    if (this.player.alive === false) return;
+    this.player.alive = false;
+    this.deathStartedAt = vanish ? Number.NEGATIVE_INFINITY : performance.now();
+    if (vanish) this.container.setVisible(false);
+  }
+
+  update(deltaSeconds, reducedMotion = false, ghostView = false) {
     const interpolation = 1 - Math.exp(-14 * deltaSeconds);
     this.container.x += (this.target.x - this.container.x) * interpolation;
     this.container.y += (this.target.y - this.container.y) * interpolation;
     this.container.setDepth(500 + Math.round(this.container.y));
 
     const moving = ["walk", "sprint", "crouch"].includes(this.animation);
+    if (!this.player.alive && ghostView) {
+      // Fellow ghosts drift: translucent idle model, gentle hover, no ground shadow.
+      this.setModelFrame(playerBaseFrameKey("idle"));
+      this.phase += deltaSeconds * 4;
+      this.body.y = (reducedMotion ? 0 : Math.sin(this.phase) * 3) - 6;
+      this.body.setAlpha(0.5);
+      this.shadow.setAlpha(0.04);
+      this.nameplate.setAlpha(0.6);
+      this.localRing.setVisible(this.isLocal);
+      this.localRing.setAlpha(0.5);
+      return;
+    }
     if (!this.player.alive) {
       const elapsed = this.deathStartedAt === Number.NEGATIVE_INFINITY
         ? Number.POSITIVE_INFINITY

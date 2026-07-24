@@ -26,10 +26,11 @@ function defaultAppearance() {
   }
 }
 
-function nearestInteractable(map, position, incidents = []) {
+function nearestInteractable(map, position, incidents = [], allow = null) {
   if (!position) return null;
   let nearest = null;
   for (const station of [...map.stations, ...incidents.map((incident) => ({ ...incident, type: "incident" }))]) {
+    if (allow && !allow(station)) continue;
     const distance = Math.hypot(position.x - station.x, position.z - station.z);
     if (distance <= INTERACTION_RANGE && (!nearest || distance < nearest.distance)) {
       nearest = { station, distance };
@@ -107,6 +108,7 @@ export class OrbitOpsGame {
     this.network.on("matchReset", ({ room }) => {
       this.currentPhase = "lobby";
       this.privateState = null;
+      if (this.sceneReady) this.phaserScene.setGhostView(false);
       this.ui.closeGameplayModals();
       this.updateRoom(room);
       this.ui.showLobby(room, this.playerId);
@@ -158,13 +160,18 @@ export class OrbitOpsGame {
     });
     this.network.on("playerEliminated", ({ playerId }) => {
       this.audio.playCue("eliminate");
+      const snapshot = this.latestSnapshots.get(playerId);
+      if (snapshot) snapshot.alive = false;
+      if (this.sceneReady) this.phaserScene.markDead(playerId);
       if (playerId === this.playerId && this.privateState) {
         this.privateState.alive = false;
-        this.ui.toast("Your suit is offline. You are now an orbital echo.");
+        if (this.sceneReady) this.phaserScene.setGhostView(true);
+        this.ui.toast("Your suit is offline. You drift on as a ghost - finish your assignments.");
       }
     });
     this.network.on("shieldBlocked", ({ playerId, attackerId, protection }) => {
-      if (playerId === this.playerId) this.ui.toast(`${protection === "vest" ? "Your vest" : "A Medic shield"} blocked an elimination.`);
+      const shieldNames = { vest: "Your vest", "guardian-shield": "A guardian's shield" };
+      if (playerId === this.playerId) this.ui.toast(`${shieldNames[protection] ?? "A Medic shield"} blocked an elimination.`);
       else if (attackerId === this.playerId) this.ui.toast("The target was protected.");
     });
     this.network.on("incidentCleaned", ({ incidentId }) => {
@@ -181,6 +188,11 @@ export class OrbitOpsGame {
     this.network.on("voteResult", (payload) => {
       this.ui.showVoteResult(payload);
       this.audio.playCue("vote");
+      if (payload.removedId) {
+        const snapshot = this.latestSnapshots.get(payload.removedId);
+        if (snapshot) snapshot.alive = false;
+        if (this.sceneReady) this.phaserScene.markDead(payload.removedId, true);
+      }
     });
     this.network.on("matchResumed", () => {
       this.currentPhase = "active";
@@ -334,7 +346,10 @@ export class OrbitOpsGame {
   handlePrivateState(state) {
     this.privateState = { ...state, completedTaskIds: [...(state.completedTaskIds ?? [])] };
     this.ui.setPrivateState(this.privateState);
-    if (this.sceneReady) this.phaserScene.applyPrivateRoleState(this.privateState);
+    if (this.sceneReady) {
+      this.phaserScene.applyPrivateRoleState(this.privateState);
+      this.phaserScene.setGhostView(this.privateState.alive === false);
+    }
   }
 
   applyWorldSnapshot(snapshot) {
@@ -373,6 +388,9 @@ export class OrbitOpsGame {
   async interact() {
     const station = this.nearest?.station;
     if (!station) return;
+    if (this.privateState && !this.privateState.alive && station.type !== "task") {
+      throw new Error("Ghosts can only work on assignments.");
+    }
     if (station.type === "launch") await this.network.request("startMatch");
     else if (station.type === "task") await this.network.request("beginTask", { stationId: station.id });
     else if (station.type === "repair") await this.network.request("repairSabotage", { stationId: station.id });
@@ -549,9 +567,10 @@ export class OrbitOpsGame {
       const map = getMapDefinition(this.activeMapId());
       this.nearest = inLobby
         ? nearestInteractable(map, local)
-        : gameplayActive && this.privateState?.alive
-          ? nearestInteractable(map, local, this.latestIncidents)
-          : null;
+        : !gameplayActive ? null
+          : this.privateState?.alive
+            ? nearestInteractable(map, local, this.latestIncidents)
+            : nearestInteractable(map, local, [], (station) => station.type === "task");
       this.ui.updateInteraction(this.nearest, inLobby);
       if (!inLobby) this.ui.updateRoleAbility(Date.now());
       const room = roomAt(map.id, local.x, local.z);

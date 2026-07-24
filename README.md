@@ -12,6 +12,7 @@ The host can select one of three isolated maps: **The Skeld**, **MIRA HQ**, or *
 - 45-second reconnect reservation with rotated rejoin tokens
 - 20 Hz authoritative movement simulation and 10 Hz world snapshots
 - Server-private role assignment with Engineer, Medic, Sheriff, Tracker, Morphling, Swooper, Janitor, Jester, Survivor, and base Crew/Operative roles
+- Ghosts: eliminated players keep drifting through walls at a small speed bonus, finish their assignments, and chat on the dead-only channel, while the living never receive ghost positions; the first fallen crew member returns as the Guardian Angel with a protect shield
 - Eight map-specific server-sequenced assignments per map using supplied task artwork
 - Four map-specific sabotage systems per map, including timed critical failures and multi-station repair; practice mode removes action cooldowns for testing
 - Server-validated role abilities, elimination, incident evidence, emergency-button calls, reporting, meetings, discussion, voting, removal, and faction/neutral win conditions

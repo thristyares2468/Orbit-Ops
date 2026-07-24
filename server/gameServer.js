@@ -304,7 +304,8 @@ export class GameServer {
 
     socket.on("practiceRole", (payload, ack) => this.withPlayer(socket, "practiceRole", 6, 10_000, ack, (room, player) => {
       if (room.mode !== "practice" || room.phase !== PHASES.LOBBY) throw new Error("Role selection is only available in a practice lobby.");
-      const role = ROLE_DEFINITIONS[String(payload?.role)] ? String(payload.role) : "operations-crew";
+      const requested = String(payload?.role);
+      const role = ROLE_DEFINITIONS[requested] && requested !== "guardian-angel" ? requested : "operations-crew";
       room.practiceRoles.set(player.id, role);
       return { ok: true, role };
     }));
@@ -322,7 +323,7 @@ export class GameServer {
     }));
 
     socket.on("playerInput", (payload) => this.withPlayer(socket, "playerInput", 40, 1000, null, (room, player) => {
-      if (![PHASES.ACTIVE, PHASES.LOBBY].includes(room.phase) || !player.alive) return { ok: true };
+      if (![PHASES.ACTIVE, PHASES.LOBBY].includes(room.phase)) return { ok: true };
       player.input = normaliseInput(payload);
       player.lastInputAt = Date.now();
       return { ok: true };
@@ -414,7 +415,7 @@ export class GameServer {
     const room = {
       code, mode, settings, mapId: settings.mapId, phase: PHASES.LOBBY, phaseEndsAt: null,
       hostId: null, players: new Map(), practiceRoles: new Map(),
-      createdAt: Date.now(), matchStartedAt: null, matchNumber: 0,
+      createdAt: Date.now(), matchStartedAt: null, matchNumber: 0, guardianAngelId: null,
       taskCompleted: 0, taskTotal: 0, incidents: new Map(), evidence: [],
       activeSabotage: null, lastSabotageAt: 0, meeting: null,
       specialWinnerIds: new Set(),
@@ -682,6 +683,7 @@ export class GameServer {
     room.activeSabotage = null;
     room.meeting = null;
     room.specialWinnerIds.clear();
+    room.guardianAngelId = null;
     room.lastSabotageAt = Date.now();
     for (const timer of room.timers) clearTimeout(timer);
     room.timers.clear();
@@ -740,6 +742,7 @@ export class GameServer {
     room.meeting = null;
     room.activeSabotage = null;
     room.specialWinnerIds.clear();
+    room.guardianAngelId = null;
     room.incidents.clear();
     room.evidence = [];
     room.taskCompleted = 0;
@@ -782,7 +785,7 @@ export class GameServer {
   }
 
   beginTask(room, player, payload) {
-    if (room.phase !== PHASES.ACTIVE || !player.alive) throw new Error("Assignments are unavailable right now.");
+    if (room.phase !== PHASES.ACTIVE) throw new Error("Assignments are unavailable right now.");
     const map = getMapDefinition(room.mapId);
     const station = stationById(room.mapId, payload?.stationId);
     if (!station || station.type !== "task") throw new Error("Task station not found.");
@@ -803,7 +806,7 @@ export class GameServer {
     if (!active || active.taskId !== payload?.taskId) throw new Error("No matching task is active.");
     const map = getMapDefinition(room.mapId);
     const station = stationById(room.mapId, active.stationId);
-    if (room.phase !== PHASES.ACTIVE || !player.alive || !station || distance2D(player.position, station) > INTERACTION_RANGE + 0.7) {
+    if (room.phase !== PHASES.ACTIVE || !station || distance2D(player.position, station) > INTERACTION_RANGE + 0.7) {
       player.activeTask = null;
       throw new Error("Task cancelled because the station is no longer reachable.");
     }
@@ -841,7 +844,7 @@ export class GameServer {
   }
 
   startSabotage(room, player, sabotageId) {
-    if (room.phase !== PHASES.ACTIVE || !player.alive || player.faction !== "operative") throw new Error("Your role cannot activate sabotage now.");
+    if (room.phase !== PHASES.ACTIVE || player.faction !== "operative") throw new Error("Your role cannot activate sabotage now.");
     const definition = getMapDefinition(room.mapId).sabotageDefinitions.find((item) => item.id === sabotageId);
     if (!definition) throw new Error("Unknown sabotage system.");
     if (room.activeSabotage) throw new Error("Another sabotage is already active.");
@@ -894,7 +897,8 @@ export class GameServer {
   }
 
   beginRoleAction(room, player) {
-    if (room.phase !== PHASES.ACTIVE || !player.alive) throw new Error("Your role ability is unavailable.");
+    if (room.phase !== PHASES.ACTIVE) throw new Error("Your role ability is unavailable.");
+    if (!player.alive && player.role !== "guardian-angel") throw new Error("Your role ability is unavailable.");
     const definition = getRoleDefinition(player.role);
     if (!definition.ability) throw new Error("Your current role has no active ability.");
     const state = player.roleState ?? makeRoleState(player.role);
@@ -961,6 +965,12 @@ export class GameServer {
       room.incidents.delete(incident.id);
       targetId = incident.id;
       this.io.to(room.code).emit("incidentCleaned", { incidentId: incident.id });
+    } else if (player.role === "guardian-angel") {
+      const target = this.roleTarget(room, player, payload.targetId);
+      target.roleState = target.roleState ?? makeRoleState(target.role);
+      target.roleState.protectedUntil = now + 15_000;
+      this.sendPrivateState(room, target);
+      targetId = target.id;
     } else if (player.role === "survivor") {
       state.protectedUntil = now + 8_000;
       state.activeUntil = state.protectedUntil;
@@ -980,11 +990,11 @@ export class GameServer {
 
   consumeProtection(room, target) {
     const now = Date.now();
-    if (target.role === "survivor" && target.roleState?.protectedUntil > now) {
+    if (target.roleState?.protectedUntil > now) {
       target.roleState.protectedUntil = 0;
-      target.roleState.activeUntil = 0;
+      if (target.role === "survivor") target.roleState.activeUntil = 0;
       this.sendPrivateState(room, target);
-      return { type: "vest", ownerId: target.id };
+      return { type: target.role === "survivor" ? "vest" : "guardian-shield", ownerId: target.id };
     }
     const medic = [...room.players.values()].find((candidate) =>
       candidate.alive && candidate.role === "medic" && candidate.roleState?.shieldTargetId === target.id
@@ -1036,6 +1046,7 @@ export class GameServer {
       ]
     };
     room.incidents.set(incident.id, incident);
+    this.maybeAssignGuardianAngel(room, target);
     this.io.to(room.code).emit("playerEliminated", {
       playerId: target.id, incident: { id: incident.id, x: incident.x, z: incident.z, roomId: incident.roomId },
       effect: "suit-shutdown"
@@ -1044,6 +1055,15 @@ export class GameServer {
     this.sendPrivateState(room, target);
     this.checkWinConditions(room, "elimination");
     return { ok: true, incidentId: incident.id };
+  }
+
+  // The first fallen crew member returns as the Guardian Angel: a ghost who can
+  // shield the living. Operative and neutral deaths never claim the role.
+  maybeAssignGuardianAngel(room, player) {
+    if (room.guardianAngelId || player.bot || player.faction !== "crew") return;
+    room.guardianAngelId = player.id;
+    player.role = "guardian-angel";
+    player.roleState = makeRoleState("guardian-angel");
   }
 
   reportIncident(room, reporter, incidentId) {
@@ -1157,6 +1177,8 @@ export class GameServer {
       removed.alive = false;
       removed.eliminatedAt = Date.now();
       removed.input = normaliseInput({});
+      if (!jesterWon) this.maybeAssignGuardianAngel(room, removed);
+      this.sendPrivateState(room, removed);
     }
     for (const voter of room.players.values()) {
       if (!voter.alive && voter.id !== removedId) continue;
@@ -1313,9 +1335,14 @@ export class GameServer {
     for (const room of this.rooms.values()) {
       if ([PHASES.ACTIVE, PHASES.LOBBY].includes(room.phase)) {
         for (const player of room.players.values()) {
-          if (!player.alive || (!player.connected && !player.bot)) continue;
-          if (player.bot && room.phase === PHASES.ACTIVE) this.tickBot(room, player, now, delta);
-          else this.tickPlayerMovement(room, player, now, delta);
+          if (!player.connected && !player.bot) continue;
+          if (player.bot) {
+            if (!player.alive) continue;
+            if (room.phase === PHASES.ACTIVE) this.tickBot(room, player, now, delta);
+            else this.tickPlayerMovement(room, player, now, delta);
+            continue;
+          }
+          this.tickPlayerMovement(room, player, now, delta);
         }
       }
       if (room.phase === PHASES.ACTIVE && room.activeSabotage) {
@@ -1333,12 +1360,27 @@ export class GameServer {
       }
       if (now - room.lastSnapshotAt >= 1000 / SNAPSHOT_RATE) {
         room.lastSnapshotAt = now;
-        this.io.to(room.code).emit("worldSnapshot", {
+        const members = [...room.players.values()];
+        const snapshots = members.map((player) => snapshotPlayer(player, room));
+        const base = {
           serverTime: now,
           phase: room.phase,
-          players: [...room.players.values()].map((player) => snapshotPlayer(player, room)),
           incidents: [...room.incidents.values()].filter((incident) => !incident.reported).map((incident) => ({ id: incident.id, x: incident.x, z: incident.z, roomId: incident.roomId }))
-        });
+        };
+        if (snapshots.every((snapshot) => snapshot.alive)) {
+          this.io.to(room.code).emit("worldSnapshot", { ...base, players: snapshots });
+        } else {
+          // Ghost positions are private to the dead: living players receive a
+          // snapshot without them (their last known body is the incident marker).
+          const living = snapshots.filter((snapshot) => snapshot.alive);
+          for (const member of members) {
+            if (!member.socketId || !member.connected) continue;
+            this.io.to(member.socketId).emit("worldSnapshot", {
+              ...base,
+              players: member.alive ? living : snapshots
+            });
+          }
+        }
       }
     }
   }
@@ -1349,8 +1391,17 @@ export class GameServer {
     const baseSpeed = input.crouch ? PLAYER_SPEED.crouch : input.sprint ? PLAYER_SPEED.sprint : PLAYER_SPEED.walk;
     const factionMultiplier = player.faction === "operative" ? room.settings.operativeSpeed : room.settings.crewSpeed;
     const speed = baseSpeed * factionMultiplier;
-    const next = { x: player.position.x + input.x * speed * delta, z: player.position.z + input.z * speed * delta };
-    if (isWalkable(mapId, next.x, next.z)) player.position = next;
+    const ghost = !player.alive;
+    const ghostSpeed = ghost ? speed * 1.2 : speed;
+    const next = { x: player.position.x + input.x * ghostSpeed * delta, z: player.position.z + input.z * ghostSpeed * delta };
+    if (ghost) {
+      // Ghosts drift through walls; only the map bounds contain them.
+      const bounds = getMapDefinition(mapId).bounds;
+      player.position = {
+        x: Math.max(bounds.minX, Math.min(bounds.maxX, next.x)),
+        z: Math.max(bounds.minZ, Math.min(bounds.maxZ, next.z))
+      };
+    } else if (isWalkable(mapId, next.x, next.z)) player.position = next;
     else {
       const slideX = { x: next.x, z: player.position.z };
       const slideZ = { x: player.position.x, z: next.z };
@@ -1362,8 +1413,10 @@ export class GameServer {
     player.animation = input.crouch ? "crouch" : Math.hypot(input.x, input.z) < 0.05 ? "idle" : input.sprint ? "sprint" : "walk";
     const nextRoom = roomAt(mapId, player.position.x, player.position.z)?.id ?? player.currentRoom;
     if (nextRoom !== player.currentRoom) {
-      room.doorLogs.push({ from: player.currentRoom, to: nextRoom, at: now, playerId: player.id });
-      room.doorLogs = room.doorLogs.slice(-40);
+      if (!ghost) {
+        room.doorLogs.push({ from: player.currentRoom, to: nextRoom, at: now, playerId: player.id });
+        room.doorLogs = room.doorLogs.slice(-40);
+      }
       player.currentRoom = nextRoom;
     }
   }

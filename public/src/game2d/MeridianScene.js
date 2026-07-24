@@ -20,6 +20,7 @@ export class MeridianScene extends Phaser.Scene {
     this.stationMarkers = [];
     this.sabotageOverlay = null;
     this.privateState = null;
+    this.ghostView = false;
     this.mapId = null;
     this.map = null;
     this.metrics = null;
@@ -94,6 +95,16 @@ export class MeridianScene extends Phaser.Scene {
     this.followPlayer(localPlayerId);
   }
 
+  // When the local player is dead the whole scene renders dead crew as drifting
+  // ghosts; the living instead keep each corpse frozen where it fell.
+  setGhostView(enabled) {
+    this.ghostView = Boolean(enabled);
+  }
+
+  markDead(playerId, vanish = false) {
+    this.characters.get(playerId)?.markDead(vanish);
+  }
+
   applySnapshot(snapshot) {
     for (const player of snapshot.players ?? []) {
       this.characters.get(player.id)?.applySnapshot(player, false);
@@ -153,13 +164,14 @@ export class MeridianScene extends Phaser.Scene {
     for (const character of this.characters.values()) character.destroy();
     this.characters.clear();
     this.privateState = null;
+    this.ghostView = false;
     this.cameras.main.stopFollow();
   }
 
   update(time, deltaMs) {
     const deltaSeconds = Math.min(0.1, Math.max(0.001, deltaMs / 1000));
     for (const character of this.characters.values()) {
-      character.update(deltaSeconds, this.bridge.settings.reducedMotion);
+      character.update(deltaSeconds, this.bridge.settings.reducedMotion, this.ghostView);
     }
     for (const marker of this.stationMarkers) {
       marker.seed += deltaSeconds * 2.5;

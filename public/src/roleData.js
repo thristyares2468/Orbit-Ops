@@ -145,6 +145,23 @@ export const ROLE_DEFINITIONS = Object.freeze({
       cooldownMs: 24_000,
       uses: 2
     })
+  }),
+  // Never dealt at match start: the server grants this to the first fallen crew
+  // member, so it is deliberately absent from CREW_ROLE_IDS and the practice list.
+  "guardian-angel": Object.freeze({
+    id: "guardian-angel",
+    name: "Guardian Angel",
+    faction: "crew",
+    colour: "#8ef7d2",
+    objective: "You fell first. Shield the living crew from beyond.",
+    ability: Object.freeze({
+      id: "protect",
+      label: "Protect",
+      icon: `${ICON_ROOT}/medic.png`,
+      targeting: "player",
+      cooldownMs: 40_000,
+      uses: null
+    })
   })
 });
 

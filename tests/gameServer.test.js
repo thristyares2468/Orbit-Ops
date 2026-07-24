@@ -212,6 +212,54 @@ test("every map emergency button starts a meeting and consumes the caller allowa
   }
 });
 
+test("the first fallen crew member becomes a Guardian Angel ghost who can shield the living", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  const room = server.createRoom("private", { eliminationCooldownSeconds: 10 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 20_000;
+  room.taskTotal = 15;
+
+  const operative = player("operative", "operative");
+  const first = player("first", "crew", { x: 0.5, z: 0 });
+  const second = player("second", "crew", { x: 1, z: 0 });
+  const witness = player("witness", "crew", { x: 0.75, z: 0 });
+  operative.lastEliminationAt = Date.now() - 11_000;
+  for (const member of [operative, first, second, witness]) room.players.set(member.id, member);
+
+  server.eliminationAttempt(room, operative, first.id);
+  assert.equal(first.alive, false);
+  assert.equal(first.role, "guardian-angel", "first crew death is promoted");
+  assert.equal(room.guardianAngelId, first.id);
+
+  const protect = server.roleAction(room, first, { targetId: second.id });
+  assert.equal(protect.effect, "protect");
+  assert.ok(second.roleState.protectedUntil > Date.now());
+
+  operative.lastEliminationAt = Date.now() - 11_000;
+  const blocked = server.eliminationAttempt(room, operative, second.id);
+  assert.equal(blocked.blocked, true);
+  assert.equal(second.alive, true);
+  assert.ok(io.events.some((entry) => entry.event === "shieldBlocked" && entry.payload.protection === "guardian-shield"));
+
+  operative.lastEliminationAt = Date.now() - 11_000;
+  const kill = server.eliminationAttempt(room, operative, second.id);
+  assert.ok(kill.incidentId, "the guardian shield is consumed by one block");
+  assert.equal(second.alive, false);
+  assert.notEqual(second.role, "guardian-angel", "only the first death claims the role");
+
+  // Ghosts keep moving, unconstrained by walls, at a slight speed bonus.
+  const start = first.position.x;
+  for (let step = 0; step < 20; step += 1) {
+    first.input = { x: 1, z: 0, yaw: 0, sprint: false, crouch: false, seq: step };
+    first.lastInputAt = Date.now();
+    server.tickPlayerMovement(room, first, Date.now(), 0.05);
+  }
+  assert.ok(first.position.x > start, "dead players still move as ghosts");
+  const bounds = getMapDefinition(room.mapId).bounds;
+  assert.ok(first.position.x <= bounds.maxX, "ghosts stay inside map bounds");
+});
+
 test("pre-match movement is simulated in the dropship lobby, not on the selected map", () => {
   const io = new RecordingIo();
   server = new GameServer(io);

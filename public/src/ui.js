@@ -308,10 +308,11 @@ export class GameUI {
     byId("hud-role").textContent = definition.name.toUpperCase();
     byId("hud-role").style.color = definition.colour;
     byId("hud-objective").textContent = definition.objective;
+    const ghostRole = state.role === "guardian-angel";
     setVisible(byId("primary-ability"), operative && state.alive);
-    setVisible(byId("secondary-ability"), operative && state.alive);
+    setVisible(byId("secondary-ability"), operative);
     const roleAbility = definition.ability;
-    setVisible(byId("role-ability"), Boolean(roleAbility && state.alive));
+    setVisible(byId("role-ability"), Boolean(roleAbility && (state.alive || ghostRole)));
     if (roleAbility) {
       byId("role-ability-icon").src = roleAbility.icon;
       byId("role-ability-icon").alt = "";
@@ -392,7 +393,8 @@ export class GameUI {
   updateRoleAbility(now = Date.now()) {
     const definition = getRoleDefinition(this.privateState?.role);
     const button = byId("role-ability");
-    if (!definition.ability || !this.privateState?.alive) {
+    const ghostRole = this.privateState?.role === "guardian-angel";
+    if (!definition.ability || (!this.privateState?.alive && !ghostRole)) {
       setVisible(button, false);
       return;
     }
