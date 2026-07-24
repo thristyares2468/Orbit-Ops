@@ -83,6 +83,15 @@ tests/                             Authoritative rule and real Socket.IO tests
 render.yaml                       Render Blueprint configuration
 ```
 
+The Skeld and MIRA HQ room transforms and corridor routes are traced from the supplied in-game
+minimap sheets (`Gui/map-sharedassets0.assets-125.png` and `Gui/map_HQ-sharedassets0.assets-83.png`)
+rather than authored by eye: rooms come from the saturated room blobs, and each corridor route is a
+clearance-weighted path across the sheet's real walkable pixels, reduced to axis-aligned `via`
+waypoints. Connections whose only path is a long way round are rejected rather than invented, so the
+adjacency graph matches the reference. Polus has an equivalent sheet
+(`Gui/mapPB-sharedassets0.assets-103.png`) and is not yet converted; the Airship has no reference art
+in the supplied pack at all and remains hand-authored.
+
 The maps follow a data/build split without importing compiled Unity code or third-party map art.
 `public/src/shipData.js` exposes a registry whose four definitions live under `public/src/maps/`.
 Every definition owns its room transforms, adjacency, explicit orthogonal corridor routes, prop
