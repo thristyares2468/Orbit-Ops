@@ -59,7 +59,9 @@ Source references supplied by the project owner:
 engine pods), `cargo-door.png`, `crate.png`, `laptop.png`, and `exhaust.png`. The split is lossless —
 each file is one connected drawn component copied pixel-for-pixel with its original alpha, with no
 resampling, recolouring, or re-encoding of the artwork itself. The original sheet is untouched in
-`public/assets/art/Maps/Lobby/` and remains the catalogued source of record.
+`public/assets/art/Maps/Lobby/` and remains the catalogued source of record. `equipment-case.svg` is
+new Orbit Ops project art created to supply the small starboard case visible in the owner's lobby
+layout reference but absent from that packed sheet; it is not extracted third-party material.
 
 ## Room artwork extracted from packed sheets
 

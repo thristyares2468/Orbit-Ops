@@ -428,11 +428,25 @@ export class MapBuilder {
     for (const station of this.map.stations) {
       const point = worldToScreen(station.x, station.z, this.map);
       const stationContainer = this.scene.add.container(point.x, point.y).setName(`station:${station.id}`);
-      const ring = this.scene.add.ellipse(0, 0, 45 * detail, 30 * detail)
+      const ringWidth = Number.isFinite(station.ringWidth)
+        ? station.ringWidth * this.metrics.scale
+        : 45 * detail;
+      const ringDepth = Number.isFinite(station.ringDepth)
+        ? station.ringDepth * this.metrics.scale
+        : 30 * detail;
+      const ring = this.scene.add.ellipse(0, 0, ringWidth, ringDepth)
         .setStrokeStyle(Math.max(1, 2 * detail), station.type === "repair" ? 0xffbd4a : 0x74e5ff, 0.72);
-      const icon = this.scene.add.image(0, -4 * detail, station.assetKey ?? STATION_ASSET_KEYS[station.type] ?? "taskConsole")
-        .setDisplaySize(style.iconSize * detail, style.iconSize * detail)
-        .setAlpha(0.9);
+      const icon = this.scene.add.image(
+        (station.artOffsetX ?? 0) * this.metrics.scale,
+        Number.isFinite(station.artOffsetZ) ? station.artOffsetZ * this.metrics.scale : -4 * detail,
+        station.assetKey ?? STATION_ASSET_KEYS[station.type] ?? "taskConsole"
+      );
+      if (Number.isFinite(station.artWidth) && Number.isFinite(station.artDepth)) {
+        icon.setDisplaySize(station.artWidth * this.metrics.scale, station.artDepth * this.metrics.scale);
+      } else {
+        icon.setDisplaySize(style.iconSize * detail, style.iconSize * detail);
+      }
+      icon.setAlpha(station.artAlpha ?? 0.9);
       stationContainer.add([ring, icon]);
       stationContainer.setData({ stationId: station.id, roomId: station.roomId, stationType: station.type });
       layer.add(stationContainer);

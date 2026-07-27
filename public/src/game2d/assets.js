@@ -36,6 +36,7 @@ export const PHASER_ASSETS = Object.freeze({
   lobbyDropship: "/assets/lobby/dropship.png",
   lobbyCargoDoor: "/assets/lobby/cargo-door.png",
   lobbyCrate: "/assets/lobby/crate.png",
+  lobbyEquipmentCase: "/assets/lobby/equipment-case.svg",
   lobbyLaptop: "/assets/lobby/laptop.png",
   lobbyExhaust: "/assets/lobby/exhaust.png",
   "skeld-cafeteria": "/assets/art/Maps/Cafeteria/Cafeteria-sharedassets0.assets-210.png",

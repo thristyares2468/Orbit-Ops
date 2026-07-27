@@ -197,6 +197,16 @@ export function validateMapDefinition(map) {
     stationIds.add(station.id);
     if (!roomIds.has(station.roomId)) errors.push(`Station ${station.id ?? "(missing)"} references an unknown room.`);
     if (![station.x, station.z].every(finite)) errors.push(`Station ${station.id ?? "(missing)"} has invalid coordinates.`);
+    for (const key of ["artWidth", "artDepth", "ringWidth", "ringDepth"]) {
+      if (key in station && (!finite(station[key]) || Number(station[key]) <= 0)) {
+        errors.push(`Station ${station.id ?? "(missing)"} has invalid ${key}.`);
+      }
+    }
+    for (const key of ["artOffsetX", "artOffsetZ", "artAlpha"]) {
+      if (key in station && !finite(station[key])) {
+        errors.push(`Station ${station.id ?? "(missing)"} has invalid ${key}.`);
+      }
+    }
   }
   for (const rect of collisionRects) {
     if (!rect.id || collisionIds.has(rect.id)) errors.push(`Duplicate or missing collision id: ${rect.id ?? "(missing)"}.`);

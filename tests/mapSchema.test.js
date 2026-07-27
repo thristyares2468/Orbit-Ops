@@ -61,12 +61,26 @@ test("the dropship lobby is a valid map that is never selectable as a match map"
   assert.ok(lobby.decals.length > 0, "the lobby is drawn from the supplied dropship artwork");
   assert.equal(lobby.taskDefinitions.length, 0);
   assert.equal(lobby.sabotageDefinitions.length, 0);
-  assert.equal(stationById(LOBBY_MAP_ID, "lobby-launch")?.type, "launch");
+  const launch = stationById(LOBBY_MAP_ID, "lobby-launch");
+  assert.equal(launch?.type, "launch");
+  assert.equal(launch?.assetKey, "lobbyLaptop");
   assert.ok(lobby.spawnPoints.length >= 16, "every seat in a full room needs a spawn");
+  assert.ok(Math.abs(lobby.spawnPoints[0][0]) < 0.01, "the host enters with the cabin centred");
   assert.ok(lobby.spawnPoints.every(([x, z]) => isWalkable(LOBBY_MAP_ID, x, z, 0.55)));
   for (const crate of lobby.collisionRects) {
     assert.equal(isWalkable(LOBBY_MAP_ID, crate.x, crate.z), false, crate.id);
   }
+  const decalAssets = new Set(lobby.decals.map(({ assetKey }) => assetKey));
+  assert.deepEqual(decalAssets, new Set([
+    "lobbyDropship",
+    "lobbyCargoDoor",
+    "lobbyExhaust",
+    "lobbyCrate",
+    "lobbyEquipmentCase"
+  ]));
+  assert.equal(lobby.collisionRects.length, 4, "three crates and the equipment case block movement");
+  assert.equal(lobby.decals.filter(({ assetKey }) => assetKey === "lobbyExhaust").length, 4,
+    "two paired exhaust sprites make four plumes on each engine pod");
 });
 
 test("room artwork uses only verified whole-room images or deliberate crops", () => {
@@ -82,9 +96,9 @@ test("room artwork uses only verified whole-room images or deliberate crops", ()
   }
 });
 
-test("game maps never load the visual reference screenshots", () => {
+test("game maps and the lobby never load the visual reference screenshots", () => {
   assert.ok(Object.values(PHASER_ASSETS).every((assetPath) => !assetPath.includes("/assets/maps/reference/")));
-  for (const mapId of MAP_IDS) {
+  for (const mapId of [...MAP_IDS, LOBBY_MAP_ID]) {
     const map = getMapDefinition(mapId);
     assert.equal("referenceDeck" in map, false, map.name);
     assert.ok(map.rooms.every((room) => !String(room.assetKey ?? "").includes("reference")), map.name);

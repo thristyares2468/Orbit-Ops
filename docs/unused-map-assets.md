@@ -1,6 +1,6 @@
 # Map asset placement audit
 
-This audit covers the current 2D builds of The Skeld, MIRA HQ, and Polus. The three supplied reference screenshots are not runtime assets and are not stored, loaded, or rendered by the game.
+This audit covers the current 2D builds of The Skeld, MIRA HQ, Polus, and the pre-match Dropship lobby. The supplied reference screenshots are not runtime assets and are not stored, loaded, or rendered by the game.
 
 ## Confirmed runtime placement
 
@@ -40,6 +40,17 @@ The `assets/rooms/mira-*.png` files are the supplied room art already separated 
 - `room_weapon-sharedassets0.assets-80.png`
 - `Storage/room_storage-sharedassets0.assets-98.png`
 
+### Dropship lobby
+
+- `assets/lobby/dropship.png` — hull, rear hatch, seat banks, floor grid, wings, and engine pods
+- `assets/lobby/cargo-door.png` — scaled front ramp panel
+- `assets/lobby/crate.png` — console, port, and starboard cargo placements
+- `assets/lobby/laptop.png` — interactive host launch console
+- `assets/lobby/exhaust.png` — paired cyan plumes, placed twice per engine pod
+- `assets/lobby/equipment-case.svg` — original supplemental texture for the small case that is present in the lobby reference but absent from the supplied packed sheet
+
+Every separated lobby sprite is now placed. `Lobby/Lobby-sharedassets0.assets-54.png` remains untouched as the catalogued source sheet; loading the separated sprites avoids rendering unrelated atlas regions.
+
 ## Supplied map sheets not yet placed
 
 These remain available in the repository, but they are not preloaded or displayed because their intended placement is ambiguous or their atlas region includes unrelated content.
@@ -77,8 +88,7 @@ These contain composite exterior props, rocks, rockets, tunnels, or a security s
 
 - `Animations-sharedassets0.assets-165.png` — animation atlas
 - `Doors-sharedassets0.assets-104.png` — door-state atlas
-- `Lobby/Lobby-sharedassets0.assets-54.png` — lobby-specific art
 - `bridge_sab-sharedassets0.assets-151.png` — sabotage/interface material
 - `Tasks/ReactorRoom-sharedassets0.assets-132.png` — task/animation sheet, not a room background
 
-These are not missing map art and should remain in their task, animation, door, or lobby pipelines.
+These are not missing map art and should remain in their task, animation, or door pipelines.
