@@ -15,7 +15,7 @@ import {
   isWalkable,
   stationById
 } from "../public/src/shipData.js";
-import { worldDetailScale, worldMetrics } from "../public/src/game2d/assets.js";
+import { PHASER_ASSETS, worldDetailScale, worldMetrics } from "../public/src/game2d/assets.js";
 
 test("all three maps have isolated, valid server geometry and interactions", () => {
   assert.deepEqual(MAP_IDS, ["the-skeld", "mira-hq", "polus"]);
@@ -34,7 +34,9 @@ test("all three maps have isolated, valid server geometry and interactions", () 
     assert.ok(stationById(mapId, "meeting-console"), `${map.name} emergency button`);
     assert.equal(map.objectGroups.find((group) => group.id === "collisions")?.objects, map.collisionRects);
     assert.deepEqual(visibleMapLayers(map).map((layer) => layer.id), [
-      "backgrounds", "zones", "corridors", "rooms", "props", "stations"
+      "backgrounds", "zones", "corridors", "rooms",
+      ...(map.decals.length ? ["decals"] : []),
+      "props", "stations"
     ]);
     assert.ok(map.taskDefinitions.every((task) => map.rooms.some((room) => room.id === task.roomId)));
     assert.ok(map.sabotageDefinitions.every((sabotage) =>
@@ -71,12 +73,22 @@ test("room artwork uses only verified whole-room images or deliberate crops", ()
   const allowedAssets = new Map([
     ["the-skeld", new Set(["skeld-cafeteria", "skeld-engine", "skeld-medbay", "skeld-weapons", "skeld-navigation", "skeld-o2"])],
     ["mira-hq", new Set(["mira-launchpad", "mira-cafeteria", "mira-admin", "mira-laboratory", "mira-greenhouse", "mira-medbay", "mira-storage"])],
-    ["polus", new Set(["polus-o2", "polus-broadcast", "polus-science", "polus-specimen", "polus-tunnel", "polus-weapons", "polus-storage", "polus-dropship"])]
+    ["polus", new Set(["polus-o2", "polus-broadcast", "polus-science", "polus-specimen", "polus-tunnel", "polus-weapons", "polus-storage", "polus-dropship", "polus-planet-3"])]
   ]);
   for (const [mapId, allowed] of allowedAssets) {
     for (const room of getMapDefinition(mapId).rooms) {
       assert.ok(!room.assetKey || allowed.has(room.assetKey), `${mapId}:${room.id}:${room.assetKey}`);
     }
+  }
+});
+
+test("game maps never load the visual reference screenshots", () => {
+  assert.ok(Object.values(PHASER_ASSETS).every((assetPath) => !assetPath.includes("/assets/maps/reference/")));
+  for (const mapId of MAP_IDS) {
+    const map = getMapDefinition(mapId);
+    assert.equal("referenceDeck" in map, false, map.name);
+    assert.ok(map.rooms.every((room) => !String(room.assetKey ?? "").includes("reference")), map.name);
+    assert.ok(map.decals.every((decal) => !String(decal.assetKey ?? "").includes("reference")), map.name);
   }
 });
 

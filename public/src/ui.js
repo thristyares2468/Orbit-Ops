@@ -625,7 +625,7 @@ export class GameUI {
     }
     context.restore();
 
-    for (const zone of map.zones ?? []) {
+    for (const zone of (map.zones ?? []).filter((item) => item.minimap !== false)) {
       roomPath(zone);
       context.fillStyle = "rgba(86, 79, 128, .78)";
       context.strokeStyle = "rgba(197, 205, 242, .72)";

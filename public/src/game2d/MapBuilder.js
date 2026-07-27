@@ -39,6 +39,80 @@ function stringSeed(value) {
   return [...String(value)].reduce((total, character) => ((total * 31) + character.charCodeAt(0)) >>> 0, 2166136261);
 }
 
+function drawFloorPattern(graphics, room, width, height, detail) {
+  const pattern = room.floorPattern ?? "panels";
+  const inset = Math.max(12 * detail, Math.min(width, height) * 0.055);
+  const left = -width / 2 + inset;
+  const right = width / 2 - inset;
+  const top = -height / 2 + inset;
+  const bottom = height / 2 - inset;
+  const cell = Math.max(28 * detail, Math.min(width, height) / 6);
+  const line = room.gridColour ?? 0xd7fbff;
+  const alpha = room.gridAlpha ?? 0.1;
+
+  if (pattern === "checker" || pattern === "clean") {
+    for (let y = top, row = 0; y < bottom; y += cell, row += 1) {
+      for (let x = left, column = 0; x < right; x += cell, column += 1) {
+        graphics.fillStyle((row + column) % 2 === 0 ? 0xf4f2db : 0xcbd3c5, pattern === "checker" ? 0.13 : 0.07);
+        graphics.fillRect(x, y, Math.min(cell, right - x), Math.min(cell, bottom - y));
+      }
+    }
+    graphics.lineStyle(Math.max(1, detail), line, alpha);
+    for (let x = left; x <= right; x += cell) graphics.lineBetween(x, top, x, bottom);
+    for (let y = top; y <= bottom; y += cell) graphics.lineBetween(left, y, right, y);
+  } else if (pattern === "glass") {
+    graphics.fillStyle(0x8ed9e7, 0.09);
+    graphics.fillRect(left, top, right - left, bottom - top);
+    graphics.lineStyle(Math.max(1, 2 * detail), 0xc8f7ff, 0.14);
+    for (let x = left - height; x < right; x += cell * 1.35) {
+      graphics.lineBetween(x, bottom, x + (bottom - top), top);
+    }
+  } else if (pattern === "wood") {
+    graphics.lineStyle(Math.max(1, 2 * detail), 0xd2aa6e, 0.17);
+    for (let y = top; y <= bottom; y += cell * 0.48) {
+      graphics.lineBetween(left, y, right, y);
+      const offset = (Math.round(y / (cell * 0.48)) % 2) * cell;
+      for (let x = left + offset; x <= right; x += cell * 2) {
+        graphics.lineBetween(x, y, x, Math.min(bottom, y + cell * 0.48));
+      }
+    }
+  } else if (pattern === "carpet") {
+    graphics.lineStyle(Math.max(1, detail), line, alpha);
+    for (let x = left; x <= right; x += cell * 0.42) graphics.lineBetween(x, top, x, bottom);
+    graphics.fillStyle(0x091018, 0.12);
+    graphics.fillEllipse(0, 0, Math.max(cell, (right - left) * 0.55), Math.max(cell, (bottom - top) * 0.45));
+  } else if (pattern === "hazard") {
+    graphics.lineStyle(Math.max(2, 5 * detail), 0xf1b83a, 0.3);
+    for (let x = left - height; x < right; x += cell * 0.9) {
+      graphics.lineBetween(x, bottom, x + (bottom - top), top);
+    }
+  } else if (pattern === "radial") {
+    graphics.lineStyle(Math.max(1, 2 * detail), line, alpha);
+    const radius = Math.max(20 * detail, Math.min(right - left, bottom - top) * 0.35);
+    graphics.strokeCircle(0, 0, radius);
+    graphics.strokeCircle(0, 0, radius * 0.64);
+    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 6) {
+      graphics.lineBetween(Math.cos(angle) * radius * 0.68, Math.sin(angle) * radius * 0.68, Math.cos(angle) * radius, Math.sin(angle) * radius);
+    }
+  } else if (pattern === "snow") {
+    const seed = stringSeed(room.id);
+    graphics.fillStyle(0xeaf5ff, 0.2);
+    for (let index = 0; index < 32; index += 1) {
+      const x = left + (((seed + index * 83) % 997) / 997) * (right - left);
+      const y = top + (((seed + index * 149) % 991) / 991) * (bottom - top);
+      graphics.fillCircle(x, y, (1.5 + index % 3) * detail);
+    }
+  } else {
+    graphics.lineStyle(Math.max(1, 2 * detail), line, alpha);
+    for (let x = left; x <= right; x += cell) graphics.lineBetween(x, top, x, bottom);
+    for (let y = top; y <= bottom; y += cell) graphics.lineBetween(left, y, right, y);
+    graphics.fillStyle(0x02070d, 0.12);
+    for (let x = left + cell / 2; x < right; x += cell) {
+      for (let y = top + cell / 2; y < bottom; y += cell) graphics.fillCircle(x, y, 2 * detail);
+    }
+  }
+}
+
 export class MapBuilder {
   constructor(scene, map) {
     this.scene = scene;
@@ -131,15 +205,29 @@ export class MapBuilder {
       const point = worldToScreen(corridor.x, corridor.z, this.map);
       const width = corridor.width * this.metrics.scale;
       const height = corridor.depth * this.metrics.scale;
+      graphics.fillStyle(0x02070d, 0.72);
+      graphics.fillRoundedRect(
+        point.x - width / 2 - 8 * detail,
+        point.y - height / 2 - 8 * detail,
+        width + 16 * detail,
+        height + 16 * detail,
+        style.radius * detail
+      );
       graphics.fillStyle(style.fill, style.fillAlpha);
       graphics.fillRoundedRect(point.x - width / 2, point.y - height / 2, width, height, style.radius * detail);
       graphics.lineStyle(Math.max(1, 4 * detail), style.stroke, style.strokeAlpha);
       graphics.strokeRoundedRect(point.x - width / 2, point.y - height / 2, width, height, style.radius * detail);
-      graphics.lineStyle(Math.max(1, 2 * detail), 0x64d8e8, 0.08);
+      graphics.lineStyle(Math.max(1, 2 * detail), style.accent ?? 0x64d8e8, style.accentAlpha ?? 0.16);
       if (corridor.axis === "x") {
         graphics.lineBetween(point.x - width / 2 + 14 * detail, point.y, point.x + width / 2 - 14 * detail, point.y);
+        for (let x = point.x - width / 2 + 28 * detail; x < point.x + width / 2 - 20 * detail; x += 54 * detail) {
+          graphics.lineBetween(x, point.y - height * 0.34, x, point.y + height * 0.34);
+        }
       } else {
         graphics.lineBetween(point.x, point.y - height / 2 + 14 * detail, point.x, point.y + height / 2 - 14 * detail);
+        for (let y = point.y - height / 2 + 28 * detail; y < point.y + height / 2 - 20 * detail; y += 54 * detail) {
+          graphics.lineBetween(point.x - width * 0.34, y, point.x + width * 0.34, y);
+        }
       }
     }
     graphics.setData("mapLayer", "corridors");
@@ -160,18 +248,7 @@ export class MapBuilder {
       fillRoomShape(floor, room, width, height, room.colour, 0.96, 0, style.radius * detail);
 
       const proceduralFloor = this.scene.add.graphics();
-      if (!room.assetKey && room.chrome !== false) {
-        proceduralFloor.lineStyle(Math.max(1, 2 * detail), room.gridColour ?? 0xe9bf9e, room.gridAlpha ?? 0.08);
-        for (let x = -width / 2 + 70 * detail; x < width / 2 - 40 * detail; x += 92 * detail) {
-          proceduralFloor.lineBetween(x, -height / 2 + 34 * detail, x, height / 2 - 34 * detail);
-        }
-        for (let y = -height / 2 + 70 * detail; y < height / 2 - 40 * detail; y += 92 * detail) {
-          proceduralFloor.lineBetween(-width / 2 + 34 * detail, y, width / 2 - 34 * detail, y);
-        }
-        proceduralFloor.fillStyle(0x10161e, 0.18);
-        proceduralFloor.fillRoundedRect(-width / 2 + 28 * detail, height / 2 - 62 * detail, Math.max(50 * detail, width * 0.22), 24 * detail, 7 * detail);
-        proceduralFloor.fillRoundedRect(width / 2 - Math.max(50 * detail, width * 0.18) - 28 * detail, -height / 2 + 38 * detail, Math.max(50 * detail, width * 0.18), 24 * detail, 7 * detail);
-      }
+      if (room.floorPattern !== false) drawFloorPattern(proceduralFloor, room, width, height, detail);
 
       let art = null;
       if (room.assetKey) {
@@ -184,9 +261,18 @@ export class MapBuilder {
         if (room.artCrop) {
           art.setCrop(room.artCrop.x, room.artCrop.y, room.artCrop.width, room.artCrop.height);
         }
-        const scale = Math.min((width - 12 * detail) / sourceWidth, (height - 12 * detail) / sourceHeight);
-        art.setDisplaySize(sourceWidth * scale, sourceHeight * scale);
+        const padding = (room.artPadding ?? 12) * detail;
+        const targetWidth = Math.max(1, (room.artWidth ?? room.width) * this.metrics.scale - padding);
+        const targetHeight = Math.max(1, (room.artDepth ?? room.depth) * this.metrics.scale - padding);
+        if (room.artFit === "stretch") {
+          art.setDisplaySize(targetWidth, targetHeight);
+        } else {
+          const scale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight);
+          art.setDisplaySize(sourceWidth * scale, sourceHeight * scale);
+        }
+        art.setPosition((room.artOffsetX ?? 0) * this.metrics.scale, (room.artOffsetZ ?? 0) * this.metrics.scale);
         art.setFlipX(Boolean(room.artFlipX));
+        art.setFlipY(Boolean(room.artFlipY));
       }
 
       const walls = this.scene.add.graphics();
@@ -225,9 +311,13 @@ export class MapBuilder {
     for (const decal of this.map.decals ?? []) {
       const point = worldToScreen(decal.x, decal.z, this.map);
       const image = this.scene.add.image(point.x, point.y, decal.assetKey)
-        .setDisplaySize(decal.width * this.metrics.scale, decal.depth * this.metrics.scale)
         .setAlpha(decal.alpha ?? 1)
         .setFlipX(Boolean(decal.flipX));
+      if (decal.crop) {
+        image.setCrop(decal.crop.x, decal.crop.y, decal.crop.width, decal.crop.height);
+      }
+      image.setDisplaySize(decal.width * this.metrics.scale, decal.depth * this.metrics.scale);
+      image.setFlipY(Boolean(decal.flipY));
       if (Number.isFinite(decal.angle)) image.setAngle(decal.angle);
       image.setData({ decalId: decal.id, mapLayer: "decals" });
       layer.add(image);
@@ -245,7 +335,18 @@ export class MapBuilder {
       const shadow = this.scene.add.ellipse(0, height * 0.32, width * 0.9, Math.max(16 * detail, height * 0.35), 0x020408, 0.35);
       const graphics = this.scene.add.graphics();
 
-      if (prop.kind === "table") {
+      if (prop.kind === "reactor" || prop.kind === "engine") {
+        graphics.fillStyle(prop.kind === "reactor" ? 0x293c52 : 0x534436, 1);
+        graphics.fillRoundedRect(-width / 2, -height / 2, width, height, 18 * detail);
+        graphics.lineStyle(Math.max(2, 6 * detail), prop.kind === "reactor" ? 0x79ecff : 0xf0a866, 0.72);
+        graphics.strokeRoundedRect(-width / 2, -height / 2, width, height, 18 * detail);
+        graphics.fillStyle(prop.kind === "reactor" ? 0x8af4ff : 0xffca78, 0.34);
+        graphics.fillEllipse(0, 0, width * 0.62, height * 0.78);
+        graphics.lineStyle(Math.max(1, 2 * detail), 0xffffff, 0.35);
+        for (let offset = -0.28; offset <= 0.28; offset += 0.28) {
+          graphics.lineBetween(-width * 0.38, height * offset, width * 0.38, height * offset);
+        }
+      } else if (prop.kind === "table") {
         graphics.fillStyle(0x2b5f72, 0.98);
         graphics.fillEllipse(0, 0, width, height);
         graphics.lineStyle(Math.max(1, 5 * detail), 0x89c3cf, 0.55);
@@ -266,6 +367,37 @@ export class MapBuilder {
         graphics.strokeEllipse(0, 0, width, height);
         graphics.lineStyle(Math.max(1, 2 * detail), 0xe8ffff, 0.35);
         graphics.strokeEllipse(0, 0, width * 0.65, height * 0.65);
+      } else if (prop.kind === "bed" || prop.kind === "bench") {
+        graphics.fillStyle(prop.kind === "bed" ? 0xc6e8ed : 0x486476, 0.98);
+        graphics.fillRoundedRect(-width / 2, -height / 2, width, height, 9 * detail);
+        graphics.lineStyle(Math.max(1, 4 * detail), prop.kind === "bed" ? 0xefffff : 0x8eb7c5, 0.62);
+        graphics.strokeRoundedRect(-width / 2, -height / 2, width, height, 9 * detail);
+        graphics.fillStyle(prop.kind === "bed" ? 0x5e9ec6 : 0x243746, 0.72);
+        graphics.fillRoundedRect(-width * 0.36, -height * 0.34, width * 0.72, height * 0.28, 5 * detail);
+      } else if (prop.kind === "planter") {
+        graphics.fillStyle(0x29483a, 1);
+        graphics.fillRoundedRect(-width / 2, -height / 2, width, height, 8 * detail);
+        graphics.lineStyle(Math.max(1, 4 * detail), 0x7fbaa0, 0.55);
+        graphics.strokeRoundedRect(-width / 2, -height / 2, width, height, 8 * detail);
+        graphics.fillStyle(0x5fb46f, 0.82);
+        for (let x = -width * 0.36; x <= width * 0.36; x += Math.max(14 * detail, width * 0.18)) {
+          graphics.fillEllipse(x, -height * 0.12, width * 0.16, height * 0.62);
+        }
+      } else if (prop.kind === "hazard") {
+        if (String(prop.id).includes("lava")) {
+          graphics.fillStyle(0xc94825, 0.96);
+          graphics.fillRoundedRect(-width / 2, -height / 2, width, height, height * 0.42);
+          graphics.lineStyle(Math.max(2, 6 * detail), 0xffbc3d, 0.78);
+          for (let y = -height * 0.28; y <= height * 0.28; y += height * 0.28) {
+            graphics.lineBetween(-width * 0.42, y, width * 0.42, y + height * 0.1);
+          }
+        } else {
+          graphics.fillStyle(0x665372, 1);
+          graphics.fillEllipse(-width * 0.22, height * 0.08, width * 0.58, height * 0.72);
+          graphics.fillEllipse(width * 0.2, -height * 0.1, width * 0.62, height * 0.82);
+          graphics.lineStyle(Math.max(1, 4 * detail), 0xb29ac1, 0.44);
+          graphics.strokeEllipse(width * 0.2, -height * 0.1, width * 0.62, height * 0.82);
+        }
       } else if (prop.kind === "archive") {
         graphics.fillStyle(0x66523c, 1);
         graphics.fillRoundedRect(-width / 2, -height / 2, width, height, 6 * detail);

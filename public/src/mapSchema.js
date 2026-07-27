@@ -166,6 +166,11 @@ export function validateMapDefinition(map) {
     if (![room.x, room.z, room.width, room.depth].every(finite) || room.width <= 0 || room.depth <= 0) {
       errors.push(`Room ${room.id ?? "(missing)"} has invalid geometry.`);
     }
+    if (room.artCrop
+      && (![room.artCrop.x, room.artCrop.y, room.artCrop.width, room.artCrop.height].every(finite)
+        || room.artCrop.width <= 0 || room.artCrop.height <= 0)) {
+      errors.push(`Room ${room.id ?? "(missing)"} has an invalid art crop.`);
+    }
   }
   for (const zone of zones) {
     if (!zone.id || zoneIds.has(zone.id)) errors.push(`Duplicate or missing zone id: ${zone.id ?? "(missing)"}.`);
@@ -207,6 +212,11 @@ export function validateMapDefinition(map) {
     if (!decal.assetKey) errors.push(`Decal ${decal.id ?? "(missing)"} requires an assetKey.`);
     if (![decal.x, decal.z, decal.width, decal.depth].every(finite) || decal.width <= 0 || decal.depth <= 0) {
       errors.push(`Decal ${decal.id ?? "(missing)"} has invalid geometry.`);
+    }
+    if (decal.crop
+      && (![decal.crop.x, decal.crop.y, decal.crop.width, decal.crop.height].every(finite)
+        || decal.crop.width <= 0 || decal.crop.height <= 0)) {
+      errors.push(`Decal ${decal.id ?? "(missing)"} has an invalid crop.`);
     }
   }
   for (const group of objectGroups) {

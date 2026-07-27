@@ -125,6 +125,8 @@ export function createMapDefinition({
         fillAlpha: 0.98,
         stroke: theme.corridorStroke ?? 0x2b5d6e,
         strokeAlpha: 0.68,
+        accent: theme.corridorAccent ?? 0x64d8e8,
+        accentAlpha: theme.corridorAccentAlpha ?? 0.16,
         radius: 18
       }),
       room: Object.freeze({
