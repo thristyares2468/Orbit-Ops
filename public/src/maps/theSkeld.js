@@ -37,7 +37,7 @@ export const THE_SKELD = createMapDefinition({
     { id: "cafeteria", name: "Cafeteria", x: 4.82, z: -19.97, width: 34.18, depth: 34.04, shape: "octagon", assetKey: "skeld-cafeteria", artAlpha: 0.9, artPadding: 4, floorPattern: "checker", colour: 0x5b6566 },
     { id: "upper-engine", name: "Upper Engine", x: -45.77, z: -19.7, width: 14.21, depth: 15.81, assetKey: "skeld-engine", artCrop: { x: 416, y: 45, width: 608, height: 305 }, artAlpha: 0.92, floorPattern: "panels", colour: 0x4a342a },
     { id: "reactor", name: "Reactor", x: -58.5, z: -1.21, width: 13.13, depth: 24.39, shape: "octagon", floorPattern: "radial", gridColour: 0x7ae6ff, colour: 0x512d35 },
-    { id: "security", name: "Security", x: -33.64, z: -2.28, width: 7.91, depth: 16.08, floorPattern: "carpet", gridColour: 0x9c87db, colour: 0x3b334f },
+    { id: "security", name: "Security", x: -33.64, z: -2.28, width: 7.91, depth: 16.08, assetKey: "skeld-security", artCrop: { x: 24, y: 0, width: 240, height: 465 }, artAlpha: 0.94, artPadding: 1, floorPattern: "carpet", gridColour: 0x9c87db, colour: 0x3b334f },
     { id: "medbay", name: "MedBay", x: -18.16, z: -7.24, width: 18.23, depth: 16.89, shape: "octagon", assetKey: "skeld-medbay", artCrop: { x: 0, y: 0, width: 520, height: 520 }, artAlpha: 0.92, floorPattern: "clean", colour: 0x1f5153 },
     { id: "lower-engine", name: "Lower Engine", x: -45.84, z: 18.23, width: 14.34, depth: 15.81, assetKey: "skeld-engine", artCrop: { x: 416, y: 632, width: 608, height: 300 }, artAlpha: 0.92, floorPattern: "panels", colour: 0x4a342a },
     { id: "electrical", name: "Electrical", x: -16.82, z: 13.07, width: 15.55, depth: 16.75, shape: "octagon", floorPattern: "hazard", gridColour: 0xffc85a, colour: 0x594437 },

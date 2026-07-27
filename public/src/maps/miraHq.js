@@ -25,17 +25,17 @@ export const MIRA_HQ = createMapDefinition({
   bounds: { minX: -64, maxX: 64, minZ: -47, maxZ: 47 },
   rooms: [
     { id: "greenhouse", name: "Greenhouse", x: 27.97, z: -39.82, width: 30.91, depth: 11.42, shape: "octagon", assetKey: "mira-greenhouse", artAlpha: 0.96, artPadding: 2, floorPattern: "glass", colour: 0x275544, gridColour: 0xa4ffd1 },
-    { id: "office", name: "Office", x: 18.23, z: -26.12, width: 11.42, depth: 15.29, floorPattern: "wood", gridColour: 0xd8b77e, colour: 0x4b3c54 },
-    { id: "admin", name: "Admin", x: 37.55, z: -26.12, width: 11.76, depth: 15.29, assetKey: "mira-admin", artAlpha: 0.96, artPadding: 2, artFit: "stretch", floorPattern: "clean", colour: 0x46364d },
-    { id: "reactor", name: "Reactor", x: -19.82, z: -7.31, width: 14.95, depth: 21.34, floorPattern: "radial", gridColour: 0xffd46b, colour: 0x533244 },
-    { id: "laboratory", name: "Laboratory", x: 2.69, z: -5.12, width: 14.95, depth: 16.97, assetKey: "mira-laboratory", artAlpha: 0.96, artPadding: 2, artFit: "stretch", floorPattern: "clean", colour: 0x34546a },
-    { id: "decontamination", name: "Decontamination", x: -7.56, z: 9.91, width: 11.26, depth: 44.69, floorPattern: "hazard", gridColour: 0xf0d05c, colour: 0x596b6b },
-    { id: "locker-room", name: "Locker Room", x: 2.86, z: 24.28, width: 8.9, depth: 18.31, floorPattern: "clean", colour: 0x384b50 },
+    { id: "office", name: "Office", x: 18.23, z: -26.12, width: 11.42, depth: 15.29, assetKey: "mira-office", artAlpha: 0.96, artPadding: 2, floorPattern: "wood", gridColour: 0xd8b77e, colour: 0x4b3c54 },
+    { id: "admin", name: "Admin", x: 37.55, z: -26.12, width: 11.76, depth: 15.29, assetKey: "mira-admin", artAlpha: 0.96, artPadding: 2, floorPattern: "clean", colour: 0x46364d },
+    { id: "reactor", name: "Reactor", x: -19.82, z: -7.31, width: 14.95, depth: 21.34, assetKey: "mira-reactor", artCrop: { x: 0, y: 0, width: 500, height: 730 }, artAlpha: 0.96, artPadding: 2, floorPattern: "radial", gridColour: 0xffd46b, colour: 0x533244 },
+    { id: "laboratory", name: "Laboratory", x: 2.69, z: -5.12, width: 14.95, depth: 16.97, assetKey: "mira-laboratory", artCrop: { x: 736, y: 150, width: 489, height: 580 }, artAlpha: 0.96, artPadding: 2, floorPattern: "clean", colour: 0x34546a },
+    { id: "decontamination", name: "Decontamination", x: -7.56, z: 9.91, width: 11.26, depth: 44.69, assetKey: "mira-decontamination", artCrop: { x: 500, y: 700, width: 240, height: 780 }, artAlpha: 0.96, artPadding: 1, artFit: "stretch", floorPattern: "hazard", gridColour: 0xf0d05c, colour: 0x596b6b },
+    { id: "locker-room", name: "Locker Room", x: 2.86, z: 24.28, width: 20, depth: 9.5, assetKey: "mira-locker-room", artAlpha: 0.96, artPadding: 2, artFit: "stretch", floorPattern: "clean", colour: 0x384b50 },
     { id: "communications", name: "Communications", x: 20.41, z: 20.75, width: 10.75, depth: 11.26, floorPattern: "carpet", gridColour: 0xa894d9, colour: 0x3b4057 },
     { id: "medbay", name: "MedBay", x: 20.41, z: 33.85, width: 10.75, depth: 13.61, assetKey: "mira-medbay", artAlpha: 0.96, artPadding: 2, artFit: "stretch", floorPattern: "clean", colour: 0x285159 },
     { id: "storage", name: "Storage", x: 33.35, z: 22.09, width: 9.41, depth: 13.94, assetKey: "mira-storage", artAlpha: 0.96, artPadding: 2, artFit: "stretch", floorPattern: "panels", gridColour: 0xe4c879, colour: 0x51483b },
-    { id: "cafeteria", name: "Cafeteria", x: 50.9, z: 24.11, width: 24.36, depth: 10.5, assetKey: "mira-cafeteria", artAlpha: 0.96, artPadding: 2, artFit: "stretch", floorPattern: "clean", colour: 0x53606c },
-    { id: "balcony", name: "Balcony", x: 45.86, z: 40.82, width: 34.44, depth: 9.41, shape: "octagon", floorPattern: "glass", gridColour: 0x8edfff, colour: 0x315466 },
+    { id: "cafeteria", name: "Cafeteria", x: 50.9, z: 24.11, width: 24.36, depth: 18.5, assetKey: "mira-cafeteria", artCrop: { x: 328, y: 35, width: 810, height: 755 }, artAlpha: 0.96, artPadding: 2, floorPattern: "clean", colour: 0x53606c },
+    { id: "balcony", name: "Balcony", x: 45.86, z: 40.82, width: 34.44, depth: 9.41, shape: "octagon", assetKey: "mira-balcony", artCrop: { x: 0, y: 780, width: 1144, height: 297 }, artAlpha: 0.96, artPadding: 1, floorPattern: "glass", gridColour: 0x8edfff, colour: 0x315466 },
     { id: "launchpad", name: "Launchpad", x: -45.86, z: 21.25, width: 34.44, depth: 24.36, assetKey: "mira-launchpad", artAlpha: 0.94, artPadding: 2, artFit: "stretch", floorPattern: "radial", colour: 0x37515d },
   ],
   connections: MIRA_ROUTES.map(({ from, to }) => [from, to]),
@@ -82,6 +82,10 @@ export const MIRA_HQ = createMapDefinition({
     [50.9, 28.9], [47.3, 28.9], [43.3, 28.9], [40.8, 26.4],
     [40.92, 24.11], [40.8, 21.8], [43.3, 19.3], [47.3, 19.3],
     [50.9, 19.3], [54.5, 19.3], [58.5, 19.3], [61, 21.8]
+  ],
+  decals: [
+    { id: "mira-cafeteria-table-west-art", assetKey: "mira-cafeteria-table", crop: { x: 78, y: 920, width: 155, height: 335 }, x: 43.5, z: 24.1, width: 3.7, depth: 7.2, alpha: 0.98 },
+    { id: "mira-cafeteria-table-east-art", assetKey: "mira-cafeteria-table", crop: { x: 78, y: 920, width: 155, height: 335 }, x: 58.3, z: 24.1, width: 3.7, depth: 7.2, alpha: 0.98 }
   ],
   collisionRects: [
     { id: "mira-greenhouse-rack-west", kind: "planter", roomId: "greenhouse", x: 27, z: -40.4, width: 4, depth: 3.1, prop: false },

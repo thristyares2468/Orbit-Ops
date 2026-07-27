@@ -85,15 +85,31 @@ test("the dropship lobby is a valid map that is never selectable as a match map"
 
 test("room artwork uses only verified whole-room images or deliberate crops", () => {
   const allowedAssets = new Map([
-    ["the-skeld", new Set(["skeld-cafeteria", "skeld-engine", "skeld-medbay", "skeld-weapons", "skeld-navigation", "skeld-o2"])],
-    ["mira-hq", new Set(["mira-launchpad", "mira-cafeteria", "mira-admin", "mira-laboratory", "mira-greenhouse", "mira-medbay", "mira-storage"])],
-    ["polus", new Set(["polus-o2", "polus-broadcast", "polus-science", "polus-specimen", "polus-tunnel", "polus-weapons", "polus-storage", "polus-dropship", "polus-planet-3"])]
+    ["the-skeld", new Set(["skeld-cafeteria", "skeld-engine", "skeld-medbay", "skeld-weapons", "skeld-navigation", "skeld-o2", "skeld-security"])],
+    ["mira-hq", new Set(["mira-launchpad", "mira-cafeteria", "mira-admin", "mira-office", "mira-reactor", "mira-laboratory", "mira-decontamination", "mira-locker-room", "mira-balcony", "mira-greenhouse", "mira-medbay", "mira-storage"])],
+    ["polus", new Set(["polus-o2", "polus-broadcast", "polus-science", "polus-specimen", "polus-tunnel", "polus-weapons", "polus-storage", "polus-dropship", "polus-planet-3", "polus-security"])]
   ]);
   for (const [mapId, allowed] of allowedAssets) {
     for (const room of getMapDefinition(mapId).rooms) {
       assert.ok(!room.assetKey || allowed.has(room.assetKey), `${mapId}:${room.id}:${room.assetKey}`);
+      assert.ok(!room.assetKey || Object.hasOwn(PHASER_ASSETS, room.assetKey), `${room.assetKey} is preloaded`);
     }
   }
+  for (const mapId of [...MAP_IDS, LOBBY_MAP_ID]) {
+    for (const decal of getMapDefinition(mapId).decals) {
+      assert.ok(Object.hasOwn(PHASER_ASSETS, decal.assetKey), `${mapId}:${decal.id}:${decal.assetKey}`);
+    }
+  }
+});
+
+test("misleading source filenames stay assigned to their actual MIRA rooms", () => {
+  const rooms = new Map(getMapDefinition("mira-hq").rooms.map((room) => [room.id, room]));
+  assert.equal(rooms.get("office")?.assetKey, "mira-office");
+  assert.equal(rooms.get("admin")?.assetKey, "mira-admin");
+  assert.equal(rooms.get("locker-room")?.assetKey, "mira-locker-room");
+  assert.equal(rooms.get("laboratory")?.assetKey, "mira-laboratory");
+  assert.equal(rooms.get("reactor")?.assetKey, "mira-reactor");
+  assert.equal(rooms.get("decontamination")?.assetKey, "mira-decontamination");
 });
 
 test("game maps and the lobby never load the visual reference screenshots", () => {
