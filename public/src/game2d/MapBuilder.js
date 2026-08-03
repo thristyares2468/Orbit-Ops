@@ -6,9 +6,14 @@ import {
   worldToScreen
 } from "./assets.js";
 
-function roomShapePoints(width, height, inset = 0) {
+function roomShapePoints(room, width, height, inset = 0) {
   const halfWidth = width / 2 - inset;
   const halfHeight = height / 2 - inset;
+  if (Array.isArray(room.walkablePolygon) && room.walkablePolygon.length >= 3) {
+    const scaleX = halfWidth / (room.width / 2);
+    const scaleY = halfHeight / (room.depth / 2);
+    return room.walkablePolygon.map((point) => ({ x: point.x * scaleX, y: point.z * scaleY }));
+  }
   const cut = Math.min(halfWidth * 2, halfHeight * 2) * 0.18;
   return [
     { x: -halfWidth + cut, y: -halfHeight },
@@ -25,13 +30,13 @@ function roomShapePoints(width, height, inset = 0) {
 function fillRoomShape(graphics, room, width, height, colour, alpha, inset = 0, radius = 0) {
   graphics.fillStyle(colour, alpha);
   if (room.shape === "ellipse") graphics.fillEllipse(0, 0, width - inset * 2, height - inset * 2);
-  else if (room.shape === "octagon") graphics.fillPoints(roomShapePoints(width, height, inset), true);
+  else if (room.shape === "octagon" || Array.isArray(room.walkablePolygon)) graphics.fillPoints(roomShapePoints(room, width, height, inset), true);
   else graphics.fillRoundedRect(-width / 2 + inset, -height / 2 + inset, width - inset * 2, height - inset * 2, radius);
 }
 
 function strokeRoomShape(graphics, room, width, height, inset = 0, radius = 0) {
   if (room.shape === "ellipse") graphics.strokeEllipse(0, 0, width - inset * 2, height - inset * 2);
-  else if (room.shape === "octagon") graphics.strokePoints(roomShapePoints(width, height, inset), true);
+  else if (room.shape === "octagon" || Array.isArray(room.walkablePolygon)) graphics.strokePoints(roomShapePoints(room, width, height, inset), true);
   else graphics.strokeRoundedRect(-width / 2 + inset, -height / 2 + inset, width - inset * 2, height - inset * 2, radius);
 }
 
@@ -123,6 +128,7 @@ export class MapBuilder {
     this.objectGroups = new Map((map.objectGroups ?? []).map((group) => [group.id, group]));
     this.collisionRects = [...(this.objectGroups.get("collisions")?.objects ?? map.collisionRects ?? [])];
     this.roomContainers = new Map();
+    this.roomMasks = [];
     this.stationMarkers = [];
   }
 
@@ -245,10 +251,10 @@ export class MapBuilder {
       const roomContainer = this.scene.add.container(point.x, point.y).setName(`room:${room.id}`);
 
       const floor = this.scene.add.graphics();
-      fillRoomShape(floor, room, width, height, room.colour, 0.96, 0, style.radius * detail);
+      fillRoomShape(floor, room, width, height, room.colour, room.floorAlpha ?? 0.96, 0, style.radius * detail);
 
       const proceduralFloor = this.scene.add.graphics();
-      if (room.floorPattern !== false) drawFloorPattern(proceduralFloor, room, width, height, detail);
+      if (!room.assetOnly && room.floorPattern !== false) drawFloorPattern(proceduralFloor, room, width, height, detail);
 
       let art = null;
       if (room.assetKey) {
@@ -273,10 +279,19 @@ export class MapBuilder {
         art.setPosition((room.artOffsetX ?? 0) * this.metrics.scale, (room.artOffsetZ ?? 0) * this.metrics.scale);
         art.setFlipX(Boolean(room.artFlipX));
         art.setFlipY(Boolean(room.artFlipY));
+        if (room.artClip !== false && Array.isArray(room.walkablePolygon)) {
+          const maskSource = this.scene.add.graphics({ x: point.x, y: point.y });
+          fillRoomShape(maskSource, room, width, height, 0xffffff, 1);
+          const geometryMask = maskSource.createGeometryMask();
+          maskSource.setVisible(false);
+          art.setMask(geometryMask);
+          layer.add(maskSource);
+          this.roomMasks.push({ geometryMask, maskSource });
+        }
       }
 
       const walls = this.scene.add.graphics();
-      if (room.chrome !== false) {
+      if (!room.assetOnly && room.chrome !== false) {
         fillRoomShape(walls, room, width, height, 0x02070d, 0.18, 6 * detail, 19 * detail);
         walls.lineStyle(Math.max(1, 5 * detail), style.frame, style.frameAlpha);
         strokeRoomShape(walls, room, width, height, 0, style.radius * detail);
@@ -462,6 +477,8 @@ export class MapBuilder {
   }
 
   destroy() {
+    for (const { geometryMask } of this.roomMasks) geometryMask.destroy();
+    this.roomMasks = [];
     for (const layer of this.layers.values()) layer.destroy(true);
     this.layers.clear();
     this.roomContainers.clear();

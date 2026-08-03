@@ -20,6 +20,14 @@ export function mapShapePolygon(rect, margin = 0) {
   const halfWidth = rect.width / 2 - margin;
   const halfDepth = rect.depth / 2 - margin;
   if (halfWidth <= 0 || halfDepth <= 0) return [];
+  if (Array.isArray(rect.walkablePolygon) && rect.walkablePolygon.length >= 3) {
+    const scaleX = halfWidth / (rect.width / 2);
+    const scaleZ = halfDepth / (rect.depth / 2);
+    return rect.walkablePolygon.map((point) => ({
+      x: rect.x + Number(point.x) * scaleX,
+      z: rect.z + Number(point.z) * scaleZ
+    }));
+  }
   const cut = Math.min(halfWidth * 2, halfDepth * 2) * 0.18;
   return [
     { x: rect.x - halfWidth + cut, z: rect.z - halfDepth },
@@ -35,8 +43,9 @@ export function mapShapePolygon(rect, margin = 0) {
 
 export function pointInMapShape(x, z, shape, margin = 0) {
   if (shape?.shape === "ellipse") return pointInMapEllipse(x, z, shape, margin);
-  if (shape?.shape !== "octagon") return pointInMapRect(x, z, shape, margin);
+  if (shape?.shape !== "octagon" && !Array.isArray(shape?.walkablePolygon)) return pointInMapRect(x, z, shape, margin);
   const polygon = mapShapePolygon(shape, margin);
+  if (polygon.length < 3) return false;
   let inside = false;
   for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current, current += 1) {
     const a = polygon[current];
@@ -49,6 +58,7 @@ export function pointInMapShape(x, z, shape, margin = 0) {
 }
 
 export function pointInCollisionRect(x, z, rect, margin = 0) {
+  if (rect?.shape === "ellipse") return pointInMapEllipse(x, z, rect, -Math.max(0, margin));
   return pointInMapRect(x, z, rect, -Math.max(0, margin));
 }
 
@@ -170,6 +180,12 @@ export function validateMapDefinition(map) {
       && (![room.artCrop.x, room.artCrop.y, room.artCrop.width, room.artCrop.height].every(finite)
         || room.artCrop.width <= 0 || room.artCrop.height <= 0)) {
       errors.push(`Room ${room.id ?? "(missing)"} has an invalid art crop.`);
+    }
+    if (room.walkablePolygon
+      && (!Array.isArray(room.walkablePolygon)
+        || room.walkablePolygon.length < 3
+        || room.walkablePolygon.some((point) => ![point?.x, point?.z].every(finite)))) {
+      errors.push(`Room ${room.id ?? "(missing)"} has an invalid walkable polygon.`);
     }
   }
   for (const zone of zones) {
