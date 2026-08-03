@@ -9,16 +9,18 @@ const SOURCE = Object.freeze({
   height: 993,
   deck: Object.freeze({ left: 357, right: 868, top: 310, bottom: 930 })
 });
-// Thirty-four world units keeps the lobby larger than the player view while
-// preserving the reference proportions; the former 42-unit hull made seats and
-// cargo read as oversized beside the supplied player model.
-const SHIP_SCALE = 34 / SOURCE.width;
+// The packed lobby art is taller than the playable cabin shown in the reference.
+// Keep the supplied horizontal scale, but compress the deck axis independently
+// so the hold is almost square and every prop/collider stays registered to it.
+const SHIP_SCALE_X = 34 / SOURCE.width;
+const SHIP_SCALE_Z = 14.5 / (SOURCE.deck.bottom - SOURCE.deck.top);
 const DECK_CENTER_X = (SOURCE.deck.left + SOURCE.deck.right) / 2;
 const DECK_CENTER_Z = (SOURCE.deck.top + SOURCE.deck.bottom) / 2;
 
-const sourceX = (pixel) => (pixel - DECK_CENTER_X) * SHIP_SCALE;
-const sourceZ = (pixel) => (pixel - DECK_CENTER_Z) * SHIP_SCALE;
-const sourceSize = (pixels) => pixels * SHIP_SCALE;
+const sourceX = (pixel) => (pixel - DECK_CENTER_X) * SHIP_SCALE_X;
+const sourceZ = (pixel) => (pixel - DECK_CENTER_Z) * SHIP_SCALE_Z;
+const sourceWidth = (pixels) => pixels * SHIP_SCALE_X;
+const sourceDepth = (pixels) => pixels * SHIP_SCALE_Z;
 const spawn = (sourceCenterX, sourceCenterZ) => Object.freeze([
   sourceX(sourceCenterX),
   sourceZ(sourceCenterZ)
@@ -32,8 +34,8 @@ function collision(id, sourceCenterX, sourceCenterZ, sourceWidth, sourceDepth) {
     roomId: "dropship-hold",
     x: sourceX(sourceCenterX),
     z: sourceZ(sourceCenterZ),
-    width: sourceSize(sourceWidth),
-    depth: sourceSize(sourceDepth)
+    width: sourceWidth * SHIP_SCALE_X,
+    depth: sourceDepth * SHIP_SCALE_Z
   };
 }
 
@@ -43,8 +45,8 @@ function decal(id, assetKey, sourceCenterX, sourceCenterZ, sourceWidth, sourceDe
     assetKey,
     x: sourceX(sourceCenterX),
     z: sourceZ(sourceCenterZ),
-    width: sourceSize(sourceWidth),
-    depth: sourceSize(sourceDepth),
+    width: sourceWidth * SHIP_SCALE_X,
+    depth: sourceDepth * SHIP_SCALE_Z,
     ...extras
   };
 }
@@ -54,15 +56,15 @@ export const LOBBY_DROPSHIP = createMapDefinition({
   name: "Dropship",
   shortName: "Dropship",
   description: "The Meridian's boarding dropship, where the crew gathers before a launch.",
-  bounds: { minX: -18.5, maxX: 18.5, minZ: -18, maxZ: 16 },
+  bounds: { minX: -18.5, maxX: 18.5, minZ: -15.5, maxZ: 13.5 },
   rooms: [
     {
       id: "dropship-hold",
       name: "Dropship",
       x: 0,
       z: 0,
-      width: sourceSize(SOURCE.deck.right - SOURCE.deck.left),
-      depth: sourceSize(SOURCE.deck.bottom - SOURCE.deck.top),
+      width: sourceWidth(SOURCE.deck.right - SOURCE.deck.left),
+      depth: sourceDepth(SOURCE.deck.bottom - SOURCE.deck.top),
       label: false,
       chrome: false,
       floorPattern: false,
@@ -82,12 +84,12 @@ export const LOBBY_DROPSHIP = createMapDefinition({
       sourceZ(375)
     ),
     assetKey: "lobbyLaptop",
-    artWidth: sourceSize(56),
-    artDepth: sourceSize(46),
-    artOffsetX: sourceSize(4),
-    artOffsetZ: -sourceSize(32),
-    ringWidth: sourceSize(112),
-    ringDepth: sourceSize(72)
+    artWidth: sourceWidth(56),
+    artDepth: sourceDepth(46),
+    artOffsetX: sourceWidth(4),
+    artOffsetZ: -sourceDepth(32),
+    ringWidth: sourceWidth(112),
+    ringDepth: sourceDepth(72)
   }],
   spawnPoints: [
     spawn(612.5, 650), spawn(520, 650), spawn(705, 650), spawn(405, 650), spawn(820, 650),
@@ -103,9 +105,9 @@ export const LOBBY_DROPSHIP = createMapDefinition({
   ],
   decals: [
     decal("lobby-hull", "lobbyDropship", SOURCE.width / 2, SOURCE.height / 2, SOURCE.width, SOURCE.height),
-    // The source panel includes a tall transparent recess. It is compressed to
-    // the closed front-ramp silhouette seen beneath the final row of floor tiles.
-    decal("lobby-ramp", "lobbyCargoDoor", SOURCE.width / 2, 1010, 676, 220),
+    // Pull the front door up beneath the last floor row instead of extending the
+    // hold into a long vertical corridor.
+    decal("lobby-ramp", "lobbyCargoDoor", SOURCE.width / 2, 925, 676, 155),
     // Each exhaust sprite contains a vertical pair of plumes. Two columns per
     // engine reproduce the four cyan exhaust ports on each pod.
     decal("lobby-exhaust-port-a", "lobbyExhaust", 92, 820, 98, 185),

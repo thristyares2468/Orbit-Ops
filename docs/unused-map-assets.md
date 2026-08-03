@@ -7,14 +7,20 @@ This audit covers the current 2D builds of The Skeld, MIRA HQ, Polus, and the pr
 ### The Skeld
 
 - `Cafeteria/Cafeteria-sharedassets0.assets-210.png`
-- `Engine-sharedassets0.assets-147.png` (deliberate upper- and lower-engine crops)
+- `assets/rooms/skeld-upper-engine.png` and `assets/rooms/skeld-lower-engine.png` (complete floor-and-machinery composites isolated from `Engine-sharedassets0.assets-147.png`)
+- `assets/rooms/skeld-reactor.png` (a rebuilt room shell using the supplied reactor machinery from `Tasks/ReactorRoom-sharedassets0.assets-132.png`)
 - `MedBay-sharedassets0.assets-110.png` (deliberate room crop)
-- `Weapons-sharedassets0.assets-201.png` (deliberate room crop)
+- `assets/rooms/skeld-weapons.png` (the isolated room silhouette from `Weapons-sharedassets0.assets-201.png`)
 - `Navigation-sharedassets0.assets-160.png` (deliberate room crop)
-- `Security/Security-sharedassets0.assets-203.png` (the complete Security room at the top of the sheet)
+- `assets/rooms/skeld-security.png` (the complete room plus the supplied monitor bank)
 - `assets/rooms/skeld-o2.png` (the isolated O2 room from `LifeSupport-sharedassets0.assets-119.png`)
+- `assets/rooms/skeld-electrical.png`
+- `assets/rooms/skeld-storage.png`
+- `assets/rooms/skeld-admin.png`
+- `assets/rooms/skeld-communications.png`
+- `assets/rooms/skeld-shields.png`
 
-The remaining Skeld rooms use original procedural floors, frames, and collision-matched props where a supplied sheet could not be isolated without displaying its opaque green mask material or content from a neighbouring room.
+The last five room files above are carefully masked composites from `Storage/Admin_Comms_Elec_Engine_Halls_Shields_Storage-sharedassets0.assets-150.png`. Electrical and Storage preserve their intact supplied silhouettes. Admin restores the supplied map table. Communications rebuilds the missing shell around the supplied chair and desk. Shields recomposes the supplied platform, seating, and console bank. Opaque green atlas-mask islands and unrelated neighbouring sprites are not present in the runtime images.
 
 ### MIRA HQ
 
@@ -63,11 +69,10 @@ These remain available in the repository, but they are not preloaded or displaye
 ### The Skeld
 
 - `Hull-sharedassets0.assets-159.png`
-- `Storage/Admin_Comms_Elec_Engine_Halls_Shields_Storage-sharedassets0.assets-150.png`
 - `Security/Security-sharedassets0.assets-105.png`
 - `Security/Security-sharedassets0.assets-162.png`
 
-`Hull` is exterior hull, thruster, vent, and fastener material rather than a room. `Security-105` is an animation strip and `Security-162` contains monitor/desk props. The large Storage sheet does contain identifiable Electrical, Storage, Admin, Shields, Communications, Security, and hall regions, but opaque green mask islands are baked immediately around those regions. Rectangular room crops would visibly import the mask, so those sections remain procedural instead of presenting damaged atlas content.
+`Hull` is exterior hull, thruster, vent, and fastener material rather than a room. `Security-105` is an animation strip and `Security-162` contains monitor/desk props. The useful room regions from the large Storage sheet are now placed through masked, room-specific images; its remaining regions are corridors, duplicate fragments, or opaque atlas masks.
 
 ### MIRA HQ
 
@@ -90,7 +95,7 @@ The Security sub-room from `PlanetSprites` is placed, but its larger Electrical/
 - `Animations-sharedassets0.assets-165.png` — animation atlas
 - `Doors-sharedassets0.assets-104.png` — door-state atlas
 - `bridge_sab-sharedassets0.assets-151.png` — sabotage/interface material
-- `Tasks/ReactorRoom-sharedassets0.assets-132.png` — task/animation sheet, not a room background
+- The unused portions of `Tasks/ReactorRoom-sharedassets0.assets-132.png` remain task/animation frames; its reactor machinery is now reused in the rebuilt Reactor room.
 
 These are not missing map art and should remain in their task, animation, or door pipelines.
 
@@ -98,4 +103,4 @@ These are not missing map art and should remain in their task, animation, or doo
 
 - The supplied reference screenshots remain reference-only and are never loaded by the runtime.
 - No lobby-specific separated sprite is unused. The packed Lobby sheet stays as the source catalog, while all five extracted sprites and the supplemental equipment case are placed.
-- The highest-confidence room crops are now placed. The remaining files are primarily multi-room compositions, corridor/exterior assemblies, props, task interfaces, or animation sheets—not undiscovered complete rectangular rooms.
+- Every canonical Skeld room now has supplied or reconstructed room art. The remaining files are primarily corridor/exterior assemblies, duplicate props, task interfaces, or animation sheets—not undiscovered complete rectangular rooms.

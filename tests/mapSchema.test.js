@@ -67,6 +67,8 @@ test("the dropship lobby is a valid map that is never selectable as a match map"
   assert.ok(lobby.spawnPoints.length >= 16, "every seat in a full room needs a spawn");
   assert.ok(Math.abs(lobby.spawnPoints[0][0]) < 0.01, "the host enters with the cabin centred");
   assert.ok(lobby.spawnPoints.every(([x, z]) => isWalkable(LOBBY_MAP_ID, x, z, 0.55)));
+  const hold = lobby.rooms.find(({ id }) => id === "dropship-hold");
+  assert.ok(Math.abs(hold.width - hold.depth) < 0.5, "the playable dropship cabin stays nearly square");
   for (const crate of lobby.collisionRects) {
     assert.equal(isWalkable(LOBBY_MAP_ID, crate.x, crate.z), false, crate.id);
   }
@@ -85,7 +87,12 @@ test("the dropship lobby is a valid map that is never selectable as a match map"
 
 test("room artwork uses only verified whole-room images or deliberate crops", () => {
   const allowedAssets = new Map([
-    ["the-skeld", new Set(["skeld-cafeteria", "skeld-engine", "skeld-medbay", "skeld-weapons", "skeld-navigation", "skeld-o2", "skeld-security"])],
+    ["the-skeld", new Set([
+      "skeld-cafeteria", "skeld-upper-engine", "skeld-lower-engine", "skeld-reactor",
+      "skeld-security", "skeld-medbay", "skeld-electrical", "skeld-storage",
+      "skeld-communications", "skeld-admin", "skeld-shields", "skeld-o2",
+      "skeld-weapons", "skeld-navigation"
+    ])],
     ["mira-hq", new Set(["mira-launchpad", "mira-cafeteria", "mira-admin", "mira-office", "mira-reactor", "mira-laboratory", "mira-decontamination", "mira-locker-room", "mira-balcony", "mira-greenhouse", "mira-medbay", "mira-storage"])],
     ["polus", new Set(["polus-o2", "polus-broadcast", "polus-science", "polus-specimen", "polus-tunnel", "polus-weapons", "polus-storage", "polus-dropship", "polus-planet-3", "polus-security"])]
   ]);
@@ -100,6 +107,24 @@ test("room artwork uses only verified whole-room images or deliberate crops", ()
       assert.ok(Object.hasOwn(PHASER_ASSETS, decal.assetKey), `${mapId}:${decal.id}:${decal.assetKey}`);
     }
   }
+});
+
+test("Skeld room art and interaction positions match the supplied deck reference", () => {
+  const skeld = getMapDefinition("the-skeld");
+  const rooms = new Map(skeld.rooms.map((room) => [room.id, room]));
+  for (const roomId of [
+    "upper-engine", "lower-engine", "reactor", "security", "medbay", "electrical",
+    "storage", "communications", "admin", "shields", "weapons", "navigation"
+  ]) {
+    assert.ok(rooms.get(roomId)?.assetKey, `${roomId} uses its supplied or rebuilt room art`);
+  }
+  assert.ok(rooms.get("upper-engine").width >= 19);
+  assert.ok(rooms.get("lower-engine").width >= 19);
+  assert.ok(rooms.get("navigation").depth > rooms.get("navigation").width);
+  const o2Panel = stationById("the-skeld", "skeld-o2-panel");
+  const shieldsVent = stationById("the-skeld", "skeld-vent-shields");
+  assert.ok(o2Panel.z < rooms.get("o2").z, "the O2 sabotage panel sits at the top of O2");
+  assert.ok(shieldsVent.z > rooms.get("shields").z, "the Shields vent sits at the bottom of Shields");
 });
 
 test("misleading source filenames stay assigned to their actual MIRA rooms", () => {
