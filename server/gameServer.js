@@ -12,7 +12,7 @@ import {
   getRoleDefinition, roleIdsForFaction
 } from "../public/src/roleData.js";
 import {
-  DEFAULT_SETTINGS, DISCONNECT_GRACE_MS, MAX_ROOM_PLAYERS, MIN_MATCH_PLAYERS,
+  BOT_SABOTAGE, DEFAULT_SETTINGS, DISCONNECT_GRACE_MS, MAX_ROOM_PLAYERS, MIN_MATCH_PLAYERS,
   PHASES, PLAYER_SPEED, SERVER_VERSION, SESSION_SECRET, SNAPSHOT_RATE, TICK_RATE
 } from "./constants.js";
 import { RateLimiter } from "./rateLimits.js";
@@ -417,7 +417,7 @@ export class GameServer {
       hostId: null, players: new Map(), practiceRoles: new Map(),
       createdAt: Date.now(), matchStartedAt: null, matchNumber: 0, guardianAngelId: null,
       taskCompleted: 0, taskTotal: 0, incidents: new Map(), evidence: [],
-      activeSabotage: null, lastSabotageAt: 0, meeting: null,
+      activeSabotage: null, lastSabotageAt: 0, sabotageClearedAt: 0, meeting: null,
       specialWinnerIds: new Set(),
       doorLogs: [], maintenanceLogs: [], timers: new Set(), lastSnapshotAt: 0
     };
@@ -462,7 +462,7 @@ export class GameServer {
       jumpUntil: 0, activeTask: null, tasks: [], completedTasks: new Set(), vote: null,
       lastEliminationAt: 0, lastMaintenanceAt: 0, emergencyMeetings: 0,
       disconnectedAt: null, cleanupTimer: null, rejoinTokenHash: null,
-      matchStats: makeStats(), eliminatedAt: null, botTarget: null, botActionAt: 0
+      matchStats: makeStats(), eliminatedAt: null, botTarget: null, botActionAt: 0, repairStationId: null
     };
   }
 
@@ -523,6 +523,7 @@ export class GameServer {
       player.currentRoom = roomAt(mapId, spawn[0], spawn[1])?.id ?? map.rooms[0].id;
       player.botTarget = null;
       player.botPath = [];
+      player.repairStationId = null;
       player.input = normaliseInput({});
     }
   }
@@ -685,6 +686,7 @@ export class GameServer {
     room.specialWinnerIds.clear();
     room.guardianAngelId = null;
     room.lastSabotageAt = Date.now();
+    room.sabotageClearedAt = Date.now();
     for (const timer of room.timers) clearTimeout(timer);
     room.timers.clear();
 
@@ -712,6 +714,7 @@ export class GameServer {
       player.lastEliminationAt = room.mode === "practice" ? 0 : Date.now();
       player.lastMaintenanceAt = 0;
       player.emergencyMeetings = 0;
+      player.repairStationId = null;
       const assignments = shuffle(map.taskDefinitions).slice(0, room.settings.assignmentQuantity).map((task) => ({
         id: task.id, name: task.name, roomId: task.roomId, fake: player.faction !== "crew"
       }));
@@ -762,6 +765,7 @@ export class GameServer {
       player.completedTasks = new Set();
       player.activeTask = null;
       player.vote = null;
+      player.repairStationId = null;
       player.input = normaliseInput({});
     }
     this.broadcastRoomState(room);
@@ -861,6 +865,28 @@ export class GameServer {
     return { ok: true, sabotage: this.publicSabotage(room.activeSabotage) };
   }
 
+  // Bot pacing measures from the moment the deck was last clear, so a repaired or
+  // expired sabotage starts the next cooldown instead of chaining immediately.
+  clearActiveSabotage(room) {
+    room.activeSabotage = null;
+    room.sabotageClearedAt = Date.now();
+    for (const player of room.players.values()) {
+      if (player.bot) player.repairStationId = null;
+    }
+  }
+
+  // Earliest wall-clock time a bot may trigger the next sabotage. Human requests are
+  // unchanged: they still go through startSabotage's own authoritative checks.
+  botSabotageReadyAt(room) {
+    const settingsCooldownMs = room.settings.sabotageCooldownSeconds * 1000;
+    const lastClear = Math.max(room.lastSabotageAt ?? 0, room.sabotageClearedAt ?? 0);
+    if (room.mode !== "practice") return lastClear + settingsCooldownMs + BOT_SABOTAGE.onlineGapMs;
+    return Math.max(
+      (room.matchStartedAt ?? 0) + BOT_SABOTAGE.practiceGraceMs,
+      lastClear + Math.max(settingsCooldownMs, BOT_SABOTAGE.cooldownMs)
+    );
+  }
+
   publicSabotage(sabotage) {
     return {
       id: sabotage.id, name: sabotage.name, critical: sabotage.critical,
@@ -880,7 +906,7 @@ export class GameServer {
     player.matchStats.sabotagesRepaired += completed ? 1 : 0;
     if (completed) {
       const ended = this.publicSabotage(sabotage);
-      room.activeSabotage = null;
+      this.clearActiveSabotage(room);
       this.io.to(room.code).emit("sabotageEnded", { ...ended, repairedBy: player.id });
     } else {
       this.io.to(room.code).emit("sabotageUpdated", this.publicSabotage(sabotage));
@@ -926,7 +952,7 @@ export class GameServer {
     if (player.role === "engineer") {
       if (!room.activeSabotage) throw new Error("No sabotage currently needs an Engineer.");
       const ended = this.publicSabotage(room.activeSabotage);
-      room.activeSabotage = null;
+      this.clearActiveSabotage(room);
       player.matchStats.sabotagesRepaired += 1;
       this.io.to(room.code).emit("sabotageEnded", { ...ended, repairedBy: player.id, engineerFix: true });
     } else if (player.role === "medic") {
@@ -1090,7 +1116,7 @@ export class GameServer {
     if (room.activeSabotage?.critical) throw new Error("Resolve the critical sabotage before calling a meeting.");
     if (room.activeSabotage) {
       const ended = this.publicSabotage(room.activeSabotage);
-      room.activeSabotage = null;
+      this.clearActiveSabotage(room);
       this.io.to(room.code).emit("sabotageEnded", { ...ended, cancelledByMeeting: true });
     }
     for (const player of room.players.values()) {
@@ -1333,6 +1359,7 @@ export class GameServer {
     const delta = Math.min(0.1, Math.max(0.001, (now - this.lastTickAt) / 1000));
     this.lastTickAt = now;
     for (const room of this.rooms.values()) {
+      if (room.phase === PHASES.ACTIVE) this.assignSabotageRepairs(room);
       if ([PHASES.ACTIVE, PHASES.LOBBY].includes(room.phase)) {
         for (const player of room.players.values()) {
           if (!player.connected && !player.bot) continue;
@@ -1351,7 +1378,7 @@ export class GameServer {
             this.endMatch(room, "operative", `${room.activeSabotage.id}-expired`);
           } else {
             const ended = this.publicSabotage(room.activeSabotage);
-            room.activeSabotage = null;
+            this.clearActiveSabotage(room);
             this.io.to(room.code).emit("sabotageEnded", { ...ended, expired: true });
           }
         } else if (room.activeSabotage.critical && now % 1000 < 1000 / TICK_RATE) {
@@ -1421,10 +1448,45 @@ export class GameServer {
     }
   }
 
+  // Give each outstanding repair station its own crew bot. Assignment is deterministic
+  // (nearest bot, ties broken by id) and one station never draws two bots, so a
+  // two-station sabotage is actually resolvable.
+  assignSabotageRepairs(room) {
+    const sabotage = room.activeSabotage;
+    const bots = [...room.players.values()].filter((player) => player.bot);
+    if (!sabotage) {
+      for (const bot of bots) bot.repairStationId = null;
+      return;
+    }
+    const pending = sabotage.repairStations.filter((id) => !sabotage.repairs.has(id));
+    const eligible = bots.filter((bot) => bot.alive && bot.faction === "crew");
+    for (const bot of bots) {
+      if (bot.repairStationId && (!pending.includes(bot.repairStationId) || !eligible.includes(bot))) {
+        bot.repairStationId = null;
+      }
+    }
+    const claimed = new Set(eligible.map((bot) => bot.repairStationId).filter(Boolean));
+    for (const stationId of pending) {
+      if (claimed.has(stationId)) continue;
+      const station = stationById(room.mapId, stationId);
+      if (!station) continue;
+      const free = eligible.filter((bot) => !bot.repairStationId);
+      if (!free.length) return;
+      free.sort((a, b) => {
+        const gap = distance2D(a.position, station) - distance2D(b.position, station);
+        return gap === 0 ? a.id.localeCompare(b.id) : gap;
+      });
+      const responder = free[0];
+      responder.repairStationId = stationId;
+      responder.botTarget = null;
+      claimed.add(stationId);
+    }
+  }
+
   tickBot(room, bot, now, delta) {
     if (room.phase !== PHASES.ACTIVE || !bot.alive) return;
     const map = getMapDefinition(room.mapId);
-    if (bot.faction === "operative" && !room.activeSabotage && now - room.lastSabotageAt > room.settings.sabotageCooldownSeconds * 1000 + 5_000 && Math.random() < delta * 0.12) {
+    if (bot.faction === "operative" && !room.activeSabotage && now >= this.botSabotageReadyAt(room) && Math.random() < delta * 0.12) {
       try { this.startSabotage(room, bot, map.sabotageDefinitions[Math.floor(Math.random() * map.sabotageDefinitions.length)].id); } catch { /* next tick */ }
     }
     if (bot.faction === "operative" && now - bot.lastEliminationAt > room.settings.eliminationCooldownSeconds * 1000) {
@@ -1434,7 +1496,22 @@ export class GameServer {
         return;
       }
     }
-    if (!bot.botTarget || now - bot.botActionAt > 30_000) {
+    // A crew bot holding a repair assignment drops everything else until the station
+    // is fixed or reassigned.
+    const repairStation = bot.repairStationId ? stationById(room.mapId, bot.repairStationId) : null;
+    if (repairStation) {
+      if (bot.botTarget?.stationId !== repairStation.id) {
+        bot.botTarget = {
+          x: repairStation.x, z: repairStation.z, roomId: repairStation.roomId,
+          stationId: repairStation.id, repairSabotageId: repairStation.refId
+        };
+        bot.botPath = this.buildBotPath(room.mapId, bot.currentRoom, repairStation.roomId);
+        bot.botActionAt = now;
+      }
+    } else if (bot.botTarget?.repairSabotageId) {
+      bot.botTarget = null;
+    }
+    if (!repairStation && (!bot.botTarget || now - bot.botActionAt > 30_000)) {
       const outstanding = bot.tasks.filter((task) => !bot.completedTasks.has(task.id));
       const task = outstanding[0] ?? bot.tasks[Math.floor(Math.random() * bot.tasks.length)];
       const station = stationById(room.mapId, `task:${task?.id}`) ?? map.stations[Math.floor(Math.random() * map.stations.length)];
@@ -1455,6 +1532,16 @@ export class GameServer {
     }
     if (!bot.botPath?.length && distance < 1.6) {
       bot.animation = "interact";
+      if (bot.botTarget.repairSabotageId) {
+        try {
+          this.repairSabotage(room, bot, bot.botTarget.stationId);
+        } catch {
+          /* the sabotage ended or another responder finished it first */
+        }
+        bot.repairStationId = null;
+        bot.botTarget = null;
+        return;
+      }
       if (bot.faction === "crew" && bot.botTarget.taskId && !bot.completedTasks.has(bot.botTarget.taskId) && now - bot.botActionAt > 3_000) {
         this.completeTaskInternal(room, bot, bot.botTarget.taskId);
         bot.botTarget = null;

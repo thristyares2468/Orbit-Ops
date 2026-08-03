@@ -3,7 +3,9 @@ import test from "node:test";
 import {
   buildOrthogonalCorridors,
   buildRoutedCorridors,
+  mapShapePolygon,
   pointInCollisionRect,
+  pointInMapShape,
   validateMapDefinition,
   visibleMapLayers
 } from "../public/src/mapSchema.js";
@@ -127,6 +129,41 @@ test("Skeld room art and interaction positions match the supplied deck reference
   assert.ok(shieldsVent.z > rooms.get("shields").z, "the Shields vent sits at the bottom of Shields");
 });
 
+test("Skeld uses clipped room hulls and keeps every interaction reachable", () => {
+  const skeld = getMapDefinition("the-skeld");
+  const rooms = new Map(skeld.rooms.map((room) => [room.id, room]));
+  assert.ok(skeld.rooms.every((room) => room.assetOnly && room.walkablePolygon?.length >= 3),
+    "every Skeld room is clipped to its authored artwork instead of a generic rectangle");
+
+  const navigation = rooms.get("navigation");
+  assert.ok(Math.abs(navigation.width / navigation.depth - 344 / 420) < 0.01,
+    "Navigation preserves the verified source crop aspect ratio");
+  assert.equal(mapShapePolygon(navigation).length, 6, "Navigation uses its traced six-sided hull");
+  assert.equal(pointInMapShape(53.9, -3.3, navigation, 0.2), true, "Navigation entrance is open");
+  assert.equal(isWalkable("the-skeld", 59.8, -3.3, 0.2), true, "Navigation centre aisle is clear");
+  assert.equal(isWalkable("the-skeld", 62.4, -3.1, 0.2), false, "Navigation console blocks movement");
+  assert.equal(isWalkable("the-skeld", 66, -3.3, 0.2), false, "Navigation outer hull blocks space");
+
+  const reachableWithinInteractionRange = (station) => {
+    for (const radius of [0, 0.7, 1.4, 2.1, 2.7]) {
+      for (let index = 0; index < 16; index += 1) {
+        const angle = index * Math.PI / 8;
+        if (isWalkable(
+          "the-skeld",
+          station.x + Math.cos(angle) * radius,
+          station.z + Math.sin(angle) * radius,
+          0.2
+        )) return true;
+      }
+    }
+    return false;
+  };
+  assert.ok(skeld.stations.every(reachableWithinInteractionRange),
+    "every task, vent, meeting button, security console, and sabotage panel has a reachable use position");
+  assert.ok(skeld.collisionRects.every((collision) => !isWalkable("the-skeld", collision.x, collision.z, 0.2)),
+    "every visible room fixture has matching collision");
+});
+
 test("misleading source filenames stay assigned to their actual MIRA rooms", () => {
   const rooms = new Map(getMapDefinition("mira-hq").rooms.map((room) => [room.id, room]));
   assert.equal(rooms.get("office")?.assetKey, "mira-office");
@@ -222,6 +259,20 @@ test("the map validator rejects broken station references", () => {
   });
   assert.equal(validation.valid, false);
   assert.match(validation.errors.join(" "), /unknown room/u);
+});
+
+test("the map validator rejects malformed authored room hulls", () => {
+  const validation = validateMapDefinition({
+    id: "broken-polygon",
+    bounds: { minX: -10, maxX: 10, minZ: -10, maxZ: 10 },
+    rooms: [{
+      id: "alpha", x: 0, z: 0, width: 8, depth: 8,
+      walkablePolygon: [{ x: -4, z: -4 }, { x: 4, z: -4 }]
+    }],
+    connections: [], corridors: [], stations: [], spawnPoints: [[0, 0]]
+  });
+  assert.equal(validation.valid, false);
+  assert.match(validation.errors.join(" "), /invalid walkable polygon/u);
 });
 
 test("the map validator checks Tiled-style object and render layers", () => {

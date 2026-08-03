@@ -14,7 +14,7 @@ The host can select one of three isolated maps: **The Skeld**, **MIRA HQ**, or *
 - Server-private role assignment with Engineer, Medic, Sheriff, Tracker, Morphling, Swooper, Janitor, Jester, Survivor, and base Crew/Operative roles
 - Ghosts: eliminated players keep drifting through walls at a small speed bonus, finish their assignments, and chat on the dead-only channel, while the living never receive ghost positions; the first fallen crew member returns as the Guardian Angel with a protect shield
 - Eight map-specific server-sequenced assignments per map using supplied task artwork
-- Four map-specific sabotage systems per map, including timed critical failures and multi-station repair; practice mode removes action cooldowns for testing
+- Four map-specific sabotage systems per map, including timed critical failures and multi-station repair; practice mode removes action cooldowns for testing and paces bot sabotage so the opening minute stays playable
 - Server-validated role abilities, elimination, incident evidence, emergency-button calls, reporting, meetings, discussion, voting, removal, and faction/neutral win conditions
 - Living/dead chat separation, input validation, payload limits, action rate limits, and no direct client database access
 - Security telemetry, delayed door logs, Operative maintenance routes, spectator state, match results, and persistent statistics
@@ -51,7 +51,7 @@ npm run dev
 | `G` | Use the current role ability |
 | `Tab` | Selected map |
 | `Enter` | Focus meeting chat |
-| `Esc` | Pause |
+| `Esc` | System menu (the match keeps running) |
 
 The server decides whether interactions are valid; client buttons and proximity prompts are only requests.
 
@@ -207,8 +207,15 @@ npm run check
 npm test
 ```
 
+`tests/smoke.test.js` additionally drives one full practice run over a real Socket.IO
+connection: guest entry, practice lobby, a parameter edit, authoritative movement, the
+assignment panel, one task played to completion, an emergency meeting with its discussion
+and voting timers, confirmation that simulation time advances while the system menu is
+open, and the return to lobby. A second pass covers an Operative sabotage being resolved
+by crew bots and a server-validated role ability.
+
 The automated suite validates every room, routed corridor, exterior zone, spawn, collision, task,
-sabotage repair point, emergency button, and verified room-art allowlist on all four maps. It also
+sabotage repair point, emergency button, and verified room-art allowlist on all three maps. It also
 verifies the authoritative elimination → incident → vote → victory path and four real Socket.IO
 clients changing maps, joining, receiving private role/task state, starting a match, moving through
 server snapshots, and being denied a Crew elimination request.
@@ -225,6 +232,10 @@ checkout because no Neon `DATABASE_URL` was supplied.
 - Audio is synthesized because no supplied audio files were found.
 - The controls are desktop-first; responsive menus work at narrow widths, but touch gameplay controls are not implemented.
 - Practice bots exercise navigation, tasks, sabotage, elimination, and voting heuristics; they are training opponents, not production matchmaking AI.
+- Practice paces bot sabotage so a new player can explore: the first bot sabotage waits out a 75-second opening grace period, and later attempts wait ~52 seconds after the deck was last cleared. Online pacing still follows the room's configured sabotage cooldown.
+- Crew bots answer an active sabotage: one bot is assigned per outstanding repair station, routed through authored corridors, so a two-station critical failure is resolvable rather than an automatic loss.
+- Escape opens a system menu, not a pause. The simulation is server-authoritative and keeps running in both online and practice modes, and the menu says so.
+- Practice never spends finite role uses, so the HUD reports unlimited practice uses there while online matches still count them down. Cooldowns remain real in both modes.
 - Render's free service may cold-start, and in-memory rooms do not survive a process restart. Durable match/account data remains in Neon.
 
 Recommended next step: when exact authored map or asset-use code is ready, replace one definition at

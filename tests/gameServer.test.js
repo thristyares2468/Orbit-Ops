@@ -301,3 +301,164 @@ test("bot routes follow every authored corridor without targeting blocked room c
     }
   }
 });
+
+function botPlayer(id, faction, position, mapId = "the-skeld") {
+  const member = player(id, faction, position, mapId);
+  member.bot = true;
+  member.socketId = null;
+  return member;
+}
+
+test("practice bots wait out an opening grace period before the first sabotage", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("practice", { sabotageCooldownSeconds: 10 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now();
+  room.lastSabotageAt = room.matchStartedAt;
+  room.sabotageClearedAt = room.matchStartedAt;
+
+  const justStarted = server.botSabotageReadyAt(room) - room.matchStartedAt;
+  assert.ok(justStarted >= 60_000 && justStarted <= 90_000,
+    `first practice sabotage should be 60-90s out, got ${Math.round(justStarted / 1000)}s`);
+
+  // A short configured cooldown must not shorten the practice grace period.
+  assert.ok(server.botSabotageReadyAt(room) > Date.now() + 55_000);
+});
+
+test("bot sabotage cooldown restarts when the deck is cleared, not when it began", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("practice", { sabotageCooldownSeconds: 10 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 10 * 60_000;
+  room.lastSabotageAt = Date.now() - 5 * 60_000;
+
+  // A sabotage that has just been repaired restarts the wait, so bots cannot chain.
+  room.activeSabotage = { id: "x", repairStations: [], repairs: new Set() };
+  server.clearActiveSabotage(room);
+  const wait = server.botSabotageReadyAt(room) - Date.now();
+  assert.ok(wait >= 45_000 && wait <= 60_000,
+    `gap between bot sabotages should be 45-60s, got ${Math.round(wait / 1000)}s`);
+  assert.equal(room.activeSabotage, null);
+});
+
+test("online bot sabotage pacing still follows the room's configured cooldown", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", { sabotageCooldownSeconds: 24 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now();
+  room.lastSabotageAt = Date.now();
+  room.sabotageClearedAt = Date.now();
+  const wait = server.botSabotageReadyAt(room) - Date.now();
+  assert.ok(wait >= 24_000 && wait <= 32_000, `online pacing unchanged, got ${Math.round(wait / 1000)}s`);
+});
+
+test("crew bots answer a single-station sabotage and repair it", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  const room = server.createRoom("practice", {});
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 60_000;
+  const panel = stationById("the-skeld", "skeld-comms-panel");
+
+  const operative = player("operative", "operative", { x: panel.x, z: panel.z + 30 });
+  const responder = botPlayer("bot-near", "crew", { x: panel.x, z: panel.z + 4 });
+  const bystander = botPlayer("bot-far", "crew", { x: panel.x, z: panel.z + 40 });
+  for (const member of [operative, responder, bystander]) room.players.set(member.id, member);
+
+  server.startSabotage(room, operative, "skeld-comms-sabotage");
+  server.assignSabotageRepairs(room);
+
+  assert.equal(responder.repairStationId, "skeld-comms-panel", "the nearest crew bot responds");
+  assert.equal(bystander.repairStationId, null, "one station never draws two bots");
+
+  // Walk the responder in and let it interact.
+  responder.position = { x: panel.x, z: panel.z };
+  responder.currentRoom = panel.roomId;
+  responder.botTarget = null;
+  server.tickBot(room, responder, Date.now(), 0.05);
+
+  assert.equal(room.activeSabotage, null, "the bot repaired the sabotage");
+  assert.equal(responder.repairStationId, null, "the assignment is released afterwards");
+});
+
+test("a two-station sabotage sends one crew bot to each repair point", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  const room = server.createRoom("practice", {});
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 60_000;
+  const alpha = stationById("the-skeld", "skeld-reactor-alpha");
+  const beta = stationById("the-skeld", "skeld-reactor-beta");
+
+  const operative = player("operative", "operative", { x: alpha.x, z: alpha.z + 25 });
+  const first = botPlayer("bot-alpha", "crew", { x: alpha.x, z: alpha.z });
+  const second = botPlayer("bot-beta", "crew", { x: beta.x, z: beta.z });
+  const third = botPlayer("bot-spare", "crew", { x: alpha.x, z: alpha.z + 18 });
+  for (const member of [operative, first, second, third]) room.players.set(member.id, member);
+
+  server.startSabotage(room, operative, "skeld-reactor-meltdown");
+  server.assignSabotageRepairs(room);
+
+  const assigned = [first, second, third].map((bot) => bot.repairStationId).filter(Boolean);
+  assert.equal(assigned.length, 2, "exactly the required number of bots respond");
+  assert.equal(new Set(assigned).size, 2, "the two bots take different stations");
+  assert.ok(assigned.includes("skeld-reactor-alpha") && assigned.includes("skeld-reactor-beta"));
+
+  for (const bot of [first, second, third]) {
+    if (!bot.repairStationId) continue;
+    const station = stationById("the-skeld", bot.repairStationId);
+    bot.position = { x: station.x, z: station.z };
+    bot.currentRoom = station.roomId;
+    bot.botTarget = null;
+    server.tickBot(room, bot, Date.now(), 0.05);
+  }
+
+  assert.equal(room.activeSabotage, null, "both stations were repaired, ending the meltdown");
+});
+
+test("crew bots route to their repair station through walkable geometry", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("practice", {});
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 60_000;
+  const panel = stationById("the-skeld", "skeld-comms-panel");
+
+  const operative = player("operative", "operative", { x: 0, z: 0 });
+  const responder = botPlayer("bot-remote", "crew", { x: 0, z: 0 });
+  responder.position = { ...getMapDefinition("the-skeld").rooms.find(({ id }) => id === "navigation") };
+  responder.currentRoom = "navigation";
+  for (const member of [operative, responder]) room.players.set(member.id, member);
+
+  server.startSabotage(room, operative, "skeld-comms-sabotage");
+  server.assignSabotageRepairs(room);
+  server.tickBot(room, responder, Date.now(), 0.05);
+
+  assert.equal(responder.botTarget?.stationId, "skeld-comms-panel");
+  assert.ok(Array.isArray(responder.botPath));
+  assert.ok(responder.botPath.every(({ x, z }) => isWalkable("the-skeld", x, z, 0.2)),
+    "every routed waypoint stays on authored walkable geometry");
+});
+
+test("clearing a sabotage releases every bot repair assignment", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("practice", {});
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 60_000;
+  const panel = stationById("the-skeld", "skeld-light-panel");
+  const operative = player("operative", "operative", { x: panel.x, z: panel.z + 20 });
+  const responder = botPlayer("bot-one", "crew", { x: panel.x, z: panel.z + 3 });
+  for (const member of [operative, responder]) room.players.set(member.id, member);
+
+  server.startSabotage(room, operative, "skeld-lights-out");
+  server.assignSabotageRepairs(room);
+  assert.equal(responder.repairStationId, "skeld-light-panel");
+
+  server.clearActiveSabotage(room);
+  assert.equal(responder.repairStationId, null);
+
+  // With nothing to repair the bot returns to ordinary assignments.
+  responder.botTarget = { x: 0, z: 0, roomId: "cafeteria", stationId: "x", repairSabotageId: "skeld-lights-out" };
+  server.assignSabotageRepairs(room);
+  server.tickBot(room, responder, Date.now(), 0.05);
+  assert.notEqual(responder.botTarget?.repairSabotageId, "skeld-lights-out");
+});

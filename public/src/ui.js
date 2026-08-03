@@ -3,7 +3,9 @@ import { PLAYER_COLOUR_PALETTES } from "./game2d/assets.js";
 import { mapShapePolygon, pointInMapShape } from "./mapSchema.js";
 import { getRoleDefinition } from "./roleData.js";
 import { getMapDefinition } from "./shipData.js";
+import { pauseCopy, progressLabels, roleAbilityStatus } from "./hudState.js";
 
+const FIRST_RUN_KEY = "orbitOps.firstRunHint.v1";
 const COLOURS = Object.freeze({ cyan: "#27bad8", amber: "#e2a238", violet: "#805bd0", lime: "#54b86a", coral: "#d9575f", white: "#c8d8dd", blue: "#3f67c9", rose: "#c74f87" });
 
 function byId(id) { return document.getElementById(id); }
@@ -68,10 +70,17 @@ export class GameUI {
       hud: byId("hud"), results: byId("results-screen"), disconnect: byId("disconnect-overlay"), roleReveal: byId("role-reveal"),
       minimap: byId("minimap"), task: byId("task-modal"), meeting: byId("meeting-modal"), sabotage: byId("sabotage-modal"), security: byId("security-modal"),
       pause: byId("pause-modal"), settings: byId("settings-modal"), howto: byId("howto-modal"), profile: byId("profile-modal"), assets: byId("assets-modal"),
-      lobbySettings: byId("lobby-settings-modal")
+      lobbySettings: byId("lobby-settings-modal"),
+      firstRunHint: byId("first-run-hint")
     };
+    this.lastMinimapRequest = null;
     paintMenuCrew().catch(() => {});
     this.bindStaticEvents();
+    // Re-fit the open map overview when the viewport changes so it is never cropped.
+    window.addEventListener("resize", () => {
+      if (this.elements.minimap?.classList.contains("is-hidden")) return;
+      if (this.lastMinimapRequest) this.drawMinimap(this.lastMinimapRequest);
+    });
   }
 
   setActions(actions) { this.actions = actions; }
@@ -107,6 +116,7 @@ export class GameUI {
     byId("secondary-ability").addEventListener("click", () => this.openModal("sabotage"));
     byId("vote-skip").addEventListener("click", () => this.invoke("vote", { targetId: "skip" }));
     byId("resume-game").addEventListener("click", () => this.closeModal("pause"));
+    byId("first-run-dismiss").addEventListener("click", () => this.dismissFirstRunHint());
     byId("results-lobby").addEventListener("click", () => this.invoke("returnLobby"));
     byId("results-menu").addEventListener("click", () => this.invoke("leaveRoom"));
     byId("save-settings").addEventListener("click", () => this.invoke("saveSettings", this.readSettingsForm()));
@@ -181,6 +191,7 @@ export class GameUI {
   // overlay rather than one of the full-screen menu surfaces.
   showScreen(name) {
     for (const key of ["auth", "menu", "results"]) setVisible(this.elements[key], key === name);
+    if (name !== "game") setVisible(this.elements.firstRunHint, false);
     setVisible(this.elements.lobbyHud, name === "lobby");
     setVisible(this.elements.hud, name === "game");
     if (name !== "lobby") this.closeModal("lobbySettings");
@@ -297,7 +308,37 @@ export class GameUI {
     });
   }
 
-  showGame() { this.showScreen("game"); }
+  showGame() {
+    this.showScreen("game");
+    this.maybeShowFirstRunHint();
+  }
+
+  maybeShowFirstRunHint() {
+    if (this.firstRunHintHandled) return;
+    let acknowledged = false;
+    try {
+      acknowledged = localStorage.getItem(FIRST_RUN_KEY) === "1";
+    } catch {
+      acknowledged = false;
+    }
+    if (acknowledged) {
+      this.firstRunHintHandled = true;
+      return;
+    }
+    const practice = this.room?.mode === "practice";
+    setVisible(byId("first-run-note"), practice);
+    setVisible(this.elements.firstRunHint, true);
+  }
+
+  dismissFirstRunHint() {
+    this.firstRunHintHandled = true;
+    setVisible(this.elements.firstRunHint, false);
+    try {
+      localStorage.setItem(FIRST_RUN_KEY, "1");
+    } catch {
+      /* private browsing: the hint simply returns next session */
+    }
+  }
 
   setPrivateState(state) {
     const previousRole = this.privateState?.role;
@@ -332,6 +373,7 @@ export class GameUI {
   }
 
   renderTasks(tasks = [], completedIds = []) {
+    this.updatePersonalProgress();
     const completed = new Set(completedIds);
     const list = byId("task-list-items"); list.replaceChildren();
     for (const task of tasks) {
@@ -342,10 +384,24 @@ export class GameUI {
     }
   }
 
+  // The shared meter counts every crew member, bots included, so it can move while the
+  // player stands still. The personal line makes that legible instead of confusing.
   updateTaskProgress(progress = { completed: 0, total: 0 }) {
     const percent = progress.total ? Math.min(100, progress.completed / progress.total * 100) : 0;
     byId("mission-meter-bar").style.width = `${percent}%`;
-    byId("mission-meter-label").textContent = `${progress.completed} / ${progress.total} assignments`;
+    this.sharedProgress = progress;
+    this.updatePersonalProgress();
+  }
+
+  updatePersonalProgress() {
+    const labels = progressLabels(
+      this.sharedProgress ?? { completed: 0, total: 0 },
+      this.privateState?.tasks ?? [],
+      this.privateState?.completedTaskIds ?? []
+    );
+    byId("mission-meter-label").textContent = labels.crew;
+    const personal = byId("personal-progress-label");
+    if (personal) personal.textContent = labels.personal;
   }
 
   updatePlayerHud(snapshot, roomName, pingMs) {
@@ -398,15 +454,23 @@ export class GameUI {
       setVisible(button, false);
       return;
     }
-    const state = this.privateState.roleState ?? {};
-    const cooldownSeconds = Math.max(0, Math.ceil(((state.cooldownEndsAt ?? 0) - now) / 1000));
-    const activeSeconds = Math.max(0, Math.ceil(((state.activeUntil ?? 0) - now) / 1000));
-    const exhausted = state.usesLeft !== null && state.usesLeft <= 0;
-    button.disabled = cooldownSeconds > 0 || exhausted;
-    if (activeSeconds > 0) byId("role-ability-status").textContent = `ACTIVE ${activeSeconds}s`;
-    else if (cooldownSeconds > 0) byId("role-ability-status").textContent = `${cooldownSeconds}s`;
-    else if (state.usesLeft !== null) byId("role-ability-status").textContent = `${Math.max(0, state.usesLeft)} use${state.usesLeft === 1 ? "" : "s"}`;
-    else byId("role-ability-status").textContent = "Ready";
+    const status = byId("role-ability-status");
+    const view = roleAbilityStatus({
+      mode: this.room?.mode,
+      roleState: this.privateState.roleState ?? {},
+      now
+    });
+    button.disabled = view.disabled;
+    status.textContent = view.label;
+    if (view.ariaLabel) status.setAttribute("aria-label", view.ariaLabel);
+    else status.removeAttribute("aria-label");
+  }
+
+  // Escape opens a menu, not a pause: the server keeps simulating either way.
+  syncPauseCopy() {
+    const copy = pauseCopy(this.room?.mode);
+    byId("pause-eyebrow").textContent = copy.eyebrow;
+    byId("pause-note").textContent = copy.note;
   }
 
   updateSabotage(sabotage) {
@@ -515,6 +579,7 @@ export class GameUI {
   openModal(name) {
     const element = this.elements[name]; if (!element) return;
     if (name === "assets" && !this.assetArchiveBuilt) this.buildAssetArchive();
+    if (name === "pause") this.syncPauseCopy();
     setVisible(element, true);
     this.actions.modalChanged?.({ open: true, name });
   }
@@ -567,13 +632,39 @@ export class GameUI {
     };
   }
 
+  // The canvas backing store is resized to whatever the modal actually leaves it, so
+  // the authored bounds always fit instead of being cropped at narrow viewports.
+  sizeMinimapCanvas(canvas) {
+    const box = canvas.getBoundingClientRect();
+    const style = window.getComputedStyle(canvas);
+    const border = Number.parseFloat(style.borderLeftWidth || "0") * 2;
+    const available = Math.max(240, Math.round(box.width - border) || 0);
+    const modal = this.elements.minimap;
+    const header = modal?.querySelector("header")?.getBoundingClientRect().height ?? 0;
+    const legend = modal?.querySelector(".minimap-legend")?.getBoundingClientRect().height ?? 0;
+    const footnote = modal?.querySelector("small")?.getBoundingClientRect().height ?? 0;
+    const chrome = header + legend + footnote + 96;
+    const height = Math.max(200, Math.min(Math.round(available * 0.66), Math.round(window.innerHeight - chrome)));
+    const ratio = Math.min(2, window.devicePixelRatio || 1);
+    const width = Math.round(available * ratio);
+    const backingHeight = Math.round(height * ratio);
+    if (canvas.width !== width || canvas.height !== backingHeight) {
+      canvas.width = width;
+      canvas.height = backingHeight;
+    }
+    canvas.style.height = `${height}px`;
+    return { width, height: backingHeight };
+  }
+
   drawMinimap({ mapId = this.room?.mapId, playerPosition, tasks = [], completedTaskIds = [], sabotage = null }) {
     const canvas = byId("minimap-canvas");
     const context = canvas.getContext("2d");
     const map = getMapDefinition(mapId);
     const bounds = map.bounds;
     byId("minimap-title").textContent = map.name;
-    const padding = 34;
+    this.sizeMinimapCanvas(canvas);
+    this.lastMinimapRequest = { mapId, playerPosition, tasks, completedTaskIds, sabotage };
+    const padding = Math.max(12, Math.round(Math.min(canvas.width, canvas.height) * 0.045));
     const mapWidth = bounds.maxX - bounds.minX;
     const mapHeight = bounds.maxZ - bounds.minZ;
     const scale = Math.min((canvas.width - padding * 2) / mapWidth, (canvas.height - padding * 2) / mapHeight);
@@ -581,6 +672,7 @@ export class GameUI {
     const offsetY = (canvas.height - mapHeight * scale) / 2;
     const sx = (x) => offsetX + (x - bounds.minX) * scale;
     const sy = (z) => offsetY + (z - bounds.minZ) * scale;
+    const markerScale = Math.max(0.55, Math.min(1, Math.min(canvas.width, canvas.height) / 700));
     const roomPath = (room) => {
       context.beginPath();
       if (room.shape === "ellipse") {
@@ -660,7 +752,7 @@ export class GameUI {
       context.shadowBlur = 0;
 
       if (room.label !== false) {
-        const fontSize = Math.max(10, Math.min(15, room.width * scale * 0.115));
+        const fontSize = Math.max(8, Math.min(15, room.width * scale * 0.115));
         context.fillStyle = "#ffffff";
         context.strokeStyle = "rgba(5, 16, 53, .92)";
         context.lineWidth = 4;
@@ -680,7 +772,7 @@ export class GameUI {
       context.strokeStyle = "#ffffff";
       context.lineWidth = 2;
       context.beginPath();
-      context.arc(sx(definition.x), sy(definition.z), 9, 0, Math.PI * 2);
+      context.arc(sx(definition.x), sy(definition.z), 9 * markerScale, 0, Math.PI * 2);
       context.fill();
       context.stroke();
       context.fillStyle = "#17213d";
@@ -695,7 +787,7 @@ export class GameUI {
         context.strokeStyle = "#fff1b6";
         context.lineWidth = 4;
         context.beginPath();
-        context.arc(sx(room.x), sy(room.z), 14, 0, Math.PI * 2);
+        context.arc(sx(room.x), sy(room.z), 14 * markerScale, 0, Math.PI * 2);
         context.fill();
         context.stroke();
       }
@@ -707,15 +799,15 @@ export class GameUI {
       context.strokeStyle = "#55e8ff";
       context.lineWidth = 4;
       context.beginPath();
-      context.arc(x, y, 10, 0, Math.PI * 2);
+      context.arc(x, y, 10 * markerScale, 0, Math.PI * 2);
       context.fill();
       context.stroke();
       context.fillStyle = "#ffffff";
       context.strokeStyle = "#07142d";
       context.lineWidth = 4;
       context.font = "900 11px Inter, sans-serif";
-      context.strokeText("YOU", x, y - 19);
-      context.fillText("YOU", x, y - 19);
+      context.strokeText("YOU", x, y - 19 * markerScale);
+      context.fillText("YOU", x, y - 19 * markerScale);
     }
   }
 

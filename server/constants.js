@@ -35,6 +35,14 @@ export const DEFAULT_SETTINGS = Object.freeze({
   allowSinglePlayer: false
 });
 
+// Practice bots paced this way so a new player gets an opening window to explore, and
+// so a repaired or expired sabotage never chains straight into the next one.
+export const BOT_SABOTAGE = Object.freeze({
+  practiceGraceMs: 75_000,
+  cooldownMs: 52_000,
+  onlineGapMs: 5_000
+});
+
 export const PHASES = Object.freeze({
   LOBBY: "lobby",
   COUNTDOWN: "countdown",
