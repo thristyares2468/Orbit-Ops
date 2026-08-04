@@ -40,6 +40,38 @@ function strokeRoomShape(graphics, room, width, height, inset = 0, radius = 0) {
   else graphics.strokeRoundedRect(-width / 2 + inset, -height / 2 + inset, width - inset * 2, height - inset * 2, radius);
 }
 
+function clippedRoomTexture(scene, room) {
+  const crop = room.artCrop;
+  const source = scene.textures.get(room.assetKey).getSourceImage();
+  const sourceX = crop?.x ?? 0;
+  const sourceY = crop?.y ?? 0;
+  const sourceWidth = crop?.width ?? source.width;
+  const sourceHeight = crop?.height ?? source.height;
+  const textureKey = `${room.assetKey}:room-clip:${room.id}:${sourceX},${sourceY},${sourceWidth},${sourceHeight}`;
+  if (scene.textures.exists(textureKey)) return { textureKey, sourceWidth, sourceHeight };
+
+  const canvas = document.createElement("canvas");
+  canvas.width = sourceWidth;
+  canvas.height = sourceHeight;
+  const context = canvas.getContext("2d");
+  context.beginPath();
+  for (const [index, point] of room.walkablePolygon.entries()) {
+    const x = (point.x / room.width + 0.5) * sourceWidth;
+    const y = (point.z / room.depth + 0.5) * sourceHeight;
+    if (index === 0) context.moveTo(x, y);
+    else context.lineTo(x, y);
+  }
+  context.closePath();
+  context.clip();
+  context.drawImage(
+    source,
+    sourceX, sourceY, sourceWidth, sourceHeight,
+    0, 0, sourceWidth, sourceHeight
+  );
+  scene.textures.addCanvas(textureKey, canvas);
+  return { textureKey, sourceWidth, sourceHeight };
+}
+
 function stringSeed(value) {
   return [...String(value)].reduce((total, character) => ((total * 31) + character.charCodeAt(0)) >>> 0, 2166136261);
 }
@@ -128,7 +160,6 @@ export class MapBuilder {
     this.objectGroups = new Map((map.objectGroups ?? []).map((group) => [group.id, group]));
     this.collisionRects = [...(this.objectGroups.get("collisions")?.objects ?? map.collisionRects ?? [])];
     this.roomContainers = new Map();
-    this.roomMasks = [];
     this.stationMarkers = [];
   }
 
@@ -258,13 +289,16 @@ export class MapBuilder {
 
       let art = null;
       if (room.assetKey) {
-        art = this.scene.add.image(0, 0, room.assetKey)
+        const clipped = room.artClip !== false && Array.isArray(room.walkablePolygon)
+          ? clippedRoomTexture(this.scene, room)
+          : null;
+        art = this.scene.add.image(0, 0, clipped?.textureKey ?? room.assetKey)
           .setAlpha(room.artAlpha ?? style.artAlpha)
           .setData("roomId", room.id);
         const source = this.scene.textures.get(room.assetKey).getSourceImage();
-        const sourceWidth = room.artCrop?.width ?? source.width;
-        const sourceHeight = room.artCrop?.height ?? source.height;
-        if (room.artCrop) {
+        const sourceWidth = clipped?.sourceWidth ?? room.artCrop?.width ?? source.width;
+        const sourceHeight = clipped?.sourceHeight ?? room.artCrop?.height ?? source.height;
+        if (room.artCrop && !clipped) {
           art.setCrop(room.artCrop.x, room.artCrop.y, room.artCrop.width, room.artCrop.height);
         }
         const padding = (room.artPadding ?? 12) * detail;
@@ -279,15 +313,6 @@ export class MapBuilder {
         art.setPosition((room.artOffsetX ?? 0) * this.metrics.scale, (room.artOffsetZ ?? 0) * this.metrics.scale);
         art.setFlipX(Boolean(room.artFlipX));
         art.setFlipY(Boolean(room.artFlipY));
-        if (room.artClip !== false && Array.isArray(room.walkablePolygon)) {
-          const maskSource = this.scene.add.graphics({ x: point.x, y: point.y });
-          fillRoomShape(maskSource, room, width, height, 0xffffff, 1);
-          const geometryMask = maskSource.createGeometryMask();
-          maskSource.setVisible(false);
-          art.setMask(geometryMask);
-          layer.add(maskSource);
-          this.roomMasks.push({ geometryMask, maskSource });
-        }
       }
 
       const walls = this.scene.add.graphics();
@@ -299,7 +324,7 @@ export class MapBuilder {
         strokeRoomShape(walls, room, width, height, 8 * detail, 18 * detail);
       }
 
-      const label = room.label === false
+      const label = room.label === false || room.worldLabel === false
         ? null
         : this.scene.add.text(0, -height / 2 + 15 * detail, room.name.toUpperCase(), {
           fontFamily: "Inter, system-ui, sans-serif",
@@ -477,8 +502,6 @@ export class MapBuilder {
   }
 
   destroy() {
-    for (const { geometryMask } of this.roomMasks) geometryMask.destroy();
-    this.roomMasks = [];
     for (const layer of this.layers.values()) layer.destroy(true);
     this.layers.clear();
     this.roomContainers.clear();

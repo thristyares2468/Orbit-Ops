@@ -7,6 +7,7 @@ import {
   DEFAULT_MAP_ID, LOBBY_MAP_ID, MAP_DEFINITIONS, distance2D, getMapDefinition, isWalkable, roomAt,
   stationById
 } from "../public/src/shipData.js";
+import { findWalkablePath } from "../public/src/mapPathfinding.js";
 import {
   CREW_ROLE_IDS, NEUTRAL_ROLE_IDS, OPERATIVE_ROLE_IDS, ROLE_DEFINITIONS,
   getRoleDefinition, roleIdsForFaction
@@ -822,7 +823,10 @@ export class GameServer {
     if (correct) active.progress += 1;
     else active.progress = Math.max(0, active.progress - 1);
     const definition = map.taskDefinitions.find((task) => task.id === active.taskId);
-    if (active.progress >= definition.steps && now - active.startedAt >= definition.steps * 450) {
+    // The per-action rate limit already enforces the authoritative minimum solve
+    // time. Keeping a second, slower timer here left a fully correct challenge at
+    // 100% without ever emitting taskCompleted.
+    if (active.progress >= definition.steps && now - active.startedAt >= definition.steps * 280) {
       return this.completeTaskInternal(room, player, active.taskId);
     }
     const result = { ok: true, correct, progress: active.progress, total: definition.steps };
@@ -1505,7 +1509,7 @@ export class GameServer {
           x: repairStation.x, z: repairStation.z, roomId: repairStation.roomId,
           stationId: repairStation.id, repairSabotageId: repairStation.refId
         };
-        bot.botPath = this.buildBotPath(room.mapId, bot.currentRoom, repairStation.roomId);
+        bot.botPath = this.buildBotPath(room.mapId, bot.currentRoom, repairStation.roomId, bot.position, repairStation);
         bot.botActionAt = now;
       }
     } else if (bot.botTarget?.repairSabotageId) {
@@ -1519,14 +1523,17 @@ export class GameServer {
       bot.botTarget = station
         ? { x: station.x, z: station.z, roomId: station.roomId, stationId: station.id, taskId: task?.id }
         : { x: fallbackSpawn[0], z: fallbackSpawn[1], roomId: map.rooms[0].id };
-      bot.botPath = this.buildBotPath(room.mapId, bot.currentRoom, bot.botTarget.roomId);
+      bot.botPath = this.buildBotPath(room.mapId, bot.currentRoom, bot.botTarget.roomId, bot.position, bot.botTarget);
       bot.botActionAt = now;
     }
     const waypoint = bot.botPath?.[0] ?? bot.botTarget;
     const dx = waypoint.x - bot.position.x;
     const dz = waypoint.z - bot.position.z;
     const distance = Math.hypot(dx, dz);
-    if (bot.botPath?.length && distance < 0.75) {
+    // Stay close to collision-router corners before advancing. A loose radius
+    // can put the bot on the wrong side of a console and make the next otherwise
+    // valid segment cut through that fixture.
+    if (bot.botPath?.length && distance < 0.25) {
       bot.botPath.shift();
       return;
     }
@@ -1556,9 +1563,25 @@ export class GameServer {
     this.tickPlayerMovement(room, bot, now, delta);
   }
 
-  buildBotPath(mapId, startRoomId, targetRoomId) {
-    if (!startRoomId || startRoomId === targetRoomId) return [];
+  buildBotPath(mapId, startRoomId, targetRoomId, startPosition = null, targetPosition = null) {
+    if (!startRoomId || !targetRoomId) return [];
     const map = getMapDefinition(mapId);
+    const startRoom = map.rooms.find(({ id }) => id === startRoomId);
+    const targetRoom = map.rooms.find(({ id }) => id === targetRoomId);
+    if (!startRoom || !targetRoom) return [];
+    if (startPosition && targetPosition && distance2D(startPosition, targetPosition) < 0.75) return [];
+    if (mapId !== "the-skeld") return this.buildAuthoredCorridorPath(map, startRoomId, targetRoomId);
+    return findWalkablePath(
+      mapId,
+      startPosition ?? { x: startRoom.x, z: startRoom.z },
+      targetPosition ?? { x: targetRoom.x, z: targetRoom.z }
+    );
+  }
+
+  // MIRA and Polus keep their established room-centre router until their room
+  // hulls receive the same fixture-level collision pass as The Skeld.
+  buildAuthoredCorridorPath(map, startRoomId, targetRoomId) {
+    if (startRoomId === targetRoomId) return [];
     const neighbours = new Map(map.rooms.map((room) => [room.id, []]));
     for (const [from, to] of map.connections) {
       neighbours.get(from)?.push(to);
@@ -1599,25 +1622,24 @@ export class GameServer {
       ];
       if (route.from !== currentId) routePoints.reverse();
       const finalPoint = routePoints.at(-1);
-      if (!isWalkable(mapId, finalPoint.x, finalPoint.z, 0.2)) {
-        const targetRoom = map.rooms.find((room) => room.id === nextId);
+      if (!isWalkable(map.id, finalPoint.x, finalPoint.z, 0.2)) {
         const approach = routePoints.at(-2) ?? finalPoint;
         const xDirection = Math.sign(approach.x - finalPoint.x) || 1;
         const zDirection = Math.sign(approach.z - finalPoint.z) || 1;
         const candidates = [
-          { x: finalPoint.x + xDirection * targetRoom.width * 0.3, z: finalPoint.z },
-          { x: finalPoint.x, z: finalPoint.z + zDirection * targetRoom.depth * 0.3 },
-          { x: finalPoint.x - xDirection * targetRoom.width * 0.3, z: finalPoint.z },
-          { x: finalPoint.x, z: finalPoint.z - zDirection * targetRoom.depth * 0.3 }
+          { x: finalPoint.x + xDirection * destination.width * 0.3, z: finalPoint.z },
+          { x: finalPoint.x, z: finalPoint.z + zDirection * destination.depth * 0.3 },
+          { x: finalPoint.x - xDirection * destination.width * 0.3, z: finalPoint.z },
+          { x: finalPoint.x, z: finalPoint.z - zDirection * destination.depth * 0.3 }
         ];
-        const safeEndpoint = candidates.find((point) => isWalkable(mapId, point.x, point.z, 0.2));
+        const safeEndpoint = candidates.find((point) => isWalkable(map.id, point.x, point.z, 0.2));
         if (safeEndpoint) routePoints[routePoints.length - 1] = safeEndpoint;
       }
       const orthogonalPoints = [routePoints[0]];
       for (const point of routePoints.slice(1)) {
-        const previousPoint = orthogonalPoints.at(-1);
-        if (previousPoint.x !== point.x && previousPoint.z !== point.z) {
-          orthogonalPoints.push({ x: point.x, z: previousPoint.z });
+        const lastPoint = orthogonalPoints.at(-1);
+        if (lastPoint.x !== point.x && lastPoint.z !== point.z) {
+          orthogonalPoints.push({ x: point.x, z: lastPoint.z });
         }
         orthogonalPoints.push(point);
       }
