@@ -265,7 +265,7 @@ test("pre-match movement is simulated in the dropship lobby, not on the selected
   server = new GameServer(io);
   const room = server.createRoom("private", { mapId: "polus" });
   assert.equal(room.phase, PHASES.LOBBY);
-  assert.equal(room.mapId, "polus");
+  assert.equal(room.mapId, "the-skeld", "removed maps fall back to the only playable map");
 
   const [spawnX, spawnZ] = getMapDefinition(LOBBY_MAP_ID).spawnPoints[0];
   const walker = server.makePlayer({
@@ -285,7 +285,7 @@ test("pre-match movement is simulated in the dropship lobby, not on the selected
   assert.ok(walker.position.x > spawnX, "lobby input moves the player");
   assert.ok(isWalkable(LOBBY_MAP_ID, walker.position.x, walker.position.z), "player stays on the deck");
   assert.equal(walker.currentRoom, "dropship-hold");
-  assert.equal(getMapDefinition("polus").rooms.some((item) => item.id === "dropship-hold"), false,
+  assert.equal(getMapDefinition(room.mapId).rooms.some((item) => item.id === "dropship-hold"), false,
     "the lobby deck belongs to the lobby map alone");
 });
 

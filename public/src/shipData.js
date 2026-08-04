@@ -1,15 +1,11 @@
 import { LOBBY_DROPSHIP, LOBBY_MAP_ID } from "./maps/lobbyDropship.js";
-import { MIRA_HQ } from "./maps/miraHq.js";
 import { mapIsWalkable, mapRoomAt } from "./maps/mapFactory.js";
-import { POLUS } from "./maps/polus.js";
 import { THE_SKELD } from "./maps/theSkeld.js";
 
 export const DEFAULT_MAP_ID = "the-skeld";
-export const MAP_IDS = Object.freeze(["the-skeld", "mira-hq", "polus"]);
+export const MAP_IDS = Object.freeze(["the-skeld"]);
 export const MAP_DEFINITIONS = Object.freeze({
-  "the-skeld": THE_SKELD,
-  "mira-hq": MIRA_HQ,
-  polus: POLUS
+  "the-skeld": THE_SKELD
 });
 export const MAP_LIST = Object.freeze(MAP_IDS.map((id) => Object.freeze({
   id,

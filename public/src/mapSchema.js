@@ -194,6 +194,12 @@ export function validateMapDefinition(map) {
     if (![zone.x, zone.z, zone.width, zone.depth].every(finite) || zone.width <= 0 || zone.depth <= 0) {
       errors.push(`Zone ${zone.id ?? "(missing)"} has invalid geometry.`);
     }
+    if (zone.walkablePolygon
+      && (!Array.isArray(zone.walkablePolygon)
+        || zone.walkablePolygon.length < 3
+        || zone.walkablePolygon.some((point) => ![point?.x, point?.z].every(finite)))) {
+      errors.push(`Zone ${zone.id ?? "(missing)"} has an invalid walkable polygon.`);
+    }
   }
   for (const [fromId, toId] of map?.connections ?? []) {
     if (!roomIds.has(fromId) || !roomIds.has(toId)) errors.push(`Connection ${fromId}:${toId} references an unknown room.`);
@@ -264,7 +270,7 @@ export function validateMapDefinition(map) {
     }
     const [x, z] = spawn;
     const walkable = rooms.some((room) => pointInMapShape(x, z, room))
-      || zones.some((zone) => pointInMapShape(x, z, zone))
+      || zones.some((zone) => zone.walkable !== false && pointInMapShape(x, z, zone))
       || corridors.some((corridor) => pointInMapRect(x, z, corridor));
     if (!walkable) errors.push(`Spawn ${index} is outside walkable geometry.`);
     if (collisionRects.some((rect) => pointInCollisionRect(x, z, rect))) {

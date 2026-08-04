@@ -4,7 +4,6 @@ import {
   buildOrthogonalCorridors,
   buildRoutedCorridors,
   mapShapePolygon,
-  pointInCollisionRect,
   pointInMapShape,
   validateMapDefinition,
   visibleMapLayers
@@ -19,43 +18,39 @@ import {
 } from "../public/src/shipData.js";
 import { PHASER_ASSETS, worldDetailScale, worldMetrics } from "../public/src/game2d/assets.js";
 
-test("all three maps have isolated, valid server geometry and interactions", () => {
-  assert.deepEqual(MAP_IDS, ["the-skeld", "mira-hq", "polus"]);
-  assert.equal(new Set(Object.values(MAP_DEFINITIONS).map((map) => map.rooms)).size, 3);
-  for (const mapId of MAP_IDS) {
-    const map = getMapDefinition(mapId);
-    assert.deepEqual(validateMapDefinition(map), { valid: true, errors: [] }, map.name);
-    assert.ok(map.corridors.length >= map.connections.length, map.name);
-    assert.ok(map.corridors.every((corridor) => ["x", "z"].includes(corridor.axis)), map.name);
-    assert.ok(map.connections.every(([from, to]) =>
-      map.corridorRoutes.some((route) =>
-        (route.from === from && route.to === to) || (route.from === to && route.to === from)
-      )
-    ), `${map.name} routed topology`);
-    assert.ok(map.spawnPoints.every(([x, z]) => isWalkable(mapId, x, z, 0)), map.name);
-    assert.ok(stationById(mapId, "meeting-console"), `${map.name} emergency button`);
-    assert.equal(map.objectGroups.find((group) => group.id === "collisions")?.objects, map.collisionRects);
-    assert.deepEqual(visibleMapLayers(map).map((layer) => layer.id), [
-      "backgrounds", "zones", "corridors", "rooms",
-      ...(map.decals.length ? ["decals"] : []),
-      "props", "stations"
-    ]);
-    assert.ok(map.taskDefinitions.every((task) => map.rooms.some((room) => room.id === task.roomId)));
-    assert.ok(map.sabotageDefinitions.every((sabotage) =>
-      sabotage.repairStations.every((id) => stationById(mapId, id)?.refId === sabotage.id)
-    ));
-    for (const collision of map.collisionRects) {
-      assert.equal(isWalkable(mapId, collision.x, collision.z), false);
-      assert.equal(pointInCollisionRect(collision.x, collision.z, collision, 0.55), true);
-    }
-  }
+test("The Skeld is the only selectable match map and has valid authoritative geometry", () => {
+  assert.deepEqual(MAP_IDS, ["the-skeld"]);
+  assert.deepEqual(Object.keys(MAP_DEFINITIONS), ["the-skeld"]);
+  const map = getMapDefinition("the-skeld");
+  assert.deepEqual(validateMapDefinition(map), { valid: true, errors: [] });
+  assert.ok(map.corridors.length >= map.connections.length);
+  assert.ok(map.corridors.every((corridor) => ["x", "z"].includes(corridor.axis)));
+  assert.ok(map.connections.every(([from, to]) => map.corridorRoutes.some((route) =>
+    (route.from === from && route.to === to) || (route.from === to && route.to === from)
+  )));
+  assert.ok(map.spawnPoints.every(([x, z]) => isWalkable(map.id, x, z, 0)));
+  assert.ok(stationById(map.id, "meeting-console"), "the emergency button remains available");
+  assert.equal(map.objectGroups.find((group) => group.id === "collisions")?.objects, map.collisionRects);
+  assert.deepEqual(visibleMapLayers(map).map((layer) => layer.id), [
+    "backgrounds", "zones", "corridors", "rooms", "props", "stations"
+  ]);
+  assert.ok(map.taskDefinitions.every((definition) => map.rooms.some((room) => room.id === definition.roomId)));
+  assert.ok(map.sabotageDefinitions.every((sabotage) =>
+    sabotage.repairStations.every((id) => stationById(map.id, id)?.refId === sabotage.id)
+  ));
+});
+
+test("removed map ids fall back to The Skeld and their assets are not preloaded", () => {
+  assert.equal(getMapDefinition("mira-hq").id, "the-skeld");
+  assert.equal(getMapDefinition("polus").id, "the-skeld");
+  assert.ok(Object.keys(PHASER_ASSETS).every((key) => !key.startsWith("mira-") && !key.startsWith("polus-")));
 });
 
 test("the dropship lobby is a valid map that is never selectable as a match map", () => {
   const lobby = getMapDefinition(LOBBY_MAP_ID);
   assert.equal(lobby.id, "lobby-dropship");
   assert.ok(!MAP_IDS.includes(LOBBY_MAP_ID), "the lobby must not appear in the map selector");
-  assert.equal(Object.keys(MAP_DEFINITIONS).length, 3);
+  assert.equal(Object.keys(MAP_DEFINITIONS).length, 1);
   assert.deepEqual(validateMapDefinition(lobby), { valid: true, errors: [] }, lobby.name);
   assert.deepEqual(visibleMapLayers(lobby).map((layer) => layer.id), [
     "backgrounds", "zones", "corridors", "rooms", "decals", "props", "stations"
@@ -87,22 +82,16 @@ test("the dropship lobby is a valid map that is never selectable as a match map"
     "two paired exhaust sprites make four plumes on each engine pod");
 });
 
-test("room artwork uses only verified whole-room images or deliberate crops", () => {
-  const allowedAssets = new Map([
-    ["the-skeld", new Set([
-      "skeld-cafeteria", "skeld-upper-engine", "skeld-lower-engine", "skeld-reactor",
-      "skeld-security", "skeld-medbay", "skeld-electrical", "skeld-storage",
-      "skeld-communications", "skeld-admin", "skeld-shields", "skeld-o2",
-      "skeld-weapons", "skeld-navigation"
-    ])],
-    ["mira-hq", new Set(["mira-launchpad", "mira-cafeteria", "mira-admin", "mira-office", "mira-reactor", "mira-laboratory", "mira-decontamination", "mira-locker-room", "mira-balcony", "mira-greenhouse", "mira-medbay", "mira-storage"])],
-    ["polus", new Set(["polus-o2", "polus-broadcast", "polus-science", "polus-specimen", "polus-tunnel", "polus-weapons", "polus-storage", "polus-dropship", "polus-planet-3", "polus-security"])]
+test("room artwork uses only the verified Skeld room images or deliberate crops", () => {
+  const allowed = new Set([
+    "skeld-cafeteria", "skeld-upper-engine", "skeld-lower-engine", "skeld-reactor",
+    "skeld-security", "skeld-medbay", "skeld-electrical", "skeld-storage",
+    "skeld-communications", "skeld-admin", "skeld-shields", "skeld-o2",
+    "skeld-weapons", "skeld-navigation"
   ]);
-  for (const [mapId, allowed] of allowedAssets) {
-    for (const room of getMapDefinition(mapId).rooms) {
-      assert.ok(!room.assetKey || allowed.has(room.assetKey), `${mapId}:${room.id}:${room.assetKey}`);
-      assert.ok(!room.assetKey || Object.hasOwn(PHASER_ASSETS, room.assetKey), `${room.assetKey} is preloaded`);
-    }
+  for (const room of getMapDefinition("the-skeld").rooms) {
+    assert.ok(allowed.has(room.assetKey), `${room.id}:${room.assetKey}`);
+    assert.ok(Object.hasOwn(PHASER_ASSETS, room.assetKey), `${room.assetKey} is preloaded`);
   }
   for (const mapId of [...MAP_IDS, LOBBY_MAP_ID]) {
     for (const decal of getMapDefinition(mapId).decals) {
@@ -120,8 +109,13 @@ test("Skeld room art and interaction positions match the supplied deck reference
   ]) {
     assert.ok(rooms.get(roomId)?.assetKey, `${roomId} uses its supplied or rebuilt room art`);
   }
-  assert.ok(rooms.get("upper-engine").width >= 19);
-  assert.ok(rooms.get("lower-engine").width >= 19);
+  assert.deepEqual(rooms.get("cafeteria").referenceRect, { left: 539, top: 2, right: 826, bottom: 294 });
+  assert.deepEqual(rooms.get("reactor").referenceRect, { left: 69, top: 190, right: 219, bottom: 392 });
+  assert.deepEqual(rooms.get("storage").referenceRect, { left: 559, top: 394, right: 727, bottom: 620 });
+  assert.deepEqual(rooms.get("navigation").referenceRect, { left: 1090, top: 224, right: 1200, bottom: 356 });
+  assert.ok(rooms.get("upper-engine").depth > rooms.get("upper-engine").width);
+  assert.ok(rooms.get("lower-engine").depth > rooms.get("lower-engine").width);
+  assert.ok(rooms.get("medbay").depth > rooms.get("medbay").width);
   assert.ok(rooms.get("navigation").depth > rooms.get("navigation").width);
   const o2Panel = stationById("the-skeld", "skeld-o2-panel");
   const shieldsVent = stationById("the-skeld", "skeld-vent-shields");
@@ -136,13 +130,13 @@ test("Skeld uses clipped room hulls and keeps every interaction reachable", () =
     "every Skeld room is clipped to its authored artwork instead of a generic rectangle");
 
   const navigation = rooms.get("navigation");
-  assert.ok(Math.abs(navigation.width / navigation.depth - 344 / 420) < 0.01,
-    "Navigation preserves the verified source crop aspect ratio");
+  assert.ok(Math.abs(navigation.width / navigation.depth - 110 / 132) < 0.01,
+    "Navigation preserves the traced reference footprint");
   assert.equal(mapShapePolygon(navigation).length, 6, "Navigation uses its traced six-sided hull");
-  assert.equal(pointInMapShape(53.9, -3.3, navigation, 0.2), true, "Navigation entrance is open");
-  assert.equal(isWalkable("the-skeld", 59.8, -3.3, 0.2), true, "Navigation centre aisle is clear");
-  assert.equal(isWalkable("the-skeld", 62.4, -3.1, 0.2), false, "Navigation console blocks movement");
-  assert.equal(isWalkable("the-skeld", 66, -3.3, 0.2), false, "Navigation outer hull blocks space");
+  assert.equal(pointInMapShape(55, -3.1, navigation, 0.2), true, "Navigation entrance is open");
+  assert.equal(isWalkable("the-skeld", 61, -3.1, 0.2), true, "Navigation centre aisle is clear");
+  assert.equal(isWalkable("the-skeld", 63.7, -3.1, 0.2), false, "Navigation console blocks movement");
+  assert.equal(isWalkable("the-skeld", 67.5, -3.1, 0.2), false, "Navigation outer hull blocks space");
 
   const reachableWithinInteractionRange = (station) => {
     for (const radius of [0, 0.7, 1.4, 2.1, 2.7]) {
@@ -162,16 +156,22 @@ test("Skeld uses clipped room hulls and keeps every interaction reachable", () =
     "every task, vent, meeting button, security console, and sabotage panel has a reachable use position");
   assert.ok(skeld.collisionRects.every((collision) => !isWalkable("the-skeld", collision.x, collision.z, 0.2)),
     "every visible room fixture has matching collision");
+  assert.ok(skeld.collisionRects.every((collision) => pointInMapShape(
+    collision.x,
+    collision.z,
+    rooms.get(collision.roomId),
+    0
+  )), "every fixture collision belongs to its authored room");
 });
 
-test("misleading source filenames stay assigned to their actual MIRA rooms", () => {
-  const rooms = new Map(getMapDefinition("mira-hq").rooms.map((room) => [room.id, room]));
-  assert.equal(rooms.get("office")?.assetKey, "mira-office");
-  assert.equal(rooms.get("admin")?.assetKey, "mira-admin");
-  assert.equal(rooms.get("locker-room")?.assetKey, "mira-locker-room");
-  assert.equal(rooms.get("laboratory")?.assetKey, "mira-laboratory");
-  assert.equal(rooms.get("reactor")?.assetKey, "mira-reactor");
-  assert.equal(rooms.get("decontamination")?.assetKey, "mira-decontamination");
+test("the outer ship silhouette is decorative and never becomes walkable floor", () => {
+  const skeld = getMapDefinition("the-skeld");
+  const hull = skeld.zones.find(({ id }) => id === "skeld-outer-hull");
+  assert.equal(hull?.walkable, false);
+  assert.equal(hull?.minimap, false);
+  assert.ok(hull?.walkablePolygon.length >= 24);
+  assert.equal(isWalkable("the-skeld", (400 - 635) / 8.4, (100 - 316) / 8.4), false,
+    "empty plating inside the ship silhouette is not playable floor");
 });
 
 test("game maps and the lobby never load the visual reference screenshots", () => {
@@ -184,39 +184,32 @@ test("game maps and the lobby never load the visual reference screenshots", () =
   }
 });
 
-test("canonical room sets are kept on their original maps", () => {
-  const roomIds = (mapId) => new Set(getMapDefinition(mapId).rooms.map((room) => room.id));
-  assert.ok(["cafeteria", "upper-engine", "reactor", "navigation"].every((id) => roomIds("the-skeld").has(id)));
-  assert.ok(["launchpad", "greenhouse", "balcony", "decontamination"].every((id) => roomIds("mira-hq").has(id)));
-  assert.ok(["dropship", "boiler-room", "specimen-room", "laboratory"].every((id) => roomIds("polus").has(id)));
+test("the canonical Skeld room set is complete and no other map room leaks in", () => {
+  const roomIds = new Set(getMapDefinition("the-skeld").rooms.map((room) => room.id));
+  assert.deepEqual(roomIds, new Set([
+    "cafeteria", "upper-engine", "reactor", "security", "medbay", "lower-engine", "electrical",
+    "storage", "communications", "admin", "o2", "weapons", "navigation", "shields"
+  ]));
 });
 
-test("map silhouettes follow the supplied canonical reference layouts", () => {
-  const room = (mapId, roomId) => getMapDefinition(mapId).rooms.find(({ id }) => id === roomId);
-  assert.ok(room("the-skeld", "cafeteria").z < room("the-skeld", "storage").z);
-  assert.ok(room("the-skeld", "reactor").x < room("the-skeld", "navigation").x);
-  assert.ok(room("mira-hq", "greenhouse").z < room("mira-hq", "cafeteria").z);
-  assert.ok(room("mira-hq", "launchpad").x < room("mira-hq", "laboratory").x);
-  assert.ok(room("polus", "dropship").z < room("polus", "office").z);
-  assert.ok(room("polus", "specimen-room").x > room("polus", "office").x);
-  assert.ok(getMapDefinition("polus").zones.length >= 4);
+test("the room silhouette follows the supplied port-to-starboard and north-to-south layout", () => {
+  const room = (roomId) => getMapDefinition("the-skeld").rooms.find(({ id }) => id === roomId);
+  assert.ok(room("cafeteria").z < room("storage").z);
+  assert.ok(room("reactor").x < room("security").x);
+  assert.ok(room("security").x < room("medbay").x);
+  assert.ok(room("o2").x < room("navigation").x);
+  assert.ok(room("upper-engine").z < room("lower-engine").z);
+  assert.ok(room("admin").z < room("communications").z);
 });
 
-test("world rendering details and padding scale with each map", () => {
-  const expectedScales = new Map([
-    ["the-skeld", 42],
-    ["mira-hq", 41],
-    ["polus", 39]
-  ]);
-  for (const [mapId, expectedScale] of expectedScales) {
-    const map = getMapDefinition(mapId);
-    const metrics = worldMetrics(map);
-    assert.equal(metrics.scale, expectedScale, map.name);
-    assert.equal(metrics.padding, expectedScale * 6.5, map.name);
-    assert.equal(worldDetailScale(map), expectedScale / 46, map.name);
-    assert.equal(metrics.width, (map.bounds.maxX - map.bounds.minX) * expectedScale + metrics.padding * 2, map.name);
-    assert.equal(metrics.height, (map.bounds.maxZ - map.bounds.minZ) * expectedScale + metrics.padding * 2, map.name);
-  }
+test("world rendering details and padding use the single Skeld scale", () => {
+  const map = getMapDefinition("the-skeld");
+  const metrics = worldMetrics(map);
+  assert.equal(metrics.scale, 40);
+  assert.equal(metrics.padding, 260);
+  assert.equal(worldDetailScale(map), 40 / 46);
+  assert.equal(metrics.width, (map.bounds.maxX - map.bounds.minX) * 40 + 520);
+  assert.equal(metrics.height, (map.bounds.maxZ - map.bounds.minZ) * 40 + 520);
 });
 
 test("the reusable map schema builder generates orthogonal corridor transforms", () => {

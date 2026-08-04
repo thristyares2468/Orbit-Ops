@@ -127,7 +127,7 @@ export function createMapDefinition({
         strokeAlpha: 0.68,
         accent: theme.corridorAccent ?? 0x64d8e8,
         accentAlpha: theme.corridorAccentAlpha ?? 0.16,
-        radius: 18
+        radius: theme.corridorRadius ?? 18
       }),
       room: Object.freeze({
         depth: -250,
@@ -156,7 +156,8 @@ export function createMapDefinition({
 export function mapIsWalkable(map, x, z, margin = 0.55) {
   if (!map || !Number.isFinite(x) || !Number.isFinite(z)) return false;
   const insideFloor = map.rooms.some((room) => pointInMapShape(x, z, room, margin))
-    || map.zones.some((zone) => pointInMapShape(x, z, zone, Math.min(margin, 0.25)))
+    || map.zones.some((zone) => zone.walkable !== false
+      && pointInMapShape(x, z, zone, Math.min(margin, 0.25)))
     || map.corridors.some((corridor) => pointInMapRect(x, z, corridor, Math.min(margin, 0.35)));
   if (!insideFloor) return false;
   return !map.collisionRects.some((rect) => pointInCollisionRect(x, z, rect, margin));

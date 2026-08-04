@@ -52,31 +52,7 @@ export const PHASER_ASSETS = Object.freeze({
   "skeld-shields": "/assets/rooms/skeld-shields.png",
   "skeld-weapons": "/assets/rooms/skeld-weapons.png",
   "skeld-navigation": "/assets/art/Maps/Navigation-sharedassets0.assets-160.png",
-  "skeld-o2": "/assets/rooms/skeld-o2.png",
-  "mira-office": "/assets/rooms/mira-admin.png",
-  "mira-admin": "/assets/rooms/mira-laboratory.png",
-  "mira-locker-room": "/assets/rooms/mira-cafeteria.png",
-  "mira-reactor": "/assets/art/Maps/HQAssets2-sharedassets0.assets-186.png",
-  "mira-laboratory": "/assets/art/Maps/HQAssets2-sharedassets0.assets-186.png",
-  "mira-decontamination": "/assets/art/Maps/HQAssets2-sharedassets0.assets-186.png",
-  "mira-cafeteria-table": "/assets/art/Maps/HQAssets2-sharedassets0.assets-186.png",
-  "mira-cafeteria": "/assets/art/Maps/Cafeteria/cafeteriaWalls-sharedassets0.assets-152.png",
-  "mira-balcony": "/assets/art/Maps/Cafeteria/cafeteriaWalls-sharedassets0.assets-152.png",
-  "mira-greenhouse": "/assets/rooms/mira-greenhouse.png",
-  "mira-medbay": "/assets/rooms/mira-medbay.png",
-  "mira-storage": "/assets/rooms/mira-storage.png",
-  "mira-launchpad": "/assets/art/Maps/launchPadWalls-sharedassets0.assets-204.png",
-  "polus-security": "/assets/art/Maps/PlanetSprites-sharedassets0.assets-62.png",
-  "polus-planet-3": "/assets/art/Maps/PlanetSprites3-sharedassets0.assets-114.png",
-  "polus-dropship": "/assets/art/Maps/dropshipTop-sharedassets0.assets-134.png",
-  "polus-ramp": "/assets/art/Maps/ramp-sharedassets0.assets-166.png",
-  "polus-o2": "/assets/art/Maps/room_O2-sharedassets0.assets-93.png",
-  "polus-broadcast": "/assets/art/Maps/room_broadcast-sharedassets0.assets-57.png",
-  "polus-science": "/assets/art/Maps/room_science-sharedassets0.assets-90.png",
-  "polus-specimen": "/assets/art/Maps/room_specimen-sharedassets0.assets-123.png",
-  "polus-tunnel": "/assets/art/Maps/room_tunnel2-sharedassets0.assets-138.png",
-  "polus-weapons": "/assets/art/Maps/room_weapon-sharedassets0.assets-80.png",
-  "polus-storage": "/assets/art/Maps/Storage/room_storage-sharedassets0.assets-98.png"
+  "skeld-o2": "/assets/rooms/skeld-o2.png"
 });
 
 export const PLAYER_FRAME_COUNTS = Object.freeze({ walk: 12, death: 42 });

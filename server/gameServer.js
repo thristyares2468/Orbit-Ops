@@ -1570,82 +1570,11 @@ export class GameServer {
     const targetRoom = map.rooms.find(({ id }) => id === targetRoomId);
     if (!startRoom || !targetRoom) return [];
     if (startPosition && targetPosition && distance2D(startPosition, targetPosition) < 0.75) return [];
-    if (mapId !== "the-skeld") return this.buildAuthoredCorridorPath(map, startRoomId, targetRoomId);
     return findWalkablePath(
       mapId,
       startPosition ?? { x: startRoom.x, z: startRoom.z },
       targetPosition ?? { x: targetRoom.x, z: targetRoom.z }
     );
-  }
-
-  // MIRA and Polus keep their established room-centre router until their room
-  // hulls receive the same fixture-level collision pass as The Skeld.
-  buildAuthoredCorridorPath(map, startRoomId, targetRoomId) {
-    if (startRoomId === targetRoomId) return [];
-    const neighbours = new Map(map.rooms.map((room) => [room.id, []]));
-    for (const [from, to] of map.connections) {
-      neighbours.get(from)?.push(to);
-      neighbours.get(to)?.push(from);
-    }
-    const queue = [startRoomId];
-    const previous = new Map([[startRoomId, null]]);
-    while (queue.length) {
-      const current = queue.shift();
-      if (current === targetRoomId) break;
-      for (const next of neighbours.get(current) ?? []) {
-        if (previous.has(next)) continue;
-        previous.set(next, current);
-        queue.push(next);
-      }
-    }
-    if (!previous.has(targetRoomId)) return [];
-    const roomPath = [];
-    for (let roomId = targetRoomId; roomId; roomId = previous.get(roomId)) roomPath.unshift(roomId);
-    const waypoints = [];
-    for (let index = 0; index < roomPath.length - 1; index += 1) {
-      const currentId = roomPath[index];
-      const nextId = roomPath[index + 1];
-      const currentRoom = map.rooms.find((room) => room.id === currentId);
-      const destination = map.rooms.find((room) => room.id === nextId);
-      const route = map.corridorRoutes?.find(({ from, to }) =>
-        (from === currentId && to === nextId) || (from === nextId && to === currentId)
-      );
-      if (!route) {
-        waypoints.push({ x: destination.x, z: currentRoom.z }, { x: destination.x, z: destination.z });
-        continue;
-      }
-
-      const routePoints = [
-        { x: map.rooms.find((room) => room.id === route.from).x, z: map.rooms.find((room) => room.id === route.from).z },
-        ...(route.via ?? []).map(({ x, z }) => ({ x, z })),
-        { x: map.rooms.find((room) => room.id === route.to).x, z: map.rooms.find((room) => room.id === route.to).z }
-      ];
-      if (route.from !== currentId) routePoints.reverse();
-      const finalPoint = routePoints.at(-1);
-      if (!isWalkable(map.id, finalPoint.x, finalPoint.z, 0.2)) {
-        const approach = routePoints.at(-2) ?? finalPoint;
-        const xDirection = Math.sign(approach.x - finalPoint.x) || 1;
-        const zDirection = Math.sign(approach.z - finalPoint.z) || 1;
-        const candidates = [
-          { x: finalPoint.x + xDirection * destination.width * 0.3, z: finalPoint.z },
-          { x: finalPoint.x, z: finalPoint.z + zDirection * destination.depth * 0.3 },
-          { x: finalPoint.x - xDirection * destination.width * 0.3, z: finalPoint.z },
-          { x: finalPoint.x, z: finalPoint.z - zDirection * destination.depth * 0.3 }
-        ];
-        const safeEndpoint = candidates.find((point) => isWalkable(map.id, point.x, point.z, 0.2));
-        if (safeEndpoint) routePoints[routePoints.length - 1] = safeEndpoint;
-      }
-      const orthogonalPoints = [routePoints[0]];
-      for (const point of routePoints.slice(1)) {
-        const lastPoint = orthogonalPoints.at(-1);
-        if (lastPoint.x !== point.x && lastPoint.z !== point.z) {
-          orthogonalPoints.push({ x: point.x, z: lastPoint.z });
-        }
-        orthogonalPoints.push(point);
-      }
-      waypoints.push(...orthogonalPoints.slice(1));
-    }
-    return waypoints;
   }
 
   stop() {

@@ -211,7 +211,8 @@ export class MapBuilder {
       const zoneStyle = {
         shape: zone.shape,
         width: zone.width,
-        depth: zone.depth
+        depth: zone.depth,
+        walkablePolygon: zone.walkablePolygon
       };
       fillRoomShape(graphics, zoneStyle, width, height, zone.colour ?? style.fill, zone.alpha ?? style.fillAlpha, 0, style.radius * detail);
       graphics.lineStyle(Math.max(1, 4 * detail), zone.stroke ?? style.stroke, zone.strokeAlpha ?? style.strokeAlpha);
