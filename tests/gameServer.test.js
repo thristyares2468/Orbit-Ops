@@ -439,6 +439,59 @@ test("crew bots route to their repair station through walkable geometry", () => 
     "every routed waypoint stays on authored walkable geometry");
 });
 
+test("crew bots use embedded repair panels from their collision-safe edge", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("practice", {});
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 60_000;
+  const map = getMapDefinition("the-skeld");
+  const panel = stationById(map.id, "skeld-reactor-alpha");
+  const operative = player("operative", "operative", map.rooms.find(({ id }) => id === "cafeteria").navigationAnchor);
+  const responder = botPlayer("bot-responder", "crew", map.rooms.find(({ id }) => id === "cafeteria").navigationAnchor);
+  for (const member of [operative, responder]) room.players.set(member.id, member);
+
+  server.startSabotage(room, operative, "skeld-reactor-meltdown");
+  responder.repairStationId = panel.id;
+  responder.botTarget = {
+    x: panel.x, z: panel.z, roomId: panel.roomId,
+    stationId: panel.id, repairSabotageId: panel.refId
+  };
+  responder.botPath = server.buildBotPath(map.id, "cafeteria", panel.roomId, responder.position, panel);
+  responder.position = { ...responder.botPath.at(-1) };
+  responder.currentRoom = panel.roomId;
+  responder.botPath = [];
+
+  const clearDistance = Math.hypot(responder.position.x - panel.x, responder.position.z - panel.z);
+  assert.ok(clearDistance > 1.6 && clearDistance <= 2.8,
+    "the wall panel is only reachable within the shared interaction radius");
+  server.tickBot(room, responder, Date.now(), 0.05);
+  assert.equal(room.activeSabotage.repairs.has(panel.id), true,
+    "the responder activates the panel without crossing its collision");
+});
+
+test("crew bots follow tight Skeld corners and clear a two-panel meltdown", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("practice", {});
+  const map = getMapDefinition("the-skeld");
+  const operative = player("operative", "operative", map.rooms.find(({ id }) => id === "cafeteria").navigationAnchor);
+  const responders = map.spawnPoints.slice(0, 3).map(([x, z], index) =>
+    botPlayer(`route-bot-${index}`, "crew", { x, z }));
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 60_000;
+  for (const member of [operative, ...responders]) room.players.set(member.id, member);
+
+  server.startSabotage(room, operative, "skeld-reactor-meltdown");
+  let now = Date.now();
+  for (let tick = 0; tick < 900 && room.activeSabotage; tick += 1) {
+    now += 50;
+    server.assignSabotageRepairs(room);
+    for (const responder of responders) server.tickBot(room, responder, now, 0.05);
+  }
+
+  assert.equal(room.activeSabotage, null,
+    "responders traverse the Upper Engine corner and activate both Reactor panels within 45 seconds");
+});
+
 test("clearing a sabotage releases every bot repair assignment", () => {
   server = new GameServer(new RecordingIo());
   const room = server.createRoom("practice", {});

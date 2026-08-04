@@ -679,8 +679,9 @@ export class GameUI {
         context.ellipse(sx(room.x), sy(room.z), room.width * scale / 2, room.depth * scale / 2, 0, 0, Math.PI * 2);
         return;
       }
-      if (room.shape === "octagon") {
-        const points = mapShapePolygon(room);
+      const authoredOutline = room.artClipPolygon ?? room.walkablePolygon;
+      if (Array.isArray(authoredOutline) && authoredOutline.length >= 3) {
+        const points = authoredOutline.map((point) => ({ x: room.x + point.x, z: room.z + point.z }));
         context.moveTo(sx(points[0].x), sy(points[0].z));
         for (const point of points.slice(1)) context.lineTo(sx(point.x), sy(point.z));
         context.closePath();

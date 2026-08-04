@@ -6,13 +6,13 @@ import {
   worldToScreen
 } from "./assets.js";
 
-function roomShapePoints(room, width, height, inset = 0) {
+function roomShapePoints(room, width, height, inset = 0, polygon = room.walkablePolygon) {
   const halfWidth = width / 2 - inset;
   const halfHeight = height / 2 - inset;
-  if (Array.isArray(room.walkablePolygon) && room.walkablePolygon.length >= 3) {
+  if (Array.isArray(polygon) && polygon.length >= 3) {
     const scaleX = halfWidth / (room.width / 2);
     const scaleY = halfHeight / (room.depth / 2);
-    return room.walkablePolygon.map((point) => ({ x: point.x * scaleX, y: point.z * scaleY }));
+    return polygon.map((point) => ({ x: point.x * scaleX, y: point.z * scaleY }));
   }
   const cut = Math.min(halfWidth * 2, halfHeight * 2) * 0.18;
   return [
@@ -47,7 +47,8 @@ function clippedRoomTexture(scene, room) {
   const sourceY = crop?.y ?? 0;
   const sourceWidth = crop?.width ?? source.width;
   const sourceHeight = crop?.height ?? source.height;
-  const textureKey = `${room.assetKey}:room-clip:${room.id}:${sourceX},${sourceY},${sourceWidth},${sourceHeight}`;
+  const clipPolygon = room.artClipPolygon ?? room.walkablePolygon;
+  const textureKey = `${room.assetKey}:room-clip:${room.id}:${sourceX},${sourceY},${sourceWidth},${sourceHeight}:v2`;
   if (scene.textures.exists(textureKey)) return { textureKey, sourceWidth, sourceHeight };
 
   const canvas = document.createElement("canvas");
@@ -55,7 +56,7 @@ function clippedRoomTexture(scene, room) {
   canvas.height = sourceHeight;
   const context = canvas.getContext("2d");
   context.beginPath();
-  for (const [index, point] of room.walkablePolygon.entries()) {
+  for (const [index, point] of clipPolygon.entries()) {
     const x = (point.x / room.width + 0.5) * sourceWidth;
     const y = (point.z / room.depth + 0.5) * sourceHeight;
     if (index === 0) context.moveTo(x, y);
@@ -243,18 +244,13 @@ export class MapBuilder {
       const point = worldToScreen(corridor.x, corridor.z, this.map);
       const width = corridor.width * this.metrics.scale;
       const height = corridor.depth * this.metrics.scale;
-      graphics.fillStyle(0x02070d, 0.72);
-      graphics.fillRoundedRect(
-        point.x - width / 2 - 8 * detail,
-        point.y - height / 2 - 8 * detail,
-        width + 16 * detail,
-        height + 16 * detail,
-        style.radius * detail
-      );
-      graphics.fillStyle(style.fill, style.fillAlpha);
-      graphics.fillRoundedRect(point.x - width / 2, point.y - height / 2, width, height, style.radius * detail);
-      graphics.lineStyle(Math.max(1, 4 * detail), style.stroke, style.strokeAlpha);
-      graphics.strokeRoundedRect(point.x - width / 2, point.y - height / 2, width, height, style.radius * detail);
+      const corridorStyle = { ...corridor, x: 0, z: 0 };
+      const section = this.scene.add.graphics({ x: point.x, y: point.y });
+      fillRoomShape(section, corridorStyle, width + 16 * detail, height + 16 * detail, 0x02070d, 0.72, 0, style.radius * detail);
+      fillRoomShape(section, corridorStyle, width, height, style.fill, style.fillAlpha, 0, style.radius * detail);
+      section.lineStyle(Math.max(1, 4 * detail), style.stroke, style.strokeAlpha);
+      strokeRoomShape(section, corridorStyle, width, height, 0, style.radius * detail);
+      section.setData("mapLayer", "corridors");
       graphics.lineStyle(Math.max(1, 2 * detail), style.accent ?? 0x64d8e8, style.accentAlpha ?? 0.16);
       if (corridor.axis === "x") {
         graphics.lineBetween(point.x - width / 2 + 14 * detail, point.y, point.x + width / 2 - 14 * detail, point.y);
@@ -267,6 +263,7 @@ export class MapBuilder {
           graphics.lineBetween(point.x - width * 0.34, y, point.x + width * 0.34, y);
         }
       }
+      layer.add(section);
     }
     graphics.setData("mapLayer", "corridors");
     layer.add(graphics);

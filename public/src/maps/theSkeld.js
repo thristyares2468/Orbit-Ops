@@ -1,8 +1,9 @@
 import { createMapDefinition, station, task } from "./mapFactory.js";
 
-// Every transform in this file is authored in the 1200x672 coordinate space of
-// the supplied Skeld reference. The reference is never loaded by the game; it is
-// only a common ruler for artwork, floors, props, interactions, and collision.
+// The supplied 1200x672 Skeld image is a measuring reference only. It is never
+// preloaded or rendered. Room art, floor silhouettes, corridors, fixtures and
+// interactions all use this shared ruler so visual and collision geometry stay
+// on the same transform.
 const REFERENCE = Object.freeze({ width: 1200, height: 672, pixelsPerUnit: 8.4, originX: 635, originY: 316 });
 
 const worldX = (pixel) => (pixel - REFERENCE.originX) / REFERENCE.pixelsPerUnit;
@@ -10,7 +11,23 @@ const worldZ = (pixel) => (pixel - REFERENCE.originY) / REFERENCE.pixelsPerUnit;
 const worldSize = (pixels) => pixels / REFERENCE.pixelsPerUnit;
 const referencePoint = (x, y) => Object.freeze({ x: worldX(x), z: worldZ(y) });
 
-function roomFromReference({ id, name, rect, outline, assetKey, ...extras }) {
+function relativePolygon(points, centerX, centerY) {
+  return points.map(([x, y]) => Object.freeze({
+    x: worldSize(x - centerX),
+    z: worldSize(y - centerY)
+  }));
+}
+
+function roomFromReference({
+  id,
+  name,
+  rect,
+  artOutline,
+  floorOutline,
+  navigationAnchor,
+  assetKey,
+  ...extras
+}) {
   const [left, top, right, bottom] = rect;
   const centerX = (left + right) / 2;
   const centerY = (top + bottom) / 2;
@@ -21,14 +38,14 @@ function roomFromReference({ id, name, rect, outline, assetKey, ...extras }) {
     z: worldZ(centerY),
     width: worldSize(right - left),
     depth: worldSize(bottom - top),
-    shape: "octagon",
-    walkablePolygon: outline.map(([x, y]) => ({
-      x: worldSize(x - centerX),
-      z: worldSize(y - centerY)
-    })),
+    shape: "polygon",
+    walkablePolygon: relativePolygon(floorOutline, centerX, centerY),
+    artClipPolygon: relativePolygon(artOutline, centerX, centerY),
+    navigationAnchor: referencePoint(...navigationAnchor),
     referenceRect: Object.freeze({ left, top, right, bottom }),
     assetKey,
     assetOnly: true,
+    floorAlpha: 0,
     worldLabel: false,
     artFit: "stretch",
     artAlpha: 1,
@@ -37,18 +54,35 @@ function roomFromReference({ id, name, rect, outline, assetKey, ...extras }) {
   };
 }
 
-function route(id, from, to, widthPixels, points = []) {
-  return { id, from, to, width: worldSize(widthPixels), via: points.map(([x, y]) => referencePoint(x, y)) };
+function corridorFromReference(id, left, top, right, bottom) {
+  return Object.freeze({
+    id,
+    axis: right - left >= bottom - top ? "x" : "z",
+    x: worldX((left + right) / 2),
+    z: worldZ((top + bottom) / 2),
+    width: worldSize(right - left),
+    depth: worldSize(bottom - top),
+    referenceRect: Object.freeze({ left, top, right, bottom })
+  });
+}
+
+function route(id, from, to, points = []) {
+  return Object.freeze({
+    id,
+    from,
+    to,
+    via: points.map(([x, y]) => referencePoint(x, y))
+  });
 }
 
 function taskAt(id, name, roomId, x, y, kind, steps = 4) {
   const point = referencePoint(x, y);
-  return task(id, name, roomId, point.x, point.z, kind, steps);
+  return { ...task(id, name, roomId, point.x, point.z, kind, steps), referencePosition: Object.freeze({ x, y }) };
 }
 
 function stationAt(id, type, roomId, x, y, refId = null) {
   const point = referencePoint(x, y);
-  return station(id, type, roomId, point.x, point.z, refId);
+  return { ...station(id, type, roomId, point.x, point.z, refId), referencePosition: Object.freeze({ x, y }) };
 }
 
 function collisionAt(id, kind, roomId, x, y, width, depth, extras = {}) {
@@ -61,6 +95,12 @@ function collisionAt(id, kind, roomId, x, y, width, depth, extras = {}) {
     z: point.z,
     width: worldSize(width),
     depth: worldSize(depth),
+    referenceRect: Object.freeze({
+      left: x - width / 2,
+      top: y - depth / 2,
+      right: x + width / 2,
+      bottom: y + depth / 2
+    }),
     prop: false,
     ...extras
   };
@@ -69,99 +109,175 @@ function collisionAt(id, kind, roomId, x, y, width, depth, extras = {}) {
 const ROOMS = [
   roomFromReference({
     id: "cafeteria", name: "Cafeteria", rect: [539, 2, 826, 294],
-    outline: [[591, 2], [752, 2], [826, 64], [826, 224], [765, 294], [609, 294], [539, 224], [539, 64]],
-    assetKey: "skeld-cafeteria", colour: 0x5b6566
+    artOutline: [[591, 2], [752, 2], [826, 64], [826, 224], [765, 294], [609, 294], [539, 224], [539, 64]],
+    floorOutline: [
+      [594, 27], [749, 27], [812, 69], [812, 115], [831, 115], [831, 162], [812, 162],
+      [812, 219], [761, 278], [706, 278], [706, 306], [651, 306], [651, 278], [604, 278],
+      [553, 222], [553, 163], [531, 163], [531, 114], [553, 114], [553, 69]
+    ],
+    navigationAnchor: [679, 260], assetKey: "skeld-cafeteria", colour: 0x5b6566
   }),
   roomFromReference({
     id: "upper-engine", name: "Upper Engine", rect: [203, 82, 327, 218],
-    outline: [[225, 82], [327, 82], [327, 218], [242, 218], [203, 184], [203, 112]],
-    assetKey: "skeld-upper-engine", colour: 0x4a342a
+    artOutline: [[225, 82], [327, 82], [327, 218], [242, 218], [203, 184], [203, 112]],
+    floorOutline: [
+      [226, 91], [317, 91], [317, 113], [337, 113], [337, 167], [317, 167], [317, 207],
+      [284, 207], [284, 226], [241, 226], [241, 207], [212, 207], [212, 188], [195, 188],
+      [195, 112], [212, 112], [212, 104]
+    ],
+    navigationAnchor: [238, 191], assetKey: "skeld-upper-engine", colour: 0x4a342a
   }),
   roomFromReference({
     id: "reactor", name: "Reactor", rect: [69, 190, 219, 392],
-    outline: [[96, 190], [190, 190], [219, 218], [219, 365], [190, 392], [96, 392], [69, 364], [69, 218]],
-    assetKey: "skeld-reactor", colour: 0x512d35
+    artOutline: [[96, 190], [190, 190], [219, 218], [219, 365], [190, 392], [96, 392], [69, 364], [69, 218]],
+    floorOutline: [
+      [98, 199], [189, 199], [210, 220], [210, 250], [231, 250], [231, 332], [210, 332],
+      [210, 362], [188, 383], [98, 383], [78, 362], [78, 220]
+    ],
+    navigationAnchor: [177, 291], assetKey: "skeld-reactor", colour: 0x512d35
   }),
   roomFromReference({
     id: "security", name: "Security", rect: [330, 219, 419, 362],
-    outline: [[351, 219], [399, 219], [419, 239], [419, 362], [330, 362], [330, 239]],
-    assetKey: "skeld-security", colour: 0x314c42
+    artOutline: [[351, 219], [399, 219], [419, 239], [419, 362], [330, 362], [330, 239]],
+    floorOutline: [[350, 228], [399, 228], [411, 241], [411, 351], [323, 351], [323, 278], [336, 278], [336, 242]],
+    navigationAnchor: [355, 325], assetKey: "skeld-security", colour: 0x314c42
   }),
   roomFromReference({
     id: "medbay", name: "MedBay", rect: [419, 158, 572, 350],
-    outline: [[450, 158], [541, 158], [572, 189], [572, 318], [541, 350], [449, 350], [419, 319], [419, 188]],
-    assetKey: "skeld-medbay", artCrop: { x: 0, y: 0, width: 520, height: 520 }, colour: 0x315b60
+    artOutline: [[450, 158], [541, 158], [572, 189], [572, 318], [541, 350], [449, 350], [419, 319], [419, 188]],
+    floorOutline: [
+      [446, 169], [546, 169], [546, 193], [558, 193], [558, 246], [570, 260], [570, 315],
+      [538, 342], [453, 342], [427, 316], [427, 191], [446, 191]
+    ],
+    navigationAnchor: [481, 303], assetKey: "skeld-medbay", artCrop: { x: 0, y: 0, width: 520, height: 520 }, colour: 0x315b60
   }),
   roomFromReference({
     id: "lower-engine", name: "Lower Engine", rect: [203, 394, 327, 537],
-    outline: [[242, 394], [327, 394], [327, 537], [225, 537], [203, 507], [203, 426]],
-    assetKey: "skeld-lower-engine", colour: 0x4a342a
+    artOutline: [[242, 394], [327, 394], [327, 537], [225, 537], [203, 507], [203, 426]],
+    floorOutline: [
+      [242, 385], [284, 385], [284, 404], [317, 404], [317, 430], [338, 430], [338, 485],
+      [317, 485], [317, 525], [226, 525], [212, 510], [212, 491], [195, 491], [195, 424],
+      [212, 424], [212, 404], [242, 404]
+    ],
+    navigationAnchor: [238, 510], assetKey: "skeld-lower-engine", colour: 0x4a342a
   }),
   roomFromReference({
     id: "electrical", name: "Electrical", rect: [437, 347, 569, 513],
-    outline: [[437, 347], [569, 347], [569, 393], [539, 433], [539, 477], [509, 513], [437, 513]],
-    assetKey: "skeld-electrical", colour: 0x594437
+    artOutline: [[437, 347], [569, 347], [569, 393], [539, 433], [539, 477], [509, 513], [437, 513]],
+    floorOutline: [
+      [445, 355], [560, 355], [560, 389], [543, 421], [543, 476], [526, 504], [526, 526],
+      [431, 526], [431, 485], [426, 485], [426, 433], [445, 433]
+    ],
+    navigationAnchor: [516, 471], assetKey: "skeld-electrical", colour: 0x594437
   }),
   roomFromReference({
     id: "storage", name: "Storage", rect: [559, 394, 727, 620],
-    outline: [[587, 394], [727, 394], [727, 574], [702, 620], [620, 620], [559, 574], [559, 420]],
-    assetKey: "skeld-storage", colour: 0x443c32
+    artOutline: [[587, 394], [727, 394], [727, 574], [702, 620], [620, 620], [559, 574], [559, 420]],
+    floorOutline: [
+      [586, 402], [646, 402], [646, 384], [708, 384], [708, 402], [719, 402], [719, 443],
+      [737, 443], [737, 499], [719, 499], [719, 574], [698, 610], [622, 610], [566, 573],
+      [566, 561], [548, 561], [548, 511], [566, 511], [566, 426]
+    ],
+    navigationAnchor: [591, 556], assetKey: "skeld-storage", colour: 0x443c32
   }),
   roomFromReference({
     id: "communications", name: "Communications", rect: [724, 496, 872, 626],
-    outline: [[748, 496], [848, 496], [872, 520], [872, 601], [848, 626], [748, 626], [724, 601], [724, 520]],
-    assetKey: "skeld-communications", colour: 0x24485b
+    artOutline: [[748, 496], [848, 496], [872, 520], [872, 601], [848, 626], [748, 626], [724, 601], [724, 520]],
+    floorOutline: [
+      [748, 506], [784, 506], [784, 486], [828, 486], [828, 506], [848, 506], [862, 523],
+      [862, 598], [846, 616], [750, 616], [734, 598], [734, 523]
+    ],
+    navigationAnchor: [762, 588], assetKey: "skeld-communications", colour: 0x24485b
   }),
   roomFromReference({
     id: "admin", name: "Admin", rect: [744, 317, 878, 438],
-    outline: [[763, 317], [859, 317], [878, 336], [878, 418], [859, 438], [763, 438], [744, 418], [744, 336]],
-    assetKey: "skeld-admin", colour: 0x503040
+    artOutline: [[763, 317], [859, 317], [878, 336], [878, 418], [859, 438], [763, 438], [744, 418], [744, 336]],
+    floorOutline: [
+      [729, 344], [764, 344], [764, 324], [857, 324], [869, 338], [869, 415], [856, 429],
+      [763, 429], [751, 415], [751, 380], [729, 380]
+    ],
+    navigationAnchor: [847, 409], assetKey: "skeld-admin", colour: 0x503040
   }),
   roomFromReference({
     id: "o2", name: "O2", rect: [800, 215, 921, 313],
-    outline: [[820, 215], [900, 215], [921, 236], [921, 292], [900, 313], [820, 313], [800, 292], [800, 236]],
-    assetKey: "skeld-o2", colour: 0x355b51
+    artOutline: [[820, 215], [900, 215], [921, 236], [921, 292], [900, 313], [820, 313], [800, 292], [800, 236]],
+    floorOutline: [[819, 222], [899, 222], [914, 238], [928, 238], [928, 294], [913, 294], [898, 305], [819, 305], [807, 290], [807, 239]],
+    navigationAnchor: [874, 263], assetKey: "skeld-o2", colour: 0x355b51
   }),
   roomFromReference({
     id: "weapons", name: "Weapons", rect: [858, 60, 995, 199],
-    outline: [[880, 60], [966, 60], [995, 89], [995, 170], [966, 199], [880, 199], [858, 177], [858, 82]],
-    assetKey: "skeld-weapons", colour: 0x655342
+    artOutline: [[880, 60], [966, 60], [995, 89], [995, 170], [966, 199], [880, 199], [858, 177], [858, 82]],
+    floorOutline: [
+      [882, 68], [965, 68], [987, 90], [987, 169], [968, 191], [958, 191], [958, 210],
+      [916, 210], [916, 191], [880, 191], [866, 174], [866, 167], [847, 167], [847, 113], [866, 113], [866, 83]
+    ],
+    navigationAnchor: [950, 176], assetKey: "skeld-weapons", colour: 0x655342
   }),
   roomFromReference({
     id: "navigation", name: "Navigation", rect: [1090, 224, 1200, 356],
-    outline: [[1090, 224], [1147, 224], [1200, 253], [1200, 328], [1147, 356], [1090, 356]],
-    assetKey: "skeld-navigation", artCrop: { x: 0, y: 0, width: 344, height: 420 }, colour: 0x253b65
+    artOutline: [[1090, 224], [1147, 224], [1200, 253], [1200, 328], [1147, 356], [1090, 356]],
+    floorOutline: [
+      [1081, 232], [1145, 232], [1192, 257], [1192, 323], [1145, 348], [1081, 348],
+      [1081, 315], [1068, 315], [1068, 257], [1081, 257]
+    ],
+    navigationAnchor: [1128, 291], assetKey: "skeld-navigation", artCrop: { x: 0, y: 0, width: 344, height: 420 }, colour: 0x253b65
   }),
   roomFromReference({
     id: "shields", name: "Shields", rect: [873, 418, 1010, 555],
-    outline: [[895, 418], [982, 418], [1010, 446], [1010, 527], [982, 555], [895, 555], [873, 533], [873, 440]],
-    assetKey: "skeld-shields", colour: 0x665744
+    artOutline: [[895, 418], [982, 418], [1010, 446], [1010, 527], [982, 555], [895, 555], [873, 533], [873, 440]],
+    floorOutline: [
+      [914, 409], [986, 409], [986, 427], [1002, 447], [1002, 525], [979, 547], [895, 547],
+      [882, 532], [882, 509], [863, 509], [863, 454], [882, 454], [882, 442], [895, 427], [914, 427]
+    ],
+    navigationAnchor: [912, 520], assetKey: "skeld-shields", colour: 0x665744
   })
 ];
 
-// Routes follow the actual orthogonal deck joins visible between the room crops.
-// Shared junctions intentionally reuse the same pixels so corridors do not drift.
+// These are the unique physical hallway pieces traced from the reference. They
+// deliberately do not start at room centres, and overlapping joins are wide
+// enough for the player collider to cross without opening false routes in walls.
+const SKELD_CORRIDORS = [
+  corridorFromReference("port-engine-spine", 210, 205, 342, 408),
+  corridorFromReference("upper-engine-cafeteria-hall", 315, 110, 560, 171),
+  corridorFromReference("medbay-neck", 432, 155, 550, 203),
+  corridorFromReference("lower-engine-electrical-hall", 315, 427, 454, 491),
+  corridorFromReference("lower-engine-storage-bypass", 315, 500, 568, 568),
+  corridorFromReference("electrical-south-neck", 426, 478, 550, 532),
+  corridorFromReference("cafeteria-storage-spine", 642, 275, 717, 416),
+  corridorFromReference("admin-branch", 697, 305, 780, 390),
+  corridorFromReference("storage-shields-hall", 710, 440, 893, 503),
+  corridorFromReference("communications-neck", 779, 484, 829, 527),
+  corridorFromReference("cafeteria-weapons-hall", 811, 107, 875, 173),
+  corridorFromReference("weapons-south-neck", 911, 176, 981, 263),
+  corridorFromReference("o2-navigation-junction", 908, 231, 1007, 318),
+  corridorFromReference("navigation-hall", 978, 245, 1103, 316),
+  corridorFromReference("starboard-spine", 919, 291, 987, 455),
+  corridorFromReference("shields-north-neck", 909, 406, 992, 458)
+];
+
+// Connections describe room adjacency for logs and map semantics only. Bot and
+// player movement is resolved against the traced floors above.
 const SKELD_ROUTES = [
-  route("upper-engine-reactor", "upper-engine", "reactor", 30, [[277, 150], [277, 290]]),
-  route("reactor-security", "reactor", "security", 30, [[277, 290]]),
-  route("reactor-lower-engine", "reactor", "lower-engine", 30, [[277, 290], [277, 465]]),
-  route("upper-engine-cafeteria", "upper-engine", "cafeteria", 32, [[480, 150], [480, 136]]),
-  route("upper-engine-medbay", "upper-engine", "medbay", 32, [[480, 150], [480, 254]]),
-  route("medbay-cafeteria", "medbay", "cafeteria", 32, [[480, 136]]),
-  route("lower-engine-electrical", "lower-engine", "electrical", 30, [[365, 465], [365, 486], [503, 486]]),
-  route("lower-engine-storage", "lower-engine", "storage", 30, [[365, 465], [365, 548], [643, 548]]),
-  route("electrical-storage", "electrical", "storage", 30, [[545, 486], [643, 486]]),
-  route("cafeteria-storage", "cafeteria", "storage", 32, [[680, 340], [643, 340]]),
-  route("cafeteria-admin", "cafeteria", "admin", 30, [[680, 340], [811, 340]]),
-  route("admin-storage", "admin", "storage", 30, [[680, 378], [680, 430], [643, 430]]),
-  route("cafeteria-weapons", "cafeteria", "weapons", 32, [[925, 130]]),
-  route("weapons-o2", "weapons", "o2", 30, [[925, 264], [860, 264]]),
-  route("weapons-navigation", "weapons", "navigation", 30, [[948, 130], [948, 270], [1145, 270]]),
-  route("o2-navigation", "o2", "navigation", 30, [[948, 264], [1145, 264]]),
-  route("navigation-shields", "navigation", "shields", 30, [[948, 290], [948, 486]]),
-  route("storage-shields", "storage", "shields", 32, [[940, 463]]),
-  route("storage-communications", "storage", "communications", 30, [[727, 535], [798, 535]]),
-  route("shields-communications", "shields", "communications", 30, [[873, 518], [798, 518]])
+  route("upper-engine-reactor", "upper-engine", "reactor", [[275, 216], [275, 289], [218, 289]]),
+  route("reactor-security", "reactor", "security", [[275, 289]]),
+  route("reactor-lower-engine", "reactor", "lower-engine", [[275, 289], [275, 397]]),
+  route("upper-engine-cafeteria", "upper-engine", "cafeteria", [[335, 140], [542, 140]]),
+  route("upper-engine-medbay", "upper-engine", "medbay", [[385, 140], [490, 140], [490, 178]]),
+  route("medbay-cafeteria", "medbay", "cafeteria", [[490, 178], [542, 140]]),
+  route("lower-engine-electrical", "lower-engine", "electrical", [[337, 460], [441, 460]]),
+  route("lower-engine-storage", "lower-engine", "storage", [[337, 534], [558, 534]]),
+  route("electrical-storage", "electrical", "storage", [[490, 516], [558, 534]]),
+  route("cafeteria-storage", "cafeteria", "storage", [[680, 300], [680, 395]]),
+  route("cafeteria-admin", "cafeteria", "admin", [[680, 330], [752, 330]]),
+  route("admin-storage", "admin", "storage", [[718, 330], [680, 395]]),
+  route("cafeteria-weapons", "cafeteria", "weapons", [[828, 140], [864, 140]]),
+  route("weapons-o2", "weapons", "o2", [[946, 204], [946, 268], [915, 268]]),
+  route("weapons-navigation", "weapons", "navigation", [[946, 268], [1082, 286]]),
+  route("o2-navigation", "o2", "navigation", [[928, 268], [1082, 286]]),
+  route("navigation-shields", "navigation", "shields", [[953, 286], [953, 430]]),
+  route("storage-shields", "storage", "shields", [[730, 470], [881, 470]]),
+  route("storage-communications", "storage", "communications", [[805, 470], [805, 510]]),
+  route("shields-communications", "shields", "communications", [[881, 470], [805, 510]])
 ];
 
 const OUTER_HULL = [[365, 0], [752, 0], [802, 27], [940, 60], [1015, 104], [1035, 164], [1090, 224],
@@ -176,7 +292,7 @@ export const THE_SKELD = createMapDefinition({
   id: "the-skeld",
   name: "The Skeld",
   shortName: "Skeld",
-  description: "A faithful single-deck reconstruction of The Skeld, built from the supplied room artwork and reference geometry.",
+  description: "A measured single-deck reconstruction of The Skeld using the supplied room artwork.",
   bounds: { minX: -76, maxX: 68, minZ: -38, maxZ: 43 },
   zones: [{
     id: "skeld-outer-hull",
@@ -184,7 +300,7 @@ export const THE_SKELD = createMapDefinition({
     z: worldZ(hullCenterY),
     width: worldSize(REFERENCE.width),
     depth: worldSize(REFERENCE.height),
-    walkablePolygon: OUTER_HULL.map(([x, y]) => ({ x: worldSize(x - hullCenterX), z: worldSize(y - hullCenterY) })),
+    walkablePolygon: relativePolygon(OUTER_HULL, hullCenterX, hullCenterY),
     colour: 0x354247,
     alpha: 1,
     stroke: 0x10191e,
@@ -193,17 +309,18 @@ export const THE_SKELD = createMapDefinition({
     walkable: false
   }],
   rooms: ROOMS,
+  corridors: SKELD_CORRIDORS,
   connections: SKELD_ROUTES.map(({ from, to }) => [from, to]),
   corridorRoutes: SKELD_ROUTES,
   tasks: [
-    taskAt("skeld-swipe-card", "Swipe Card", "admin", 770, 350, "sequence"),
-    taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 218, 151, "balance"),
-    taskAt("skeld-calibrate-distributor", "Calibrate Distributor", "electrical", 462, 395, "sequence"),
-    taskAt("skeld-submit-scan", "Submit Scan", "medbay", 512, 307, "scan"),
-    taskAt("skeld-stabilize-steering", "Stabilize Steering", "navigation", 1162, 290, "route"),
-    taskAt("skeld-clean-o2-filter", "Clean O2 Filter", "o2", 888, 235, "filter"),
+    taskAt("skeld-swipe-card", "Swipe Card", "admin", 770, 337, "sequence"),
+    taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 214, 176, "balance"),
+    taskAt("skeld-calibrate-distributor", "Calibrate Distributor", "electrical", 454, 395, "sequence"),
+    taskAt("skeld-submit-scan", "Submit Scan", "medbay", 514, 307, "scan"),
+    taskAt("skeld-stabilize-steering", "Stabilize Steering", "navigation", 1152, 286, "route"),
+    taskAt("skeld-clean-o2-filter", "Clean O2 Filter", "o2", 814, 260, "filter"),
     taskAt("skeld-empty-garbage", "Empty Garbage", "storage", 704, 597, "classify"),
-    taskAt("skeld-prime-shields", "Prime Shields", "shields", 981, 521, "sync")
+    taskAt("skeld-prime-shields", "Prime Shields", "shields", 887, 519, "sync")
   ],
   sabotages: [
     { id: "skeld-reactor-meltdown", name: "Reactor Meltdown", critical: true, durationMs: 45000, repairStations: ["skeld-reactor-alpha", "skeld-reactor-beta"], roomId: "reactor" },
@@ -213,72 +330,80 @@ export const THE_SKELD = createMapDefinition({
   ],
   stations: [
     stationAt("meeting-console", "meeting", "cafeteria", 677, 151),
-    stationAt("skeld-cameras", "security", "security", 371, 243),
+    stationAt("skeld-cameras", "security", "security", 378, 269),
     stationAt("skeld-vent-cafeteria", "maintenance", "cafeteria", 807, 183, "skeld-vent-admin"),
-    stationAt("skeld-vent-admin", "maintenance", "admin", 762, 418, "skeld-vent-cafeteria"),
-    stationAt("skeld-vent-medbay", "maintenance", "medbay", 431, 319, "skeld-vent-electrical-a"),
-    stationAt("skeld-vent-electrical-a", "maintenance", "electrical", 455, 486, "skeld-vent-medbay"),
-    stationAt("skeld-vent-electrical-b", "maintenance", "electrical", 548, 365, "skeld-vent-security"),
-    stationAt("skeld-vent-security", "maintenance", "security", 400, 342, "skeld-vent-electrical-b"),
-    stationAt("skeld-vent-reactor-upper", "maintenance", "reactor", 190, 218, "skeld-vent-upper-engine"),
-    stationAt("skeld-vent-upper-engine", "maintenance", "upper-engine", 221, 195, "skeld-vent-reactor-upper"),
-    stationAt("skeld-vent-reactor-lower", "maintenance", "reactor", 190, 364, "skeld-vent-lower-engine"),
-    stationAt("skeld-vent-lower-engine", "maintenance", "lower-engine", 221, 424, "skeld-vent-reactor-lower"),
+    stationAt("skeld-vent-admin", "maintenance", "admin", 761, 417, "skeld-vent-cafeteria"),
+    stationAt("skeld-vent-medbay", "maintenance", "medbay", 442, 276, "skeld-vent-electrical-a"),
+    stationAt("skeld-vent-electrical-a", "maintenance", "electrical", 452, 488, "skeld-vent-medbay"),
+    stationAt("skeld-vent-electrical-b", "maintenance", "electrical", 536, 441, "skeld-vent-security"),
+    stationAt("skeld-vent-security", "maintenance", "security", 400, 343, "skeld-vent-electrical-b"),
+    stationAt("skeld-vent-reactor-upper", "maintenance", "reactor", 204, 239, "skeld-vent-upper-engine"),
+    stationAt("skeld-vent-upper-engine", "maintenance", "upper-engine", 211, 184, "skeld-vent-reactor-upper"),
+    stationAt("skeld-vent-reactor-lower", "maintenance", "reactor", 204, 347, "skeld-vent-lower-engine"),
+    stationAt("skeld-vent-lower-engine", "maintenance", "lower-engine", 311, 519, "skeld-vent-reactor-lower"),
     stationAt("skeld-vent-weapons", "maintenance", "weapons", 977, 178, "skeld-vent-navigation-a"),
     stationAt("skeld-vent-navigation-a", "maintenance", "navigation", 1104, 246, "skeld-vent-weapons"),
     stationAt("skeld-vent-navigation-b", "maintenance", "navigation", 1104, 332, "skeld-vent-shields"),
-    stationAt("skeld-vent-shields", "maintenance", "shields", 941, 538, "skeld-vent-navigation-b"),
-    stationAt("skeld-reactor-alpha", "repair", "reactor", 95, 251, "skeld-reactor-meltdown"),
-    stationAt("skeld-reactor-beta", "repair", "reactor", 95, 331, "skeld-reactor-meltdown"),
-    stationAt("skeld-o2-panel", "repair", "o2", 860, 225, "skeld-o2-depletion"),
-    stationAt("skeld-admin-o2", "repair", "admin", 858, 337, "skeld-o2-depletion"),
-    stationAt("skeld-comms-panel", "repair", "communications", 850, 554, "skeld-comms-sabotage"),
-    stationAt("skeld-light-panel", "repair", "electrical", 554, 383, "skeld-lights-out")
+    stationAt("skeld-vent-shields", "maintenance", "shields", 961, 536, "skeld-vent-navigation-b"),
+    stationAt("skeld-reactor-alpha", "repair", "reactor", 92, 291, "skeld-reactor-meltdown"),
+    stationAt("skeld-reactor-beta", "repair", "reactor", 195, 291, "skeld-reactor-meltdown"),
+    stationAt("skeld-o2-panel", "repair", "o2", 899, 225, "skeld-o2-depletion"),
+    stationAt("skeld-admin-o2", "repair", "admin", 858, 336, "skeld-o2-depletion"),
+    stationAt("skeld-comms-panel", "repair", "communications", 756, 539, "skeld-comms-sabotage"),
+    stationAt("skeld-light-panel", "repair", "electrical", 550, 369, "skeld-lights-out")
   ],
   spawnPoints: [
     [worldX(677), worldZ(116)], [worldX(641), worldZ(151)], [worldX(713), worldZ(151)], [worldX(677), worldZ(187)],
     [worldX(605), worldZ(151)], [worldX(749), worldZ(151)], [worldX(641), worldZ(187)], [worldX(713), worldZ(187)],
     [worldX(580), worldZ(151)], [worldX(774), worldZ(151)], [worldX(641), worldZ(260)], [worldX(713), worldZ(260)],
-    [worldX(677), worldZ(260)], [worldX(641), worldZ(54)], [worldX(713), worldZ(54)], [worldX(677), worldZ(284)]
+    [worldX(677), worldZ(260)], [worldX(641), worldZ(54)], [worldX(713), worldZ(54)], [worldX(677), worldZ(276)]
   ],
   collisionRects: [
     collisionAt("skeld-cafeteria-table-nw", "table", "cafeteria", 614, 89, 63, 49, { shape: "ellipse" }),
     collisionAt("skeld-cafeteria-table-ne", "table", "cafeteria", 744, 89, 63, 49, { shape: "ellipse" }),
-    // The emergency table's visual rim is wider than its solid centre. Keeping
-    // this inset lets a player stand at the rim and reach the button.
-    collisionAt("skeld-emergency-table", "table", "cafeteria", 677, 151, 44, 34, { shape: "ellipse" }),
+    // Only the emergency table's solid pedestal blocks movement. The tabletop
+    // remains visible in the room art while players can reach the central button
+    // from its rim without crossing the furniture collision.
+    collisionAt("skeld-emergency-table", "table", "cafeteria", 677, 151, 40, 28, { shape: "ellipse" }),
     collisionAt("skeld-cafeteria-table-sw", "table", "cafeteria", 612, 222, 63, 49, { shape: "ellipse" }),
     collisionAt("skeld-cafeteria-table-se", "table", "cafeteria", 738, 222, 63, 49, { shape: "ellipse" }),
-    collisionAt("skeld-upper-engine-core", "engine", "upper-engine", 276, 150, 70, 78, { shape: "ellipse" }),
-    collisionAt("skeld-upper-engine-console", "console", "upper-engine", 219, 151, 23, 38),
-    collisionAt("skeld-lower-engine-core", "engine", "lower-engine", 276, 465, 70, 78, { shape: "ellipse" }),
-    collisionAt("skeld-lower-engine-console", "console", "lower-engine", 219, 465, 23, 38),
-    collisionAt("skeld-reactor-core", "reactor", "reactor", 144, 290, 55, 116, { shape: "ellipse" }),
-    collisionAt("skeld-reactor-panel-north", "console", "reactor", 101, 214, 42, 25),
-    collisionAt("skeld-reactor-panel-south", "console", "reactor", 101, 366, 42, 25),
-    collisionAt("skeld-security-console", "console", "security", 371, 244, 60, 25),
-    collisionAt("skeld-security-desk", "console", "security", 394, 315, 29, 54),
-    collisionAt("skeld-med-bed-west-north", "bed", "medbay", 455, 198, 25, 47),
-    collisionAt("skeld-med-bed-east-north", "bed", "medbay", 523, 198, 25, 47),
-    collisionAt("skeld-med-bed-west-south", "bed", "medbay", 455, 265, 25, 47),
-    collisionAt("skeld-med-bed-east-south", "bed", "medbay", 523, 265, 25, 47),
-    collisionAt("skeld-med-scanner", "scanner", "medbay", 512, 307, 39, 34, { shape: "ellipse" }),
-    collisionAt("skeld-electrical-cabinets", "console", "electrical", 502, 365, 105, 27),
-    collisionAt("skeld-electrical-panel", "console", "electrical", 458, 421, 28, 57),
-    collisionAt("skeld-storage-crates-main", "cargo", "storage", 649, 489, 70, 68, { prop: true }),
-    collisionAt("skeld-storage-crate-west", "cargo", "storage", 610, 470, 28, 28, { prop: true }),
-    collisionAt("skeld-storage-crate-east", "cargo", "storage", 687, 522, 31, 31, { prop: true }),
-    collisionAt("skeld-admin-table", "table", "admin", 811, 385, 72, 48, { shape: "ellipse" }),
-    collisionAt("skeld-admin-console-bank", "console", "admin", 811, 335, 94, 21),
-    collisionAt("skeld-o2-canisters", "console", "o2", 850, 285, 68, 25),
-    collisionAt("skeld-o2-filter-bank", "console", "o2", 888, 231, 29, 24),
-    collisionAt("skeld-weapons-platform", "console", "weapons", 925, 130, 68, 61, { shape: "ellipse" }),
-    collisionAt("skeld-navigation-console", "console", "navigation", 1170, 290, 39, 80),
-    collisionAt("skeld-navigation-north-console", "console", "navigation", 1139, 241, 43, 21),
-    collisionAt("skeld-shields-platform", "console", "shields", 941, 486, 63, 63, { shape: "ellipse" }),
-    collisionAt("skeld-shields-south-console", "console", "shields", 981, 521, 27, 22),
-    collisionAt("skeld-comms-desk", "console", "communications", 799, 571, 74, 31),
-    collisionAt("skeld-comms-equipment", "console", "communications", 744, 533, 25, 40)
+    collisionAt("skeld-upper-engine-core", "engine", "upper-engine", 274, 151, 82, 60, { shape: "ellipse" }),
+    collisionAt("skeld-upper-engine-console", "console", "upper-engine", 244, 157, 25, 48),
+    collisionAt("skeld-lower-engine-core", "engine", "lower-engine", 274, 465, 82, 60, { shape: "ellipse" }),
+    collisionAt("skeld-lower-engine-console", "console", "lower-engine", 244, 470, 25, 48),
+    collisionAt("skeld-reactor-core", "reactor", "reactor", 144, 291, 43, 42, { shape: "ellipse" }),
+    collisionAt("skeld-reactor-tube-nw", "reactor", "reactor", 109, 225, 17, 34, { shape: "ellipse" }),
+    collisionAt("skeld-reactor-tube-ne", "reactor", "reactor", 181, 225, 17, 34, { shape: "ellipse" }),
+    collisionAt("skeld-reactor-tube-sw", "reactor", "reactor", 109, 327, 17, 34, { shape: "ellipse" }),
+    collisionAt("skeld-reactor-tube-se", "reactor", "reactor", 181, 327, 17, 34, { shape: "ellipse" }),
+    collisionAt("skeld-reactor-panel-west", "console", "reactor", 91, 291, 18, 27),
+    collisionAt("skeld-reactor-panel-east", "console", "reactor", 196, 291, 18, 18),
+    collisionAt("skeld-security-console", "console", "security", 380, 247, 56, 38),
+    collisionAt("skeld-security-desk", "console", "security", 401, 311, 30, 34),
+    collisionAt("skeld-med-bed-west-north", "bed", "medbay", 435, 211, 22, 36),
+    collisionAt("skeld-med-bed-west-south", "bed", "medbay", 435, 257, 22, 36),
+    collisionAt("skeld-med-bed-east-north", "bed", "medbay", 524, 211, 22, 36),
+    collisionAt("skeld-med-bed-east-south", "bed", "medbay", 524, 257, 22, 36),
+    collisionAt("skeld-med-scanner", "scanner", "medbay", 514, 307, 40, 32, { shape: "ellipse" }),
+    collisionAt("skeld-electrical-cabinets", "console", "electrical", 502, 369, 108, 30),
+    collisionAt("skeld-electrical-breaker-bank", "console", "electrical", 471, 417, 43, 38),
+    collisionAt("skeld-storage-barrel-bank", "cargo", "storage", 584, 422, 36, 45),
+    collisionAt("skeld-storage-crates-north", "cargo", "storage", 645, 450, 48, 42),
+    collisionAt("skeld-storage-crates-main", "cargo", "storage", 667, 493, 70, 78),
+    collisionAt("skeld-storage-crate-south", "cargo", "storage", 650, 535, 36, 31),
+    collisionAt("skeld-storage-barrel-east", "cargo", "storage", 709, 511, 17, 27),
+    collisionAt("skeld-admin-table", "table", "admin", 811, 387, 74, 45, { shape: "ellipse" }),
+    collisionAt("skeld-admin-console-bank", "console", "admin", 811, 338, 104, 22),
+    collisionAt("skeld-o2-canisters", "console", "o2", 859, 288, 99, 23),
+    collisionAt("skeld-o2-water-tank", "console", "o2", 898, 237, 28, 32),
+    collisionAt("skeld-weapons-platform", "console", "weapons", 925, 130, 67, 56, { shape: "ellipse" }),
+    collisionAt("skeld-navigation-console", "console", "navigation", 1174, 287, 39, 76),
+    collisionAt("skeld-navigation-north-console", "console", "navigation", 1158, 246, 39, 22),
+    collisionAt("skeld-navigation-north-chair", "chair", "navigation", 1107, 244, 22, 23),
+    collisionAt("skeld-navigation-south-chairs", "chair", "navigation", 1113, 332, 39, 24),
+    collisionAt("skeld-shields-task-console", "console", "shields", 887, 519, 22, 20),
+    collisionAt("skeld-comms-desk", "console", "communications", 810, 590, 72, 31),
+    collisionAt("skeld-comms-equipment", "console", "communications", 754, 538, 30, 31)
   ],
   theme: {
     worldScale: 40,

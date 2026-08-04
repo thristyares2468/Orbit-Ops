@@ -17,34 +17,45 @@ export function pointInMapEllipse(x, z, ellipse, margin = 0) {
 }
 
 export function mapShapePolygon(rect, margin = 0) {
-  const halfWidth = rect.width / 2 - margin;
-  const halfDepth = rect.depth / 2 - margin;
+  const halfWidth = rect.width / 2;
+  const halfDepth = rect.depth / 2;
   if (halfWidth <= 0 || halfDepth <= 0) return [];
   if (Array.isArray(rect.walkablePolygon) && rect.walkablePolygon.length >= 3) {
-    const scaleX = halfWidth / (rect.width / 2);
-    const scaleZ = halfDepth / (rect.depth / 2);
     return rect.walkablePolygon.map((point) => ({
-      x: rect.x + Number(point.x) * scaleX,
-      z: rect.z + Number(point.z) * scaleZ
+      x: rect.x + Number(point.x),
+      z: rect.z + Number(point.z)
     }));
   }
-  const cut = Math.min(halfWidth * 2, halfDepth * 2) * 0.18;
+  const inset = Math.max(0, margin);
+  const insetHalfWidth = halfWidth - inset;
+  const insetHalfDepth = halfDepth - inset;
+  if (insetHalfWidth <= 0 || insetHalfDepth <= 0) return [];
+  const cut = Math.min(insetHalfWidth * 2, insetHalfDepth * 2) * 0.18;
   return [
-    { x: rect.x - halfWidth + cut, z: rect.z - halfDepth },
-    { x: rect.x + halfWidth - cut, z: rect.z - halfDepth },
-    { x: rect.x + halfWidth, z: rect.z - halfDepth + cut },
-    { x: rect.x + halfWidth, z: rect.z + halfDepth - cut },
-    { x: rect.x + halfWidth - cut, z: rect.z + halfDepth },
-    { x: rect.x - halfWidth + cut, z: rect.z + halfDepth },
-    { x: rect.x - halfWidth, z: rect.z + halfDepth - cut },
-    { x: rect.x - halfWidth, z: rect.z - halfDepth + cut }
+    { x: rect.x - insetHalfWidth + cut, z: rect.z - insetHalfDepth },
+    { x: rect.x + insetHalfWidth - cut, z: rect.z - insetHalfDepth },
+    { x: rect.x + insetHalfWidth, z: rect.z - insetHalfDepth + cut },
+    { x: rect.x + insetHalfWidth, z: rect.z + insetHalfDepth - cut },
+    { x: rect.x + insetHalfWidth - cut, z: rect.z + insetHalfDepth },
+    { x: rect.x - insetHalfWidth + cut, z: rect.z + insetHalfDepth },
+    { x: rect.x - insetHalfWidth, z: rect.z + insetHalfDepth - cut },
+    { x: rect.x - insetHalfWidth, z: rect.z - insetHalfDepth + cut }
   ];
+}
+
+function pointToSegmentDistance(x, z, start, end) {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const lengthSquared = dx * dx + dz * dz;
+  if (lengthSquared === 0) return Math.hypot(x - start.x, z - start.z);
+  const t = Math.max(0, Math.min(1, ((x - start.x) * dx + (z - start.z) * dz) / lengthSquared));
+  return Math.hypot(x - (start.x + t * dx), z - (start.z + t * dz));
 }
 
 export function pointInMapShape(x, z, shape, margin = 0) {
   if (shape?.shape === "ellipse") return pointInMapEllipse(x, z, shape, margin);
   if (shape?.shape !== "octagon" && !Array.isArray(shape?.walkablePolygon)) return pointInMapRect(x, z, shape, margin);
-  const polygon = mapShapePolygon(shape, margin);
+  const polygon = mapShapePolygon(shape, Array.isArray(shape?.walkablePolygon) ? 0 : margin);
   if (polygon.length < 3) return false;
   let inside = false;
   for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current, current += 1) {
@@ -54,7 +65,11 @@ export function pointInMapShape(x, z, shape, margin = 0) {
       && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x;
     if (crosses) inside = !inside;
   }
-  return inside;
+  if (!inside || margin <= 0 || !Array.isArray(shape?.walkablePolygon)) return inside;
+  for (let index = 0; index < polygon.length; index += 1) {
+    if (pointToSegmentDistance(x, z, polygon[index], polygon[(index + 1) % polygon.length]) < margin) return false;
+  }
+  return true;
 }
 
 export function pointInCollisionRect(x, z, rect, margin = 0) {
@@ -158,6 +173,7 @@ export function validateMapDefinition(map) {
   const objectGroups = Array.isArray(map?.objectGroups) ? map.objectGroups : [];
   const renderLayers = Array.isArray(map?.render?.layers) ? map.render.layers : [];
   const roomIds = new Set();
+  const corridorIds = new Set();
   const stationIds = new Set();
   const collisionIds = new Set();
   const decalIds = new Set();
@@ -186,6 +202,29 @@ export function validateMapDefinition(map) {
         || room.walkablePolygon.length < 3
         || room.walkablePolygon.some((point) => ![point?.x, point?.z].every(finite)))) {
       errors.push(`Room ${room.id ?? "(missing)"} has an invalid walkable polygon.`);
+    }
+    if (room.navigationAnchor && ![room.navigationAnchor.x, room.navigationAnchor.z].every(finite)) {
+      errors.push(`Room ${room.id ?? "(missing)"} has an invalid navigation anchor.`);
+    }
+    if (room.artClipPolygon
+      && (!Array.isArray(room.artClipPolygon)
+        || room.artClipPolygon.length < 3
+        || room.artClipPolygon.some((point) => ![point?.x, point?.z].every(finite)))) {
+      errors.push(`Room ${room.id ?? "(missing)"} has an invalid art clip polygon.`);
+    }
+  }
+  for (const corridor of corridors) {
+    if (!corridor.id || corridorIds.has(corridor.id)) errors.push(`Duplicate or missing corridor id: ${corridor.id ?? "(missing)"}.`);
+    corridorIds.add(corridor.id);
+    if (![corridor.x, corridor.z, corridor.width, corridor.depth].every(finite)
+      || corridor.width <= 0 || corridor.depth <= 0) {
+      errors.push(`Corridor ${corridor.id ?? "(missing)"} has invalid geometry.`);
+    }
+    if (corridor.walkablePolygon
+      && (!Array.isArray(corridor.walkablePolygon)
+        || corridor.walkablePolygon.length < 3
+        || corridor.walkablePolygon.some((point) => ![point?.x, point?.z].every(finite)))) {
+      errors.push(`Corridor ${corridor.id ?? "(missing)"} has an invalid walkable polygon.`);
     }
   }
   for (const zone of zones) {

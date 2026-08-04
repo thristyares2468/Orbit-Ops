@@ -23,7 +23,7 @@ test("The Skeld is the only selectable match map and has valid authoritative geo
   assert.deepEqual(Object.keys(MAP_DEFINITIONS), ["the-skeld"]);
   const map = getMapDefinition("the-skeld");
   assert.deepEqual(validateMapDefinition(map), { valid: true, errors: [] });
-  assert.ok(map.corridors.length >= map.connections.length);
+  assert.equal(map.corridors.length, 16, "the traced deck reuses physical junctions instead of drawing one corridor per graph edge");
   assert.ok(map.corridors.every((corridor) => ["x", "z"].includes(corridor.axis)));
   assert.ok(map.connections.every(([from, to]) => map.corridorRoutes.some((route) =>
     (route.from === from && route.to === to) || (route.from === to && route.to === from)
@@ -121,6 +121,42 @@ test("Skeld room art and interaction positions match the supplied deck reference
   const shieldsVent = stationById("the-skeld", "skeld-vent-shields");
   assert.ok(o2Panel.z < rooms.get("o2").z, "the O2 sabotage panel sits at the top of O2");
   assert.ok(shieldsVent.z > rooms.get("shields").z, "the Shields vent sits at the bottom of Shields");
+
+  const expectedTasks = {
+    "skeld-swipe-card": { x: 770, y: 337 },
+    "skeld-align-engine": { x: 214, y: 176 },
+    "skeld-calibrate-distributor": { x: 454, y: 395 },
+    "skeld-submit-scan": { x: 514, y: 307 },
+    "skeld-stabilize-steering": { x: 1152, y: 286 },
+    "skeld-clean-o2-filter": { x: 814, y: 260 },
+    "skeld-empty-garbage": { x: 704, y: 597 },
+    "skeld-prime-shields": { x: 887, y: 519 }
+  };
+  for (const definition of skeld.taskDefinitions) {
+    assert.deepEqual(definition.referencePosition, expectedTasks[definition.id], `${definition.name} uses its traced console`);
+  }
+});
+
+test("Skeld physical corridors are the sixteen traced deck sections", () => {
+  const skeld = getMapDefinition("the-skeld");
+  assert.deepEqual(skeld.corridors.map(({ id, referenceRect }) => [id, referenceRect]), [
+    ["port-engine-spine", { left: 210, top: 205, right: 342, bottom: 408 }],
+    ["upper-engine-cafeteria-hall", { left: 315, top: 110, right: 560, bottom: 171 }],
+    ["medbay-neck", { left: 432, top: 155, right: 550, bottom: 203 }],
+    ["lower-engine-electrical-hall", { left: 315, top: 427, right: 454, bottom: 491 }],
+    ["lower-engine-storage-bypass", { left: 315, top: 500, right: 568, bottom: 568 }],
+    ["electrical-south-neck", { left: 426, top: 478, right: 550, bottom: 532 }],
+    ["cafeteria-storage-spine", { left: 642, top: 275, right: 717, bottom: 416 }],
+    ["admin-branch", { left: 697, top: 305, right: 780, bottom: 390 }],
+    ["storage-shields-hall", { left: 710, top: 440, right: 893, bottom: 503 }],
+    ["communications-neck", { left: 779, top: 484, right: 829, bottom: 527 }],
+    ["cafeteria-weapons-hall", { left: 811, top: 107, right: 875, bottom: 173 }],
+    ["weapons-south-neck", { left: 911, top: 176, right: 981, bottom: 263 }],
+    ["o2-navigation-junction", { left: 908, top: 231, right: 1007, bottom: 318 }],
+    ["navigation-hall", { left: 978, top: 245, right: 1103, bottom: 316 }],
+    ["starboard-spine", { left: 919, top: 291, right: 987, bottom: 455 }],
+    ["shields-north-neck", { left: 909, top: 406, right: 992, bottom: 458 }]
+  ]);
 });
 
 test("Skeld uses clipped room hulls and keeps every interaction reachable", () => {
@@ -132,7 +168,7 @@ test("Skeld uses clipped room hulls and keeps every interaction reachable", () =
   const navigation = rooms.get("navigation");
   assert.ok(Math.abs(navigation.width / navigation.depth - 110 / 132) < 0.01,
     "Navigation preserves the traced reference footprint");
-  assert.equal(mapShapePolygon(navigation).length, 6, "Navigation uses its traced six-sided hull");
+  assert.equal(mapShapePolygon(navigation).length, 10, "Navigation includes its traced west doorway and tapered hull");
   assert.equal(pointInMapShape(55, -3.1, navigation, 0.2), true, "Navigation entrance is open");
   assert.equal(isWalkable("the-skeld", 61, -3.1, 0.2), true, "Navigation centre aisle is clear");
   assert.equal(isWalkable("the-skeld", 63.7, -3.1, 0.2), false, "Navigation console blocks movement");

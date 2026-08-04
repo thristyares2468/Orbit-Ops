@@ -43,6 +43,7 @@ export function createMapDefinition({
   rooms,
   connections,
   corridorRoutes,
+  corridors: authoredCorridors = null,
   zones = [],
   tasks,
   sabotages,
@@ -64,7 +65,12 @@ export function createMapDefinition({
       via: Object.freeze((route.via ?? []).map((point) => Object.freeze({ x: Number(point.x), z: Number(point.z) })))
     })
   ));
-  const corridors = Object.freeze(buildRoutedCorridors(frozenRooms, frozenRoutes, corridorWidth));
+  // A room graph describes navigation relationships; it is not necessarily the
+  // shape of the deck. Maps with traced geometry can supply their own physical
+  // corridor rectangles/polygons while older maps retain the routed fallback.
+  const corridors = authoredCorridors
+    ? freezeItems(authoredCorridors)
+    : Object.freeze(buildRoutedCorridors(frozenRooms, frozenRoutes, corridorWidth));
   const frozenZones = freezeItems(zones);
   const frozenTasks = freezeItems(tasks);
   const frozenSabotages = freezeItems(sabotages);
@@ -158,7 +164,7 @@ export function mapIsWalkable(map, x, z, margin = 0.55) {
   const insideFloor = map.rooms.some((room) => pointInMapShape(x, z, room, margin))
     || map.zones.some((zone) => zone.walkable !== false
       && pointInMapShape(x, z, zone, Math.min(margin, 0.25)))
-    || map.corridors.some((corridor) => pointInMapRect(x, z, corridor, Math.min(margin, 0.35)));
+    || map.corridors.some((corridor) => pointInMapShape(x, z, corridor, Math.min(margin, 0.35)));
   if (!insideFloor) return false;
   return !map.collisionRects.some((rect) => pointInCollisionRect(x, z, rect, margin));
 }

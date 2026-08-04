@@ -712,7 +712,10 @@ export class GameServer {
       player.activeTask = null;
       player.vote = null;
       player.matchStats = makeStats();
-      player.lastEliminationAt = room.mode === "practice" ? 0 : Date.now();
+      // Humans can still use practice actions immediately because their
+      // validation bypasses cooldowns, but training Operatives should respect
+      // the configured opening delay instead of attacking at the spawn table.
+      player.lastEliminationAt = Date.now();
       player.lastMaintenanceAt = 0;
       player.emergencyMeetings = 0;
       player.repairStationId = null;
@@ -1534,10 +1537,18 @@ export class GameServer {
     // can put the bot on the wrong side of a console and make the next otherwise
     // valid segment cut through that fixture.
     if (bot.botPath?.length && distance < 0.25) {
+      // Re-anchor on the validated grid point before taking the next segment.
+      // Without this tiny snap, accumulated sub-step error can leave a bot on
+      // the blocked side of a tight doorway even though both path segments are
+      // individually collision-safe.
+      bot.position = { x: waypoint.x, z: waypoint.z };
       bot.botPath.shift();
       return;
     }
-    if (!bot.botPath?.length && distance < 1.6) {
+    // Authored consoles and buttons can sit inside their fixture collision.
+    // Use the same range as human interactions once pathfinding reaches the
+    // closest clear point instead of trying to walk through the fixture.
+    if (!bot.botPath?.length && distance <= INTERACTION_RANGE) {
       bot.animation = "interact";
       if (bot.botTarget.repairSabotageId) {
         try {
@@ -1572,8 +1583,8 @@ export class GameServer {
     if (startPosition && targetPosition && distance2D(startPosition, targetPosition) < 0.75) return [];
     return findWalkablePath(
       mapId,
-      startPosition ?? { x: startRoom.x, z: startRoom.z },
-      targetPosition ?? { x: targetRoom.x, z: targetRoom.z }
+      startPosition ?? startRoom.navigationAnchor ?? { x: startRoom.x, z: startRoom.z },
+      targetPosition ?? targetRoom.navigationAnchor ?? { x: targetRoom.x, z: targetRoom.z }
     );
   }
 
