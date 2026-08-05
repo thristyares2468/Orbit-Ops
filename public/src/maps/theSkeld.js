@@ -293,6 +293,17 @@ export const THE_SKELD = createMapDefinition({
   name: "The Skeld",
   shortName: "Skeld",
   description: "A measured single-deck reconstruction of The Skeld using the supplied room artwork.",
+  // Baked from the supplied 3D model (among_us_-_map_the_skeld.glb) with an
+  // orthographic camera tilted 24 degrees, so the deck reads top-down while each
+  // room's far wall stays visible. groundBox is where the model's y=0 plane lands in
+  // the image; it is pinned to worldBox so world coordinates sit on the art exactly.
+  deck: {
+    assetKey: "skeld-deck",
+    image: { width: 4096, height: 2435 },
+    groundBox: { x0: 40.157, y0: 123.93, x1: 4055.843, y1: 2275.531 },
+    worldBox: { x0: -67.38, z0: -37.38, x1: 67.26, z1: 36.9 },
+    tiltDegrees: 24
+  },
   bounds: { minX: -76, maxX: 68, minZ: -38, maxZ: 43 },
   zones: [{
     id: "skeld-outer-hull",

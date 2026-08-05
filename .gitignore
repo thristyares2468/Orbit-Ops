@@ -5,3 +5,6 @@ test-results/
 coverage/
 npm-debug.log*
 
+
+# Scratch space for baking the 3D deck (holds the 16MB source .glb)
+.render/

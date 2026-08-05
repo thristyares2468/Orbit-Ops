@@ -45,6 +45,7 @@ export function createMapDefinition({
   corridorRoutes,
   corridors: authoredCorridors = null,
   zones = [],
+  deck = null,
   tasks,
   sabotages,
   stations = [],
@@ -125,6 +126,7 @@ export function createMapDefinition({
       camera: Object.freeze({ clampToBounds: true, roundPixels: true }),
       layers: frozenDecals.length ? Object.freeze([...DEFAULT_LAYERS, DECAL_LAYER]) : DEFAULT_LAYERS,
       backgrounds: DEFAULT_BACKGROUNDS,
+      deck: deck ? Object.freeze({ ...deck }) : null,
       corridor: Object.freeze({
         depth: -300,
         fill: theme.corridorFill ?? 0x0b202d,

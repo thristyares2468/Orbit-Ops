@@ -188,6 +188,30 @@ export class MapBuilder {
     return this;
   }
 
+  // Place the baked 3D deck so its ground plane sits exactly on world coordinates.
+  // The image is scaled independently in x and y: the vertical squash is the camera
+  // tilt, and any residual is the small proportion difference between the traced
+  // collision map and the model. Absorbing it here means worldToScreen, movement and
+  // collision are all left untouched.
+  buildDeck(layer) {
+    const deck = this.map.render.deck;
+    if (!deck || !this.scene.textures.exists(deck.assetKey)) return;
+    const { groundBox: g, worldBox: w, image } = deck;
+    const topLeft = worldToScreen(w.x0, w.z0, this.map);
+    const bottomRight = worldToScreen(w.x1, w.z1, this.map);
+    const scaleX = (bottomRight.x - topLeft.x) / (g.x1 - g.x0);
+    const scaleY = (bottomRight.y - topLeft.y) / (g.y1 - g.y0);
+    const displayWidth = image.width * scaleX;
+    const displayHeight = image.height * scaleY;
+    const originX = topLeft.x - g.x0 * scaleX;
+    const originY = topLeft.y - g.y0 * scaleY;
+    const art = this.scene.add.image(originX + displayWidth / 2, originY + displayHeight / 2, deck.assetKey)
+      .setDisplaySize(displayWidth, displayHeight)
+      .setData("mapLayer", "deck");
+    layer.add(art);
+    this.deckArt = art;
+  }
+
   buildBackgrounds(layerDefinition) {
     const layer = this.createLayer(layerDefinition.id, layerDefinition.depth);
     for (const background of [...this.map.render.backgrounds].sort((a, b) => a.depth - b.depth)) {
@@ -198,6 +222,7 @@ export class MapBuilder {
       object.setAlpha(background.alpha).setData("mapLayer", "background");
       layer.add(object);
     }
+    this.buildDeck(layer);
   }
 
   buildZones(layerDefinition) {
@@ -269,6 +294,12 @@ export class MapBuilder {
     layer.add(graphics);
   }
 
+  // With a baked deck the art IS the map, so the procedural floors, walls and
+  // per-room images would only draw on top of it. Collision is untouched either way.
+  get deckProvidesArt() {
+    return Boolean(this.map.render.deck);
+  }
+
   buildRooms(layerDefinition) {
     const style = this.map.render.room;
     const detail = this.detailScale;
@@ -279,14 +310,15 @@ export class MapBuilder {
       const height = room.depth * this.metrics.scale;
       const roomContainer = this.scene.add.container(point.x, point.y).setName(`room:${room.id}`);
 
+      const drawChrome = !this.deckProvidesArt;
       const floor = this.scene.add.graphics();
-      fillRoomShape(floor, room, width, height, room.colour, room.floorAlpha ?? 0.96, 0, style.radius * detail);
+      if (drawChrome) fillRoomShape(floor, room, width, height, room.colour, room.floorAlpha ?? 0.96, 0, style.radius * detail);
 
       const proceduralFloor = this.scene.add.graphics();
-      if (!room.assetOnly && room.floorPattern !== false) drawFloorPattern(proceduralFloor, room, width, height, detail);
+      if (drawChrome && !room.assetOnly && room.floorPattern !== false) drawFloorPattern(proceduralFloor, room, width, height, detail);
 
       let art = null;
-      if (room.assetKey) {
+      if (room.assetKey && drawChrome) {
         const clipped = room.artClip !== false && Array.isArray(room.walkablePolygon)
           ? clippedRoomTexture(this.scene, room)
           : null;
@@ -314,7 +346,7 @@ export class MapBuilder {
       }
 
       const walls = this.scene.add.graphics();
-      if (!room.assetOnly && room.chrome !== false) {
+      if (drawChrome && !room.assetOnly && room.chrome !== false) {
         fillRoomShape(walls, room, width, height, 0x02070d, 0.18, 6 * detail, 19 * detail);
         walls.lineStyle(Math.max(1, 5 * detail), style.frame, style.frameAlpha);
         strokeRoomShape(walls, room, width, height, 0, style.radius * detail);
