@@ -271,6 +271,25 @@ input[type="range"] { min-height: 24px; padding: 0; accent-color: var(--cyan); }
 .admin-room.is-occupied { border-color: rgba(116,229,255,.6); background: rgba(24,74,99,.6); }
 .admin-room.is-occupied span { color: var(--cyan-bright); }
 
+.sensory-banner {
+  position: absolute;
+  left: 50%;
+  top: 96px;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border: 1px solid rgba(171,121,255,.55);
+  border-radius: 2px;
+  background: rgba(14,6,26,.92);
+  color: #ded0ff;
+  font-size: .7rem;
+  font-weight: 900;
+  letter-spacing: .16em;
+}
+/* A blinded player loses the HUD's fine detail along with their sight. */
+body.is-blinded .task-drawer,
+body.is-blinded .hud-objective small,
+body.is-blinded #role-findings { opacity: .25; }
+
 .role-findings {
   position: absolute;
   right: max(18px, env(safe-area-inset-right));

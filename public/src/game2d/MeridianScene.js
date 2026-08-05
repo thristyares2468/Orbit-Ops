@@ -116,6 +116,8 @@ export class MeridianScene extends Phaser.Scene {
     }
     this.visionRadius = snapshot.visionRadius;
     this.lightsOut = Boolean(snapshot.lightsOut);
+    this.blinded = Boolean(snapshot.blinded);
+    this.cuffed = Boolean(snapshot.cuffed);
   }
 
   applySnapshot(snapshot) {
@@ -189,7 +191,7 @@ export class MeridianScene extends Phaser.Scene {
       { x: local.container.x, y: local.container.y },
       this.visionRadius * this.metrics.scale,
       deltaSeconds,
-      this.lightsOut ? 1 : 0.94
+      this.lightsOut || this.blinded ? 1 : 0.94
     );
   }
 

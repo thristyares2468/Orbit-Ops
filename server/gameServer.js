@@ -17,7 +17,7 @@ import {
   PHASES, PLAYER_SPEED, SERVER_VERSION, SESSION_SECRET, SNAPSHOT_RATE, TICK_RATE, VISION
 } from "./constants.js";
 import { RateLimiter } from "./rateLimits.js";
-import { checkSoloWin, performRoleAbility, survivorWinnerIds } from "./roleEngine.js";
+import { checkSoloWin, fireHook, performRoleAbility, survivorWinnerIds } from "./roleEngine.js";
 import {
   cleanText, isPlainObject, validateAppearance, validateChat, validateDisplayName,
   validateRoomCode, validateSettings
@@ -899,6 +899,10 @@ export class GameServer {
   // How far a player can see right now, in world units. The host's crew/operative
   // visibility settings scale it, so existing room settings still mean something.
   visionRadiusFor(room, player) {
+    // Being flashed or hypnotised collapses sight harder than any sabotage.
+    if ((player.roleState?.blindedUntil ?? 0) > Date.now()) return VISION.blindedRadius;
+    // The Aurial reads distortion instead of light, so darkness costs it less.
+    if (player.role === "aurial") return VISION.crewRadius * 0.9;
     const dark = this.lightsAreOut(room);
     const operative = player.faction === "operative";
     const base = operative
@@ -994,6 +998,7 @@ export class GameServer {
 
   roleAction(room, player, payload = {}) {
     if (player.ventId) throw new Error("Climb out of the vent first.");
+    if ((player.roleState?.cuffedUntil ?? 0) > Date.now()) throw new Error("You are cuffed and cannot act.");
     return performRoleAbility(this, room, player, payload);
   }
 
@@ -1034,6 +1039,7 @@ export class GameServer {
     const target = room.players.get(String(targetId));
     if (!target || !target.alive || target.faction === "operative" || target.id === attacker.id) throw new Error("Invalid elimination target.");
     if (attacker.ventId) throw new Error("Climb out of the vent first.");
+    if ((attacker.roleState?.cuffedUntil ?? 0) > Date.now()) throw new Error("You are cuffed and cannot act.");
     if (target.ventId) throw new Error("That target is inside the vents.");
     if (room.mode !== "practice" && Date.now() - attacker.lastEliminationAt < room.settings.eliminationCooldownSeconds * 1000) throw new Error("Elimination is recharging.");
     if (distance2D(attacker.position, target.position) > room.settings.eliminationRange) throw new Error("Target is out of range.");
@@ -1093,6 +1099,7 @@ export class GameServer {
     });
     this.io.to(room.code).emit("incidentCreated", { id: incident.id, x: incident.x, z: incident.z, roomId: incident.roomId });
     this.sendPrivateState(room, target);
+    fireHook(this, room, "onEliminated", { victim: target, attacker });
     this.checkWinConditions(room, "elimination");
     return { ok: true, incidentId: incident.id };
   }
@@ -1561,6 +1568,8 @@ export class GameServer {
             ...base,
             visionRadius: Number(radius.toFixed(2)),
             lightsOut: this.lightsAreOut(room),
+            blinded: (member.roleState?.blindedUntil ?? 0) > now,
+            cuffed: (member.roleState?.cuffedUntil ?? 0) > now,
             players: visibleToMember.filter((snapshot) =>
               snapshot.id === member.id
               || (!snapshot.hidden && distance2D(snapshot, member.position) <= cull)),

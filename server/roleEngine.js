@@ -165,6 +165,21 @@ export function performRoleAbility(server, room, player, payload = {}) {
   return { ok: true, effect: outcome.effect ?? definition.ability.id, targetId: outcome.targetId ?? null, privateState };
 }
 
+// Fire a lifecycle hook on every role that declares one. Hooks receive the same
+// narrow API as abilities, so a reaction can do no more than an action could.
+export function fireHook(server, room, hookName, payload = {}) {
+  for (const player of room.players.values()) {
+    if (!player.role) continue;
+    const hook = getRoleDefinition(player.role).hooks?.[hookName];
+    if (!hook) continue;
+    try {
+      hook({ ...payload, room, player, api: buildAbilityApi(server, room, player) });
+    } catch {
+      // A misbehaving hook must never break the match.
+    }
+  }
+}
+
 // Neutral roles win on their own terms. Checked before faction parity so a Jester
 // dragged out by the crew still takes the match.
 export function checkSoloWin(room, { votedOutId = null } = {}) {

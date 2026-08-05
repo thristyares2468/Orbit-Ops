@@ -360,6 +360,12 @@ export class OrbitOpsGame {
   }
 
   applyWorldSnapshot(snapshot) {
+    // Sensory states the HUD needs to explain to the player.
+    this.ui.setSensoryState({
+      blinded: Boolean(snapshot.blinded),
+      cuffed: Boolean(snapshot.cuffed),
+      lightsOut: Boolean(snapshot.lightsOut)
+    });
     this.currentPhase = snapshot.phase;
     for (const player of snapshot.players ?? []) this.latestSnapshots.set(player.id, player);
     this.latestIncidents = snapshot.incidents ?? [];

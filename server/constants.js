@@ -43,6 +43,7 @@ export const VISION = Object.freeze({
   operativeRadius: 16.8,
   lightsOutCrewRadius: 5,
   lightsOutOperativeRadius: 14,
+  blindedRadius: 3,
   // Culling margin so a player entering your radius is already interpolating smoothly.
   cullMargin: 4
 });

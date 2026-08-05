@@ -4,6 +4,7 @@ import { LOBBY_MAP_ID, MAP_IDS, getMapDefinition, isWalkable, stationById } from
 import { GameServer } from "../server/gameServer.js";
 import { PHASES } from "../server/constants.js";
 import { checkSoloWin } from "../server/roleEngine.js";
+import { ROLE_DEFINITIONS } from "../public/src/roleData.js";
 
 class RecordingIo {
   constructor() {
@@ -943,4 +944,81 @@ test("the Phantom wins by finishing its assignments after death", () => {
   const win = checkSoloWin(room);
   assert.ok(win, "finishing every assignment wins, even dead");
   assert.deepEqual(win.winnerIds, [phantom.id]);
+});
+
+test("being blinded collapses sight harder than any sabotage", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const victim = player("victim", "crew");
+  room.players.set(victim.id, victim);
+
+  const normal = server.visionRadiusFor(room, victim);
+  victim.roleState.blindedUntil = Date.now() + 5_000;
+  const blind = server.visionRadiusFor(room, victim);
+  assert.ok(blind < normal / 3, `blinded sight should be tiny, got ${blind} vs ${normal}`);
+
+  // And it wears off.
+  victim.roleState.blindedUntil = Date.now() - 1;
+  assert.equal(server.visionRadiusFor(room, victim), normal);
+});
+
+test("a cuffed player cannot act", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", { eliminationCooldownSeconds: 0 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now();
+  const operative = assignRole(player("operative", "operative"), "swooper", "operative");
+  const victim = player("victim", "crew", { x: 0.5, z: 0 });
+  operative.lastEliminationAt = 0;
+  for (const member of [operative, victim]) room.players.set(member.id, member);
+
+  operative.roleState.cuffedUntil = Date.now() + 20_000;
+  assert.throws(() => server.roleAction(room, operative, {}), /cuffed/u);
+  assert.throws(() => server.eliminationAttempt(room, operative, victim.id), /cuffed/u);
+
+  operative.roleState.cuffedUntil = 0;
+  assert.equal(server.roleAction(room, operative, {}).ok, true, "the cuffs come off");
+});
+
+test("elimination hooks reach the roles that listen for them", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  const room = server.createRoom("private", { eliminationCooldownSeconds: 0 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now();
+  const mystic = assignRole(player("mystic", "crew", { x: 20, z: 20 }), "mystic", "crew");
+  const warden = assignRole(player("warden", "crew", { x: 25, z: 25 }), "warden", "crew");
+  const operative = player("operative", "operative");
+  const victim = player("victim", "crew", { x: 0.5, z: 0 });
+  operative.lastEliminationAt = 0;
+  for (const member of [mystic, warden, operative, victim]) room.players.set(member.id, member);
+  warden.roleState.fortifiedId = victim.id;
+
+  server.eliminationAttempt(room, operative, victim.id);
+
+  const findings = io.events.filter((entry) => entry.event === "roleFinding");
+  assert.ok(findings.some((entry) => entry.target === mystic.socketId && entry.payload.type === "premonition"),
+    "the Mystic feels the death");
+  assert.ok(findings.some((entry) => entry.target === warden.socketId && entry.payload.type === "breach"),
+    "the Warden learns its fortification broke");
+  assert.ok(!findings.some((entry) => entry.target === operative.socketId),
+    "roles without the hook hear nothing");
+});
+
+test("the full Town Of Us R roster is present and well formed", () => {
+  const ids = Object.keys(ROLE_DEFINITIONS);
+  assert.equal(ids.length, 63, "the roster is complete");
+  for (const id of [
+    "aurial", "seer", "mystic", "cleric", "deputy", "warden", "politician", "imitator",
+    "eclipsal", "haunter"
+  ]) {
+    assert.ok(ROLE_DEFINITIONS[id], `${id} is implemented`);
+  }
+  // Hooks must be callable, since a throwing hook would break an elimination.
+  for (const role of Object.values(ROLE_DEFINITIONS)) {
+    for (const hook of Object.values(role.hooks)) {
+      if (hook) assert.equal(typeof hook, "function", `${role.id} hook`);
+    }
+  }
 });

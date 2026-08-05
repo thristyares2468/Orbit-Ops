@@ -183,6 +183,160 @@ export const CREW_ROLES = [
     }
   }),
   defineRole({
+    id: "aurial",
+    name: "Aurial",
+    faction: FACTIONS.CREW,
+    colour: "#c58cff",
+    objective: "Read the distortion an Operative leaves in the air.",
+    ability: {
+      id: "sense", label: "Sense", icon: icon("investigator"),
+      targeting: TARGETING.NONE, cooldownMs: 20_000, uses: null,
+      perform: ({ api, room, player }) => {
+        const nearest = [...room.players.values()]
+          .filter((c) => c.alive && c.id !== player.id && c.faction === FACTIONS.OPERATIVE)
+          .map((c) => Math.hypot(c.position.x - player.position.x, c.position.z - player.position.z))
+          .sort((a, b) => a - b)[0];
+        api.reportPrivately({
+          type: "distortion",
+          detail: nearest === undefined
+            ? "The air is still. No Operative draws breath."
+            : nearest < 12 ? "The air is screaming. One is very close."
+            : nearest < 30 ? "A tremor. Something moves a few rooms away."
+            : "A faint ripple, far off."
+        });
+        return { effect: "sense" };
+      }
+    }
+  }),
+  defineRole({
+    id: "seer",
+    name: "Seer",
+    faction: FACTIONS.CREW,
+    colour: "#ffe08a",
+    objective: "Look into someone and see which side they stand on.",
+    ability: {
+      id: "reveal", label: "Reveal", icon: icon("investigator"),
+      targeting: TARGETING.PLAYER, cooldownMs: 30_000, uses: null,
+      perform: ({ api, target }) => {
+        // Alignment only - never the role itself.
+        api.reportPrivately({
+          type: "vision",
+          detail: target.faction === FACTIONS.CREW
+            ? `${target.displayName} shines clean.`
+            : `${target.displayName} is shrouded.`
+        });
+        return { effect: "reveal", targetId: target.id };
+      }
+    }
+  }),
+  defineRole({
+    id: "mystic",
+    name: "Mystic",
+    faction: FACTIONS.CREW,
+    colour: "#9ad8ff",
+    objective: "Feel it the moment a soul leaves the ship.",
+    ability: null,
+    hooks: {
+      onEliminated: ({ api, victim }) => {
+        api.reportPrivately({
+          type: "premonition",
+          detail: `A soul just left us, somewhere near ${victim.currentRoom.replaceAll("-", " ")}.`
+        });
+      }
+    }
+  }),
+  defineRole({
+    id: "cleric",
+    name: "Cleric",
+    faction: FACTIONS.CREW,
+    colour: "#7fe3c0",
+    objective: "Raise a barrier that turns aside the next blow.",
+    ability: {
+      id: "barrier", label: "Barrier", icon: icon("medic"),
+      targeting: TARGETING.PLAYER, cooldownMs: 30_000, uses: null,
+      perform: ({ api, target, now }) => {
+        api.protect(target, now + 20_000);
+        return { effect: "barrier", targetId: target.id };
+      }
+    }
+  }),
+  defineRole({
+    id: "deputy",
+    name: "Deputy",
+    faction: FACTIONS.CREW,
+    colour: "#c9a06a",
+    objective: "Cuff a suspect so they cannot act.",
+    ability: {
+      id: "cuff", label: "Cuff", icon: icon("sheriff"),
+      targeting: TARGETING.PLAYER, cooldownMs: 30_000, uses: 2,
+      perform: ({ api, target, now }) => {
+        target.roleState = target.roleState ?? {};
+        target.roleState.cuffedUntil = now + 20_000;
+        api.notify(target);
+        return { effect: "cuff", targetId: target.id };
+      }
+    }
+  }),
+  defineRole({
+    id: "warden",
+    name: "Warden",
+    faction: FACTIONS.CREW,
+    colour: "#8aa6c9",
+    objective: "Fortify someone; you will know the instant they are struck.",
+    ability: {
+      id: "fortify", label: "Fortify", icon: icon("engineer"),
+      targeting: TARGETING.PLAYER, cooldownMs: 25_000, uses: null,
+      perform: ({ state, target }) => {
+        state.fortifiedId = target.id;
+        return { effect: "fortify", targetId: target.id };
+      }
+    },
+    state: { fortifiedId: null },
+    hooks: {
+      onEliminated: ({ api, victim, player }) => {
+        if (player.roleState?.fortifiedId !== victim.id) return;
+        api.reportPrivately({
+          type: "breach",
+          detail: `Your fortification on ${victim.displayName} was broken.`
+        });
+      }
+    }
+  }),
+  defineRole({
+    id: "politician",
+    name: "Politician",
+    faction: FACTIONS.CREW,
+    colour: "#e2b56a",
+    objective: "Campaign hard enough and the room votes your way.",
+    ability: {
+      id: "campaign", label: "Campaign", icon: icon("tracker"),
+      targeting: TARGETING.PLAYER, cooldownMs: 25_000, uses: null,
+      perform: ({ state, target }) => {
+        state.campaigned = state.campaigned ?? [];
+        if (!state.campaigned.includes(target.id)) state.campaigned.push(target.id);
+        // Each successful campaign adds weight to the Politician's own vote.
+        state.voteWeight = 1 + state.campaigned.length;
+        return { effect: "campaign", targetId: target.id };
+      }
+    },
+    state: { campaigned: [], voteWeight: 1 }
+  }),
+  defineRole({
+    id: "imitator",
+    name: "Imitator",
+    faction: FACTIONS.CREW,
+    colour: "#a8c8e8",
+    objective: "Take up the role of someone the ship has already lost.",
+    ability: {
+      id: "imitate", label: "Imitate", icon: icon("morphling"),
+      targeting: TARGETING.INCIDENT, cooldownMs: 0, uses: 1,
+      perform: ({ api, incident }) => {
+        api.becomeRoleOf(incident.victimId);
+        return { effect: "imitate", targetId: incident.id };
+      }
+    }
+  }),
+  defineRole({
     id: "jailor",
     name: "Jailor",
     faction: FACTIONS.CREW,
@@ -571,6 +725,28 @@ export const OPERATIVE_ROLES = [
     state: { markX: null, markZ: null }
   }),
   defineRole({
+    id: "eclipsal",
+    name: "Eclipsal",
+    faction: FACTIONS.OPERATIVE,
+    colour: "#ff5f6f",
+    objective: "Draw the dark in around you and hunt inside it.",
+    ability: {
+      id: "eclipse", label: "Eclipse", icon: icon("swooper"),
+      targeting: TARGETING.NONE, cooldownMs: 35_000, uses: null,
+      perform: ({ api, room, player, now }) => {
+        for (const candidate of room.players.values()) {
+          if (!candidate.alive || candidate.id === player.id) continue;
+          if (candidate.faction === FACTIONS.OPERATIVE) continue;
+          if (Math.hypot(candidate.position.x - player.position.x, candidate.position.z - player.position.z) > 18) continue;
+          candidate.roleState = candidate.roleState ?? {};
+          candidate.roleState.blindedUntil = now + 10_000;
+          api.notify(candidate);
+        }
+        return { effect: "eclipse" };
+      }
+    }
+  }),
+  defineRole({
     id: "grenadier",
     name: "Grenadier",
     faction: FACTIONS.OPERATIVE,
@@ -794,6 +970,20 @@ export const NEUTRAL_ROLES = [
       }
     },
     win: { kind: WIN_KINDS.SURVIVE }
+  }),
+  defineRole({
+    id: "haunter",
+    name: "Haunter",
+    faction: FACTIONS.NEUTRAL,
+    colour: "#b9a7ff",
+    objective: "From the other side, finish what you started.",
+    ability: null,
+    win: {
+      kind: WIN_KINDS.SURVIVE,
+      solo: true,
+      check: ({ player }) => !player.alive && player.tasks.length > 0
+        && player.tasks.every((task) => player.completedTasks.has(task.id))
+    }
   }),
   defineRole({
     id: "glitch",

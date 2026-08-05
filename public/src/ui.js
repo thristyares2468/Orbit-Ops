@@ -613,6 +613,16 @@ export class GameUI {
 
   // Findings are private to the role that earned them, so they surface as a
   // persistent card rather than a toast that can be missed.
+  // Blind and cuffed are server truths; the HUD only has to say so.
+  setSensoryState({ blinded, cuffed, lightsOut }) {
+    const banner = byId("sensory-banner");
+    if (!banner) return;
+    const message = blinded ? "BLINDED" : cuffed ? "CUFFED — you cannot act" : lightsOut ? "LIGHTS OUT" : null;
+    setVisible(banner, Boolean(message));
+    if (message) banner.textContent = message;
+    document.body.classList.toggle("is-blinded", Boolean(blinded));
+  }
+
   showRoleFinding(finding) {
     const log = byId("role-findings");
     if (!log) return;
