@@ -11,6 +11,7 @@ The host can select one of three isolated maps: **The Skeld**, **MIRA HQ**, or *
 - Public matchmaking with all-ready auto-launch, private room codes, practice simulations with bots, host settings, ready state, and host reassignment
 - 45-second reconnect reservation with rotated rejoin tokens
 - 20 Hz authoritative movement simulation and 10 Hz world snapshots
+- A declarative role framework: each role states its faction, ability (targeting, cooldown, uses), win condition, hooks and extra state, rather than being branched on by id. Abilities run server-side against a narrow API so a role cannot reach past the rules it is allowed to touch. Twenty roles ship so far, growing toward the Town Of Us R roster.
 - The reference's nine assignments: Turn On The Lights, Fix The Electricity Wires, Stabilize The Ship's Navigation, Reboot The Wifi, Empty The Garbage, Divert Power To Reactor, Align Engine Output, Fuel Lower Engine, and Clear The Asteroids.
 - An Admin table showing live per-room head counts (never names, and dark during a lights sabotage) and a security monitor showing a live camera feed rather than delayed telemetry. Vented players appear on neither.
 - Vents are a connected network rather than fixed pairs: an operative climbs in, travels between any vents sharing that network, and climbs out. While inside they are frozen, hidden from every other client's snapshot, and cannot kill, be killed, report, or run assignments. Meetings empty the vents.
@@ -80,7 +81,10 @@ public/src/game2d/MapBuilder.js   Layered room/corridor/station Phaser construct
 public/src/game2d/MeridianScene.js Replaceable top-down room renderer
 public/src/game2d/CharacterSprite.js Channel-aware player animation and recolouring
 public/src/game2d/assets.js        Stable 2D map and station asset mappings
-public/src/roleData.js             Shared role roster, UI metadata, cooldowns, and icons
+public/src/roleData.js             Stable role surface over the registry
+public/src/roles/defineRole.js    Role framework: abilities, win kinds, hooks, modifiers
+public/src/roles/catalogue.js     Declarative role definitions
+server/roleEngine.js              Executes role abilities and solo win conditions
 public/src/tasks.js               Assignment interfaces and supplied task art mapping
 public/src/assetManifest.js       Runtime-critical asset manifest
 public/src/artCatalog.js          Generated full non-logo catalog

@@ -1,7 +1,7 @@
 import { ART_CATALOG } from "./artCatalog.js";
 import { PLAYER_COLOUR_PALETTES } from "./game2d/assets.js";
 import { mapShapePolygon, pointInMapShape } from "./mapSchema.js";
-import { getRoleDefinition } from "./roleData.js";
+import { CREW_ROLE_IDS, NEUTRAL_ROLE_IDS, OPERATIVE_ROLE_IDS, getRoleDefinition } from "./roleData.js";
 import { getMapDefinition } from "./shipData.js";
 import { pauseCopy, progressLabels, roleAbilityStatus } from "./hudState.js";
 
@@ -76,6 +76,7 @@ export class GameUI {
       ventPanel: byId("vent-panel")
     };
     this.lastMinimapRequest = null;
+    this.buildPracticeRoleOptions();
     paintMenuCrew().catch(() => {});
     this.bindStaticEvents();
     // Re-fit the open map overview when the viewport changes so it is never cropped.
@@ -83,6 +84,26 @@ export class GameUI {
       if (this.elements.minimap?.classList.contains("is-hidden")) return;
       if (this.lastMinimapRequest) this.drawMinimap(this.lastMinimapRequest);
     });
+  }
+
+  // Built from the role registry so a growing roster never leaves the picker stale.
+  buildPracticeRoleOptions() {
+    const select = byId("practice-role");
+    if (!select) return;
+    select.replaceChildren();
+    for (const [label, ids] of [
+      ["Crew", CREW_ROLE_IDS], ["Operative", OPERATIVE_ROLE_IDS], ["Neutral", NEUTRAL_ROLE_IDS]
+    ]) {
+      const group = document.createElement("optgroup");
+      group.label = label;
+      for (const id of ids) {
+        const option = document.createElement("option");
+        option.value = id;
+        option.textContent = getRoleDefinition(id).name;
+        group.append(option);
+      }
+      select.append(group);
+    }
   }
 
   setActions(actions) { this.actions = actions; }

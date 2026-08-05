@@ -17,6 +17,7 @@ import {
   PHASES, PLAYER_SPEED, SERVER_VERSION, SESSION_SECRET, SNAPSHOT_RATE, TICK_RATE, VISION
 } from "./constants.js";
 import { RateLimiter } from "./rateLimits.js";
+import { checkSoloWin, performRoleAbility, survivorWinnerIds } from "./roleEngine.js";
 import {
   cleanText, isPlainObject, validateAppearance, validateChat, validateDisplayName,
   validateRoomCode, validateSettings
@@ -57,7 +58,9 @@ function makeRoleState(roleId) {
     targetId: null,
     trackedTargetId: null,
     shieldTargetId: null,
-    morphTargetId: null
+    morphTargetId: null,
+    // Whatever extra state the role declares for itself.
+    ...definition.state
   };
 }
 
@@ -713,6 +716,7 @@ export class GameServer {
         ? requestedRole
         : nextRoleForFaction(player.faction);
       player.roleState = makeRoleState(player.role);
+      player.ventId = null;
       player.completedTasks = new Set();
       player.activeTask = null;
       player.vote = null;
@@ -730,6 +734,14 @@ export class GameServer {
       }));
       player.tasks = assignments;
       if (player.faction === "crew") room.taskTotal += assignments.length;
+    }
+
+    // The Executioner needs someone to frame; pick a living crewmate.
+    for (const player of activePlayers) {
+      if (player.role !== "executioner") continue;
+      const marks = activePlayers.filter((candidate) =>
+        candidate.id !== player.id && candidate.faction === "crew");
+      if (marks.length) player.roleState.executionerTargetId = choose(marks).id;
     }
 
     this.setPhase(room, PHASES.COUNTDOWN, 3_000);
@@ -981,73 +993,17 @@ export class GameServer {
   }
 
   roleAction(room, player, payload = {}) {
-    const { definition, state, now } = this.beginRoleAction(room, player);
-    let effect = definition.ability.id;
-    let targetId = null;
+    if (player.ventId) throw new Error("Climb out of the vent first.");
+    return performRoleAbility(this, room, player, payload);
+  }
 
-    if (player.role === "engineer") {
-      if (!room.activeSabotage) throw new Error("No sabotage currently needs an Engineer.");
-      const ended = this.publicSabotage(room.activeSabotage);
-      this.clearActiveSabotage(room);
-      player.matchStats.sabotagesRepaired += 1;
-      this.io.to(room.code).emit("sabotageEnded", { ...ended, repairedBy: player.id, engineerFix: true });
-    } else if (player.role === "medic") {
-      const target = this.roleTarget(room, player, payload.targetId);
-      state.shieldTargetId = target.id;
-      targetId = target.id;
-    } else if (player.role === "sheriff") {
-      const target = this.roleTarget(room, player, payload.targetId);
-      targetId = target.id;
-      if (target.faction === "operative") {
-        this.eliminateInternal(room, player, target, "sheriff intervention", { ignoreFaction: true });
-        effect = "sheriff-hit";
-      } else {
-        this.eliminateInternal(room, player, player, "sheriff misfire", {
-          ignoreFaction: true,
-          ignoreProtection: true
-        });
-        effect = "sheriff-misfire";
-      }
-    } else if (player.role === "tracker") {
-      const target = this.roleTarget(room, player, payload.targetId);
-      state.trackedTargetId = target.id;
-      state.activeUntil = now + 20_000;
-      targetId = target.id;
-    } else if (player.role === "morphling") {
-      const target = this.roleTarget(room, player, payload.targetId);
-      state.morphTargetId = target.id;
-      state.activeUntil = now + 12_000;
-      targetId = target.id;
-    } else if (player.role === "swooper") {
-      state.activeUntil = now + 8_000;
-    } else if (player.role === "janitor") {
-      const incident = room.incidents.get(String(payload.incidentId ?? payload.targetId ?? ""));
-      if (!incident || incident.reported) throw new Error("No incident can be cleaned here.");
-      if (distance2D(player.position, incident) > ROLE_TARGET_RANGE) throw new Error("Move closer to the incident.");
-      room.incidents.delete(incident.id);
-      targetId = incident.id;
-      this.io.to(room.code).emit("incidentCleaned", { incidentId: incident.id });
-    } else if (player.role === "guardian-angel") {
-      const target = this.roleTarget(room, player, payload.targetId);
-      target.roleState = target.roleState ?? makeRoleState(target.role);
-      target.roleState.protectedUntil = now + 15_000;
-      this.sendPrivateState(room, target);
-      targetId = target.id;
-    } else if (player.role === "survivor") {
-      state.protectedUntil = now + 8_000;
-      state.activeUntil = state.protectedUntil;
-    } else {
-      throw new Error("This role ability is not implemented.");
-    }
+  // Helpers the role engine is allowed to call.
+  roomIdAt(room, position) {
+    return roomAt(activeMapId(room), position.x, position.z)?.id ?? null;
+  }
 
-    const privateState = this.finishRoleAction(room, player, definition, state, now);
-    this.io.to(room.code).emit("roleEffect", {
-      playerId: player.id,
-      targetId,
-      effect,
-      activeUntil: state.activeUntil || null
-    });
-    return { ok: true, effect, targetId, privateState };
+  freshRoleState(roleId) {
+    return makeRoleState(roleId);
   }
 
   consumeProtection(room, target) {
@@ -1233,18 +1189,20 @@ export class GameServer {
     const totals = new Map();
     for (const player of room.players.values()) {
       if (!player.alive || !player.vote) continue;
-      totals.set(player.vote, (totals.get(player.vote) ?? 0) + 1);
+      // Roles may carry extra weight; the Mayor's vote counts twice.
+      const weight = Math.max(1, Number(player.roleState?.voteWeight) || 1);
+      totals.set(player.vote, (totals.get(player.vote) ?? 0) + weight);
     }
     const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]);
     const tie = ranked.length > 1 && ranked[0][1] === ranked[1][1];
     const removedId = !tie && ranked[0]?.[0] !== "skip" ? ranked[0]?.[0] : null;
     const removed = removedId ? room.players.get(removedId) : null;
-    const jesterWon = removed?.role === "jester";
+    const soloWin = checkSoloWin(room, { votedOutId: removedId });
     if (removed) {
       removed.alive = false;
       removed.eliminatedAt = Date.now();
       removed.input = normaliseInput({});
-      if (!jesterWon) this.maybeAssignGuardianAngel(room, removed);
+      if (!soloWin) this.maybeAssignGuardianAngel(room, removed);
       this.sendPrivateState(room, removed);
     }
     for (const voter of room.players.values()) {
@@ -1265,9 +1223,9 @@ export class GameServer {
       tie, votes: publicVotes
     });
     this.schedule(room, 4_000, () => {
-      if (jesterWon) {
-        room.specialWinnerIds = new Set([removed.id]);
-        this.endMatch(room, "neutral", "jester-voted-out");
+      if (soloWin) {
+        room.specialWinnerIds = new Set(soloWin.winnerIds);
+        this.endMatch(room, soloWin.winner, soloWin.reason);
         return;
       }
       if (!this.checkWinConditions(room, "vote")) {
@@ -1442,7 +1400,8 @@ export class GameServer {
     const endedAt = Date.now();
     const durationSeconds = Math.max(0, Math.round((endedAt - room.matchStartedAt) / 1000));
     const players = [...room.players.values()].map((player) => {
-      const won = room.specialWinnerIds.has(player.id)
+      const survivors = new Set(survivorWinnerIds(room));
+      const won = room.specialWinnerIds.has(player.id) || survivors.has(player.id)
         || (winner !== "neutral" && player.faction === winner)
         || (winner !== "neutral" && player.role === "survivor" && player.alive)
         || (winner === "neutral" && reason === "survivor-standing" && player.role === "survivor" && player.alive);
