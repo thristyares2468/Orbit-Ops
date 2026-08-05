@@ -75,6 +75,34 @@ function buildAbilityApi(server, room, player) {
       server.io.to(player.socketId).emit("roleFinding", { ...finding, at: Date.now() });
     },
 
+    revive: (incident) => {
+      const victim = room.players.get(String(incident.victimId ?? ""));
+      if (!victim) throw new Error("There is nobody here to revive.");
+      victim.alive = true;
+      victim.eliminatedAt = null;
+      victim.position = { x: incident.x, z: incident.z };
+      victim.currentRoom = incident.roomId;
+      room.incidents.delete(incident.id);
+      server.io.to(room.code).emit("incidentCleaned", { incidentId: incident.id });
+      server.io.to(room.code).emit("playerRevived", { playerId: victim.id, roomId: incident.roomId });
+      server.sendPrivateState(room, victim);
+    },
+
+    // The Miner opens a new vent wherever it stands, joined to the mined network.
+    digVent: (position) => {
+      room.minedVents = room.minedVents ?? [];
+      const vent = {
+        id: `mined-${room.minedVents.length + 1}`,
+        type: "maintenance",
+        refId: "vent-mined",
+        roomId: server.roomIdAt(room, position) ?? "cafeteria",
+        x: position.x,
+        z: position.z
+      };
+      room.minedVents.push(vent);
+      server.io.to(room.code).emit("ventMined", { vent });
+    },
+
     becomeRoleOf: (victimId) => {
       const victim = room.players.get(String(victimId ?? ""));
       if (!victim?.role) throw new Error("There is nothing to remember here.");

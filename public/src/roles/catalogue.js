@@ -181,6 +181,99 @@ export const CREW_ROLES = [
         return { effect: "vigilante-hit", targetId: target.id };
       }
     }
+  }),
+  defineRole({
+    id: "altruist",
+    name: "Altruist",
+    faction: FACTIONS.CREW,
+    colour: "#ff8fa3",
+    objective: "Revive a body at the cost of your own life.",
+    ability: {
+      id: "revive",
+      label: "Revive",
+      icon: icon("medic"),
+      targeting: TARGETING.INCIDENT,
+      cooldownMs: 0,
+      uses: 1,
+      perform: ({ api, player, incident }) => {
+        api.revive(incident);
+        // The revival is paid for with the Altruist's own life.
+        api.eliminate(player, player, "altruist sacrifice", { ignoreFaction: true, ignoreProtection: true });
+        return { effect: "revive", targetId: incident.id };
+      }
+    }
+  }),
+  defineRole({
+    id: "medium",
+    name: "Medium",
+    faction: FACTIONS.CREW,
+    colour: "#b08fe0",
+    objective: "Ask the dead what they saw.",
+    ability: {
+      id: "commune",
+      label: "Commune",
+      icon: icon("tracker"),
+      targeting: TARGETING.NONE,
+      cooldownMs: 30_000,
+      uses: null,
+      perform: ({ api, room }) => {
+        const ghosts = [...room.players.values()].filter((candidate) => !candidate.alive);
+        api.reportPrivately({
+          type: "seance",
+          detail: ghosts.length
+            ? `${ghosts.length} soul${ghosts.length === 1 ? "" : "s"} aboard. Last seen in ${ghosts.at(-1).currentRoom.replaceAll("-", " ")}.`
+            : "No souls answer. Nobody has died yet."
+        });
+        return { effect: "commune" };
+      }
+    }
+  }),
+  defineRole({
+    id: "veteran",
+    name: "Veteran",
+    faction: FACTIONS.CREW,
+    colour: "#c9a227",
+    objective: "Go on alert—anyone who touches you dies.",
+    ability: {
+      id: "alert",
+      label: "Alert",
+      icon: icon("sheriff"),
+      targeting: TARGETING.NONE,
+      cooldownMs: 35_000,
+      uses: 3,
+      perform: ({ state, now }) => {
+        state.alertUntil = now + 10_000;
+        state.activeUntil = state.alertUntil;
+        return { effect: "alert" };
+      }
+    },
+    state: { alertUntil: 0 }
+  }),
+  defineRole({
+    id: "swapper",
+    name: "Swapper",
+    faction: FACTIONS.CREW,
+    colour: "#59c9a5",
+    objective: "Swap two players' votes before the count.",
+    ability: {
+      id: "swap-votes",
+      label: "Swap",
+      icon: icon("tracker"),
+      targeting: TARGETING.PLAYER,
+      cooldownMs: 0,
+      uses: 1,
+      requires: ({ room, api }) => (api.inMeeting(room) ? null : "The Swapper only works during a meeting."),
+      perform: ({ state, target }) => {
+        // Two picks: first names one side of the swap, second completes it.
+        if (!state.swapFirstId) {
+          state.swapFirstId = target.id;
+          return { effect: "swap-armed", targetId: target.id };
+        }
+        state.swapSecondId = target.id;
+        return { effect: "swap-set", targetId: target.id };
+      }
+    },
+    state: { swapFirstId: null, swapSecondId: null }
   })
 ];
 
@@ -302,6 +395,50 @@ export const OPERATIVE_ROLES = [
       }
     },
     state: { markX: null, markZ: null }
+  }),
+  defineRole({
+    id: "miner",
+    name: "Miner",
+    faction: FACTIONS.OPERATIVE,
+    colour: "#ff5f6f",
+    objective: "Dig your own vents wherever you stand.",
+    ability: {
+      id: "mine",
+      label: "Mine",
+      icon: icon("janitor"),
+      targeting: TARGETING.NONE,
+      cooldownMs: 25_000,
+      uses: null,
+      perform: ({ api, player }) => {
+        api.digVent(player.position);
+        return { effect: "mine" };
+      }
+    }
+  }),
+  defineRole({
+    id: "undertaker",
+    name: "Undertaker",
+    faction: FACTIONS.OPERATIVE,
+    colour: "#ff5f6f",
+    objective: "Drag a body somewhere it will not be found.",
+    ability: {
+      id: "drag",
+      label: "Drag",
+      icon: icon("janitor"),
+      targeting: TARGETING.INCIDENT,
+      cooldownMs: 15_000,
+      uses: null,
+      perform: ({ state, incident }) => {
+        // Toggle: grab a body, or drop the one already being dragged.
+        if (state.draggingId === incident.id) {
+          state.draggingId = null;
+          return { effect: "drop", targetId: incident.id };
+        }
+        state.draggingId = incident.id;
+        return { effect: "drag", targetId: incident.id };
+      }
+    },
+    state: { draggingId: null }
   })
 ];
 
@@ -390,6 +527,88 @@ export const NEUTRAL_ROLES = [
       }
     },
     win: { kind: WIN_KINDS.SURVIVE }
+  }),
+  defineRole({
+    id: "arsonist",
+    name: "Arsonist",
+    faction: FACTIONS.NEUTRAL,
+    colour: "#ff8c42",
+    objective: "Douse every living soul, then light the deck.",
+    ability: {
+      id: "douse",
+      label: "Douse",
+      icon: icon("survivor"),
+      targeting: TARGETING.PLAYER,
+      cooldownMs: 15_000,
+      uses: null,
+      perform: ({ api, state, player, target, room }) => {
+        state.doused = state.doused ?? [];
+        if (!state.doused.includes(target.id)) state.doused.push(target.id);
+        const living = [...room.players.values()]
+          .filter((candidate) => candidate.alive && candidate.id !== player.id);
+        // With everyone soaked, the next use is the ignition.
+        if (living.every((candidate) => state.doused.includes(candidate.id))) {
+          for (const candidate of living) {
+            api.eliminate(player, candidate, "arsonist ignition", { ignoreFaction: true, ignoreProtection: true });
+          }
+          return { effect: "ignite", targetId: target.id };
+        }
+        return { effect: "douse", targetId: target.id };
+      }
+    },
+    win: { kind: WIN_KINDS.LAST_STANDING, solo: true },
+    state: { doused: [] }
+  }),
+  defineRole({
+    id: "vampire",
+    name: "Vampire",
+    faction: FACTIONS.NEUTRAL,
+    colour: "#a3243b",
+    objective: "Bite the crew until nobody is left to stop you.",
+    ability: {
+      id: "bite",
+      label: "Bite",
+      icon: icon("sheriff"),
+      targeting: TARGETING.PLAYER,
+      cooldownMs: 25_000,
+      uses: null,
+      perform: ({ api, player, target }) => {
+        api.eliminate(player, target, "vampire bite", { ignoreFaction: true });
+        return { effect: "bite", targetId: target.id };
+      }
+    },
+    win: { kind: WIN_KINDS.LAST_STANDING, solo: true }
+  }),
+  defineRole({
+    id: "werewolf",
+    name: "Werewolf",
+    faction: FACTIONS.NEUTRAL,
+    colour: "#7a5c3e",
+    objective: "Rampage, and tear apart anything within reach.",
+    ability: {
+      id: "rampage",
+      label: "Rampage",
+      icon: icon("swooper"),
+      targeting: TARGETING.NONE,
+      cooldownMs: 30_000,
+      uses: null,
+      perform: ({ state, now }) => {
+        state.rampageUntil = now + 12_000;
+        state.activeUntil = state.rampageUntil;
+        return { effect: "rampage" };
+      }
+    },
+    win: { kind: WIN_KINDS.LAST_STANDING, solo: true },
+    state: { rampageUntil: 0 }
+  }),
+  defineRole({
+    id: "phantom",
+    name: "Phantom",
+    faction: FACTIONS.NEUTRAL,
+    colour: "#9d8df1",
+    objective: "Finish your assignments unseen, after death.",
+    ability: null,
+    win: { kind: WIN_KINDS.SURVIVE, solo: true }
   })
 ];
 

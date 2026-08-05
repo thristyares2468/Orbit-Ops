@@ -3,6 +3,7 @@ import { afterEach, test } from "node:test";
 import { LOBBY_MAP_ID, MAP_IDS, getMapDefinition, isWalkable, stationById } from "../public/src/shipData.js";
 import { GameServer } from "../server/gameServer.js";
 import { PHASES } from "../server/constants.js";
+import { checkSoloWin } from "../server/roleEngine.js";
 
 class RecordingIo {
   constructor() {
@@ -753,4 +754,95 @@ test("the nine reference assignments all resolve to real stations", () => {
     assert.ok(stationById("the-skeld", `task:${task.id}`), `${task.id} has a station`);
     assert.ok(map.rooms.some((room) => room.id === task.roomId), `${task.id} sits in a real room`);
   }
+});
+
+test("an alerted Veteran turns an elimination back on the attacker", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", { eliminationCooldownSeconds: 0 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now();
+  const veteran = assignRole(player("veteran", "crew", { x: 0.5, z: 0 }), "veteran", "crew", 3);
+  const operative = player("operative", "operative", { x: 0, z: 0 });
+  operative.lastEliminationAt = 0;
+  for (const member of [veteran, operative]) room.players.set(member.id, member);
+
+  veteran.roleState.alertUntil = Date.now() + 10_000;
+  server.eliminationAttempt(room, operative, veteran.id);
+
+  assert.equal(veteran.alive, true, "the Veteran survives");
+  assert.equal(operative.alive, false, "the attacker dies instead");
+});
+
+test("retaliation does not recurse when two guarded roles meet", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", { eliminationCooldownSeconds: 0 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now();
+  const veteran = assignRole(player("veteran", "crew", { x: 0.5, z: 0 }), "veteran", "crew", 3);
+  const werewolf = assignRole(player("werewolf", "neutral", { x: 0, z: 0 }), "werewolf", "neutral");
+  werewolf.lastEliminationAt = 0;
+  for (const member of [veteran, werewolf]) room.players.set(member.id, member);
+  veteran.roleState.alertUntil = Date.now() + 10_000;
+  werewolf.roleState.rampageUntil = Date.now() + 10_000;
+
+  // Must terminate rather than bouncing the kill back and forth forever.
+  server.eliminateInternal(room, werewolf, veteran, "test");
+  assert.equal(veteran.alive, true);
+  assert.equal(werewolf.alive, false);
+});
+
+test("the Mayor's vote counts twice", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  const room = server.createRoom("private", { votingSeconds: 10 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 20_000;
+  room.taskTotal = 15;
+  const mayor = assignRole(player("mayor", "crew"), "mayor", "crew");
+  mayor.roleState.voteWeight = 2;
+  const suspect = player("suspect", "crew", { x: 1, z: 0 });
+  const other = player("other", "crew", { x: 2, z: 0 });
+  const operative = player("operative", "operative", { x: 3, z: 0 });
+  for (const member of [mayor, suspect, other, operative]) room.players.set(member.id, member);
+
+  room.meeting = { id: "m", reporterId: mayor.id, incidentId: null, incidentRoom: null, evidence: [], votes: new Map() };
+  server.startVoting(room);
+  for (const timer of room.timers) clearTimeout(timer);
+  room.timers.clear();
+  // One weighted vote outvotes one plain vote.
+  server.submitVote(room, mayor, suspect.id);
+  server.submitVote(room, other, mayor.id);
+  server.submitVote(room, suspect, mayor.id);
+  server.submitVote(room, operative, suspect.id);
+
+  const result = io.events.filter((entry) => entry.event === "voteResult").at(-1).payload;
+  assert.equal(result.removedId, suspect.id, "the Mayor's extra weight carries the vote");
+  for (const timer of room.timers) clearTimeout(timer);
+  room.timers.clear();
+});
+
+test("the Executioner wins when its mark is voted out", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const executioner = assignRole(player("exec", "neutral"), "executioner", "neutral");
+  const mark = player("mark", "crew");
+  for (const member of [executioner, mark]) room.players.set(member.id, member);
+  executioner.roleState.executionerTargetId = mark.id;
+
+  assert.equal(checkSoloWin(room, { votedOutId: "someone-else" }), null);
+  const win = checkSoloWin(room, { votedOutId: mark.id });
+  assert.ok(win, "removing the mark wins the match");
+  assert.equal(win.winner, "neutral");
+  assert.deepEqual(win.winnerIds, [executioner.id]);
+});
+
+test("the Jester still wins by being voted out", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  const jester = assignRole(player("jester", "neutral"), "jester", "neutral");
+  room.players.set(jester.id, jester);
+  const win = checkSoloWin(room, { votedOutId: jester.id });
+  assert.ok(win);
+  assert.match(win.reason, /jester/u);
 });

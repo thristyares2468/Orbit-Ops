@@ -1036,9 +1036,25 @@ export class GameServer {
     return this.eliminateInternal(room, attacker, target, "electromagnetic suit shutdown");
   }
 
+  // Some roles punish being touched: an alerted Veteran or a rampaging Werewolf
+  // turns an incoming elimination back on the attacker.
+  retaliationFor(target, now = Date.now()) {
+    const state = target.roleState ?? {};
+    if (target.role === "veteran" && (state.alertUntil ?? 0) > now) return "veteran alert";
+    if (target.role === "werewolf" && (state.rampageUntil ?? 0) > now) return "werewolf rampage";
+    return null;
+  }
+
   eliminateInternal(room, attacker, target, category, options = {}) {
     if (!attacker.alive || !target.alive) return { ok: false };
     if (!options.ignoreFaction && (attacker.faction !== "operative" || target.faction === "operative")) return { ok: false };
+    const retaliation = this.retaliationFor(target);
+    if (retaliation && attacker.id !== target.id && !options.ignoreRetaliation) {
+      // The attacker dies instead; the defender is untouched.
+      return this.eliminateInternal(room, target, attacker, retaliation, {
+        ignoreFaction: true, ignoreProtection: true, ignoreRetaliation: true
+      });
+    }
     if (!options.ignoreProtection) {
       const protection = this.consumeProtection(room, target);
       if (protection) {
@@ -1240,9 +1256,11 @@ export class GameServer {
   // Vents are a connected network, as in the reference: an operative climbs in,
   // travels between any vents sharing that network, and climbs back out. While
   // inside they are hidden from everyone and cannot be seen, killed or reported.
-  ventsInNetwork(mapId, networkId) {
-    return getMapDefinition(mapId).stations
+  ventsInNetwork(mapId, networkId, room = null) {
+    const authored = getMapDefinition(mapId).stations
       .filter((station) => station.type === "maintenance" && station.refId === networkId);
+    const mined = (room?.minedVents ?? []).filter((vent) => vent.refId === networkId);
+    return [...authored, ...mined];
   }
 
   publicVentState(mapId, player) {
@@ -1251,7 +1269,7 @@ export class GameServer {
     return {
       inVent: true,
       ventId: player.ventId,
-      exits: this.ventsInNetwork(mapId, vent?.refId)
+      exits: this.ventsInNetwork(mapId, vent?.refId, room)
         .filter((station) => station.id !== player.ventId)
         .map((station) => ({ id: station.id, roomId: station.roomId, x: station.x, z: station.z }))
     };
