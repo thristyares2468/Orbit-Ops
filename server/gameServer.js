@@ -140,7 +140,7 @@ function snapshotPlayer(player, room) {
     roomId: player.currentRoom,
     seq: player.lastInputSeq,
     visualAppearance: morphTarget?.appearance ?? player.appearance,
-    hidden: player.role === "swooper" && player.roleState?.activeUntil > now,
+    hidden: Boolean(player.ventId) || (player.role === "swooper" && player.roleState?.activeUntil > now),
     shielded: medicShield || player.roleState?.protectedUntil > now
   };
 }
@@ -345,7 +345,9 @@ export class GameServer {
     socket.on("reportIncident", (payload, ack) => this.withPlayer(socket, "reportIncident", 5, 10_000, ack, (room, player) => this.reportIncident(room, player, payload?.incidentId)));
     socket.on("callMeeting", (_payload, ack) => this.withPlayer(socket, "callMeeting", 4, 30_000, ack, (room, player) => this.callMeeting(room, player)));
     socket.on("submitVote", (payload, ack) => this.withPlayer(socket, "submitVote", 6, 10_000, ack, (room, player) => this.submitVote(room, player, payload?.targetId)));
-    socket.on("useMaintenance", (payload, ack) => this.withPlayer(socket, "useMaintenance", 4, 10_000, ack, (room, player) => this.useMaintenance(room, player, payload?.stationId)));
+    socket.on("enterVent", (payload, ack) => this.withPlayer(socket, "enterVent", 8, 10_000, ack, (room, player) => this.enterVent(room, player, payload?.stationId)));
+    socket.on("moveVent", (payload, ack) => this.withPlayer(socket, "moveVent", 20, 10_000, ack, (room, player) => this.moveVent(room, player, payload?.stationId)));
+    socket.on("exitVent", (_payload, ack) => this.withPlayer(socket, "exitVent", 8, 10_000, ack, (room, player) => this.exitVent(room, player)));
     socket.on("requestSecurity", (_payload, ack) => this.withPlayer(socket, "requestSecurity", 5, 10_000, ack, (room, player) => this.requestSecurity(room, player)));
     socket.on("chatMessage", (payload, ack) => this.withPlayer(socket, "chatMessage", 6, 10_000, ack, (room, player) => this.chat(room, player, payload?.message)));
     socket.on("customisePlayer", (payload, ack) => this.withPlayer(socket, "customisePlayer", 8, 10_000, ack, (room, player) => {
@@ -463,7 +465,7 @@ export class GameServer {
       jumpUntil: 0, activeTask: null, tasks: [], completedTasks: new Set(), vote: null,
       lastEliminationAt: 0, lastMaintenanceAt: 0, emergencyMeetings: 0,
       disconnectedAt: null, cleanupTimer: null, rejoinTokenHash: null,
-      matchStats: makeStats(), eliminatedAt: null, botTarget: null, botActionAt: 0, repairStationId: null
+      matchStats: makeStats(), eliminatedAt: null, botTarget: null, botActionAt: 0, repairStationId: null, ventId: null
     };
   }
 
@@ -525,6 +527,7 @@ export class GameServer {
       player.botTarget = null;
       player.botPath = [];
       player.repairStationId = null;
+      player.ventId = null;
       player.input = normaliseInput({});
     }
   }
@@ -547,6 +550,7 @@ export class GameServer {
       tasks: player.tasks, completedTaskIds: [...player.completedTasks],
       emergencyMeetings: Math.max(0, room.settings.emergencyMeetings - player.emergencyMeetings),
       position: player.position,
+      vent: player.ventId ? { id: player.ventId } : null,
       teammates: player.faction === "operative"
         ? [...room.players.values()].filter((candidate) => candidate.faction === "operative" && candidate.id !== player.id).map((candidate) => candidate.id)
         : []
@@ -719,6 +723,7 @@ export class GameServer {
       player.lastMaintenanceAt = 0;
       player.emergencyMeetings = 0;
       player.repairStationId = null;
+      player.ventId = null;
       const assignments = shuffle(map.taskDefinitions).slice(0, room.settings.assignmentQuantity).map((task) => ({
         id: task.id, name: task.name, roomId: task.roomId, fake: player.faction !== "crew"
       }));
@@ -793,6 +798,7 @@ export class GameServer {
   }
 
   beginTask(room, player, payload) {
+    if (player.ventId) throw new Error("Climb out of the vent first.");
     if (room.phase !== PHASES.ACTIVE) throw new Error("Assignments are unavailable right now.");
     const map = getMapDefinition(room.mapId);
     const station = stationById(room.mapId, payload?.stationId);
@@ -1066,6 +1072,8 @@ export class GameServer {
     if (room.phase !== PHASES.ACTIVE || !attacker.alive || attacker.faction !== "operative") throw new Error("Elimination is unavailable.");
     const target = room.players.get(String(targetId));
     if (!target || !target.alive || target.faction === "operative" || target.id === attacker.id) throw new Error("Invalid elimination target.");
+    if (attacker.ventId) throw new Error("Climb out of the vent first.");
+    if (target.ventId) throw new Error("That target is inside the vents.");
     if (room.mode !== "practice" && Date.now() - attacker.lastEliminationAt < room.settings.eliminationCooldownSeconds * 1000) throw new Error("Elimination is recharging.");
     if (distance2D(attacker.position, target.position) > room.settings.eliminationRange) throw new Error("Target is out of range.");
     return this.eliminateInternal(room, attacker, target, "electromagnetic suit shutdown");
@@ -1122,6 +1130,7 @@ export class GameServer {
   }
 
   reportIncident(room, reporter, incidentId) {
+    if (reporter.ventId) throw new Error("Climb out of the vent first.");
     if (room.phase !== PHASES.ACTIVE || !reporter.alive) throw new Error("You cannot report right now.");
     const incident = incidentId ? room.incidents.get(String(incidentId)) : [...room.incidents.values()].find((item) => !item.reported && distance2D(reporter.position, item) <= INTERACTION_RANGE);
     if (!incident || incident.reported) throw new Error("No unreported incident is in range.");
@@ -1133,6 +1142,7 @@ export class GameServer {
   }
 
   callMeeting(room, reporter) {
+    if (reporter.ventId) throw new Error("Climb out of the vent first.");
     if (room.phase !== PHASES.ACTIVE || !reporter.alive) throw new Error("Emergency meeting is unavailable.");
     const station = stationById(room.mapId, "meeting-console");
     if (!station || distance2D(reporter.position, station) > INTERACTION_RANGE) throw new Error("Move to the emergency meeting button.");
@@ -1150,6 +1160,7 @@ export class GameServer {
     }
     for (const player of room.players.values()) {
       player.input = normaliseInput({});
+      player.ventId = null;
       player.vote = null;
       player.activeTask = null;
       if (player.roleState) {
@@ -1267,21 +1278,74 @@ export class GameServer {
     });
   }
 
-  useMaintenance(room, player, stationId) {
-    if (room.phase !== PHASES.ACTIVE || !player.alive || player.faction !== "operative") throw new Error("Your role cannot use the maintenance network.");
-    const entrance = stationById(room.mapId, stationId);
-    const exit = entrance?.refId ? stationById(room.mapId, entrance.refId) : null;
-    if (!entrance || entrance.type !== "maintenance" || !exit) throw new Error("Maintenance route not found.");
-    if (distance2D(player.position, entrance) > INTERACTION_RANGE) throw new Error("Move closer to the maintenance hatch.");
-    if (room.mode !== "practice" && Date.now() - player.lastMaintenanceAt < 8_000) throw new Error("Maintenance route is re-pressurising.");
-    const blocked = [...room.players.values()].some((candidate) => candidate.id !== player.id && candidate.alive && distance2D(candidate.position, exit) < 1.4);
-    if (blocked) throw new Error("The exit hatch is obstructed.");
-    player.position = { x: exit.x, z: exit.z };
-    player.currentRoom = exit.roomId;
-    player.lastMaintenanceAt = Date.now();
-    room.maintenanceLogs.push({ roomId: entrance.roomId, at: Date.now() });
+  // Vents are a connected network, as in the reference: an operative climbs in,
+  // travels between any vents sharing that network, and climbs back out. While
+  // inside they are hidden from everyone and cannot be seen, killed or reported.
+  ventsInNetwork(mapId, networkId) {
+    return getMapDefinition(mapId).stations
+      .filter((station) => station.type === "maintenance" && station.refId === networkId);
+  }
+
+  publicVentState(mapId, player) {
+    if (!player.ventId) return { inVent: false, ventId: null, exits: [] };
+    const vent = stationById(mapId, player.ventId);
+    return {
+      inVent: true,
+      ventId: player.ventId,
+      exits: this.ventsInNetwork(mapId, vent?.refId)
+        .filter((station) => station.id !== player.ventId)
+        .map((station) => ({ id: station.id, roomId: station.roomId, x: station.x, z: station.z }))
+    };
+  }
+
+  enterVent(room, player, stationId) {
+    if (room.phase !== PHASES.ACTIVE || !player.alive || player.faction !== "operative") {
+      throw new Error("Your role cannot use the vent network.");
+    }
+    if (player.ventId) throw new Error("You are already inside the vents.");
+    const vent = stationById(room.mapId, stationId);
+    if (!vent || vent.type !== "maintenance") throw new Error("Vent not found.");
+    if (distance2D(player.position, vent) > INTERACTION_RANGE) throw new Error("Move closer to the vent.");
+    player.ventId = vent.id;
+    player.position = { x: vent.x, z: vent.z };
+    player.currentRoom = vent.roomId;
+    player.input = normaliseInput({});
+    room.maintenanceLogs.push({ roomId: vent.roomId, at: Date.now() });
     room.maintenanceLogs = room.maintenanceLogs.slice(-20);
-    this.io.to(room.code).emit("maintenanceUsed", { playerId: player.id, from: entrance.roomId, to: exit.roomId });
+    this.sendPrivateState(room, player);
+    return { ok: true, vent: this.publicVentState(room.mapId, player) };
+  }
+
+  moveVent(room, player, stationId) {
+    if (room.phase !== PHASES.ACTIVE || !player.alive || !player.ventId) {
+      throw new Error("You are not inside the vents.");
+    }
+    const from = stationById(room.mapId, player.ventId);
+    const to = stationById(room.mapId, stationId);
+    if (!to || to.type !== "maintenance") throw new Error("Vent not found.");
+    if (!from || to.refId !== from.refId) throw new Error("That vent is on a different network.");
+    if (to.id === from.id) throw new Error("You are already at that vent.");
+    player.ventId = to.id;
+    player.position = { x: to.x, z: to.z };
+    player.currentRoom = to.roomId;
+    room.maintenanceLogs.push({ roomId: to.roomId, at: Date.now() });
+    room.maintenanceLogs = room.maintenanceLogs.slice(-20);
+    this.sendPrivateState(room, player);
+    return { ok: true, vent: this.publicVentState(room.mapId, player) };
+  }
+
+  exitVent(room, player) {
+    if (!player.ventId) throw new Error("You are not inside the vents.");
+    const vent = stationById(room.mapId, player.ventId);
+    // Climbing out on top of someone would be a free reveal; make them wait.
+    const blocked = [...room.players.values()].some((candidate) =>
+      candidate.id !== player.id && candidate.alive && !candidate.ventId
+      && distance2D(candidate.position, vent) < 1.4);
+    if (blocked) throw new Error("Someone is standing on the hatch.");
+    player.ventId = null;
+    player.lastMaintenanceAt = Date.now();
+    this.sendPrivateState(room, player);
+    this.io.to(room.code).emit("ventExited", { playerId: player.id, roomId: vent?.roomId ?? null });
     return { ok: true, position: player.position };
   }
 
@@ -1442,7 +1506,8 @@ export class GameServer {
             visionRadius: Number(radius.toFixed(2)),
             lightsOut: this.lightsAreOut(room),
             players: visibleToMember.filter((snapshot) =>
-              snapshot.id === member.id || distance2D(snapshot, member.position) <= cull),
+              snapshot.id === member.id
+              || (!snapshot.hidden && distance2D(snapshot, member.position) <= cull)),
             incidents: base.incidents.filter((incident) =>
               distance2D(incident, member.position) <= cull)
           });
@@ -1452,6 +1517,8 @@ export class GameServer {
   }
 
   tickPlayerMovement(room, player, now, delta) {
+    // Vented players ride the network, not the floor.
+    if (player.ventId) return;
     const mapId = activeMapId(room);
     const input = now - player.lastInputAt < 500 ? player.input : normaliseInput({});
     const baseSpeed = input.crouch ? PLAYER_SPEED.crouch : input.sprint ? PLAYER_SPEED.sprint : PLAYER_SPEED.walk;

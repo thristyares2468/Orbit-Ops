@@ -265,6 +265,37 @@ input[type="range"] { min-height: 24px; padding: 0; accent-color: var(--cyan); }
 .hud-objective small { color: var(--muted); font-size: .65rem; }
 .personal-progress { display: block; margin-top: 2px; color: var(--cyan) !important; }
 .pause-note { margin: 0 0 16px; color: var(--muted); font-size: .78rem; line-height: 1.5; }
+.vent-panel {
+  position: fixed;
+  z-index: 17;
+  left: 50%;
+  bottom: 12vh;
+  transform: translateX(-50%);
+  width: min(360px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border: 1px solid rgba(171,121,255,.5);
+  border-radius: var(--radius);
+  background: rgba(12,6,24,.95);
+  box-shadow: 0 18px 50px rgba(0,0,0,.6);
+  text-align: center;
+}
+.vent-exits { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 10px; }
+.vent-exits button {
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid rgba(171,121,255,.45);
+  border-radius: 3px;
+  background: rgba(60,30,110,.5);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: .74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.vent-exits button:hover { background: rgba(96,48,175,.7); }
+.vent-panel small { color: var(--muted); font-size: .64rem; }
+
 .first-run-hint {
   position: fixed;
   z-index: 18;

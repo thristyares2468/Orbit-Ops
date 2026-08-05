@@ -71,7 +71,8 @@ export class GameUI {
       minimap: byId("minimap"), task: byId("task-modal"), meeting: byId("meeting-modal"), sabotage: byId("sabotage-modal"), security: byId("security-modal"),
       pause: byId("pause-modal"), settings: byId("settings-modal"), howto: byId("howto-modal"), profile: byId("profile-modal"), assets: byId("assets-modal"),
       lobbySettings: byId("lobby-settings-modal"),
-      firstRunHint: byId("first-run-hint")
+      firstRunHint: byId("first-run-hint"),
+      ventPanel: byId("vent-panel")
     };
     this.lastMinimapRequest = null;
     paintMenuCrew().catch(() => {});
@@ -428,12 +429,28 @@ export class GameUI {
     update(); this.phaseTimer = setInterval(update, 250);
   }
 
+  // Vent panel: while inside, the only actions are hopping and climbing out.
+  showVent(vent) {
+    const panel = byId("vent-panel");
+    setVisible(panel, Boolean(vent?.inVent));
+    if (!vent?.inVent) return;
+    const list = byId("vent-exits");
+    list.replaceChildren();
+    for (const exit of vent.exits) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = titleCase(exit.roomId);
+      button.addEventListener("click", () => this.invoke("hopVent", { stationId: exit.id }));
+      list.append(button);
+    }
+  }
+
   updateInteraction(nearest, inLobby = false) {
     const prompt = byId("interaction-prompt");
     setVisible(byId("report-button"), false);
     setVisible(byId("meeting-button"), false);
     if (!nearest) { setVisible(prompt, false); return; }
-    const labels = { task: "Access assignment", repair: "Repair system", meeting: "Call emergency meeting", security: "Open camera telemetry", doorLogs: "Review door logs", maintenance: "Enter maintenance route", incident: "Report incident", launch: "Launch the operation" };
+    const labels = { task: "Access assignment", repair: "Repair system", meeting: "Call emergency meeting", security: "Open camera telemetry", doorLogs: "Review door logs", maintenance: "Climb into the vent", incident: "Report incident", launch: "Launch the operation" };
     prompt.querySelector("span").textContent = labels[nearest.station.type] ?? "Interact";
     setVisible(prompt, true);
     if (inLobby) return;

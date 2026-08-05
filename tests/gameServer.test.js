@@ -602,3 +602,94 @@ test("snapshots cull players and bodies beyond the viewer's sight radius", () =>
   assert.equal(payload.visionRadius, Number(radius.toFixed(2)));
   assert.equal(payload.lightsOut, false);
 });
+
+test("vents form a network an operative travels through, not a fixed pair", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const entry = stationById("the-skeld", "skeld-vent-cafeteria");
+  const operative = player("operative", "operative", { x: entry.x, z: entry.z });
+  room.players.set(operative.id, operative);
+
+  const entered = server.enterVent(room, operative, entry.id);
+  assert.equal(entered.vent.inVent, true);
+  assert.equal(operative.ventId, entry.id);
+  assert.ok(entered.vent.exits.length >= 1, "the network offers somewhere to go");
+  assert.ok(entered.vent.exits.every((exit) => exit.id !== entry.id), "never lists the vent you are in");
+
+  const destination = entered.vent.exits[0];
+  const moved = server.moveVent(room, operative, destination.id);
+  assert.equal(operative.ventId, destination.id);
+  assert.equal(operative.currentRoom, destination.roomId);
+  assert.equal(moved.vent.exits.some((exit) => exit.id === entry.id), true,
+    "you can travel back the way you came");
+
+  server.exitVent(room, operative);
+  assert.equal(operative.ventId, null);
+});
+
+test("vents refuse crew, cross-network hops and movement while inside", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const entry = stationById("the-skeld", "skeld-vent-cafeteria");
+  const farNetwork = stationById("the-skeld", "skeld-vent-upper-engine");
+  const crew = player("crew", "crew", { x: entry.x, z: entry.z });
+  const operative = player("operative", "operative", { x: entry.x, z: entry.z });
+  for (const member of [crew, operative]) room.players.set(member.id, member);
+
+  assert.throws(() => server.enterVent(room, crew, entry.id), /cannot use the vent/u);
+
+  server.enterVent(room, operative, entry.id);
+  assert.throws(() => server.moveVent(room, operative, farNetwork.id), /different network/u);
+
+  // Frozen while riding: movement input must not shift them off the vent.
+  const before = { ...operative.position };
+  operative.input = { x: 1, z: 0, yaw: 0, sprint: false, crouch: false, seq: 1 };
+  operative.lastInputAt = Date.now();
+  server.tickPlayerMovement(room, operative, Date.now(), 0.5);
+  assert.deepEqual(operative.position, before, "a vented player does not walk");
+});
+
+test("a vented operative cannot kill, be killed, or be seen", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", { eliminationCooldownSeconds: 0 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now();
+  const entry = stationById("the-skeld", "skeld-vent-cafeteria");
+  const operative = player("operative", "operative", { x: entry.x, z: entry.z });
+  const victim = player("victim", "crew", { x: entry.x + 0.5, z: entry.z });
+  operative.lastEliminationAt = 0;
+  for (const member of [operative, victim]) room.players.set(member.id, member);
+
+  server.enterVent(room, operative, entry.id);
+  assert.throws(() => server.eliminationAttempt(room, operative, victim.id), /Climb out/u);
+
+  // And an operative hiding in a vent is not a valid target either.
+  const hunter = player("hunter", "operative", { x: entry.x, z: entry.z });
+  room.players.set(hunter.id, hunter);
+  const hidden = player("hidden", "crew", { x: entry.x, z: entry.z });
+  room.players.set(hidden.id, hidden);
+  hidden.ventId = "skeld-vent-admin";
+  hunter.lastEliminationAt = 0;
+  assert.throws(() => server.eliminationAttempt(room, hunter, hidden.id), /inside the vents/u);
+});
+
+test("meetings empty the vents", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 20_000;
+  const entry = stationById("the-skeld", "skeld-vent-cafeteria");
+  const operative = player("operative", "operative", { x: entry.x, z: entry.z });
+  const caller = player("caller", "crew", { x: entry.x, z: entry.z });
+  for (const member of [operative, caller]) room.players.set(member.id, member);
+
+  server.enterVent(room, operative, entry.id);
+  assert.equal(operative.ventId, entry.id);
+  server.startMeeting(room, caller, null);
+  assert.equal(operative.ventId, null, "everyone is pulled out for the meeting");
+  for (const timer of room.timers) clearTimeout(timer);
+  room.timers.clear();
+});

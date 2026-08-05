@@ -236,6 +236,7 @@ export class OrbitOpsGame {
       roleAbility: () => this.performRoleAction(),
       emergencyMeeting: () => this.callEmergencyMeeting(),
       sabotage: (payload) => this.network.request("sabotageRequest", payload),
+      hopVent: (payload) => this.hopVent(payload.stationId),
       saveSettings: (payload) => this.applySettings(payload),
       modalChanged: ({ open, name }) => this.onModalChanged(open, name)
     });
@@ -365,6 +366,7 @@ export class OrbitOpsGame {
     this.room = null;
     this.playerId = null;
     this.privateState = null;
+    this.vent = null;
     this.currentPhase = "menu";
     this.latestIncidents = [];
     this.clearCharacters();
@@ -395,13 +397,38 @@ export class OrbitOpsGame {
     else if (station.type === "task") await this.network.request("beginTask", { stationId: station.id });
     else if (station.type === "repair") await this.network.request("repairSabotage", { stationId: station.id });
     else if (station.type === "meeting") await this.network.request("callMeeting");
-    else if (station.type === "maintenance") await this.network.request("useMaintenance", { stationId: station.id });
+    else if (station.type === "maintenance") await this.enterVent(station.id);
     else if (station.type === "security" || station.type === "doorLogs") {
       this.ui.showSecurity(await this.network.request("requestSecurity"));
     } else if (station.type === "incident") {
       await this.network.request("reportIncident", { incidentId: station.id });
     }
     this.audio.playCue("interact");
+  }
+
+  async enterVent(stationId) {
+    const result = await this.network.request("enterVent", { stationId });
+    this.vent = result.vent;
+    this.ui.showVent(this.vent);
+  }
+
+  async hopVent(stationId) {
+    const result = await this.network.request("moveVent", { stationId });
+    this.vent = result.vent;
+    this.ui.showVent(this.vent);
+  }
+
+  async leaveVent() {
+    await this.network.request("exitVent");
+    this.vent = null;
+    this.ui.showVent(null);
+  }
+
+  // Alt cycles to the next vent on the network, as in the reference.
+  cycleVent() {
+    if (!this.vent?.exits?.length) return null;
+    this.ventCursor = ((this.ventCursor ?? -1) + 1) % this.vent.exits.length;
+    return this.hopVent(this.vent.exits[this.ventCursor].id);
   }
 
   interactWithIncident() {
@@ -595,7 +622,13 @@ export class OrbitOpsGame {
       this.lastInputSentAt = time;
       this.network.send("playerInput", this.input.movement());
     }
-    if (this.input.consume("KeyE")) this.interact().catch((error) => this.ui.toast(error.message, true));
+    if (this.input.consume("KeyE")) {
+      if (this.vent) this.leaveVent().catch((error) => this.ui.toast(error.message, true));
+      else this.interact().catch((error) => this.ui.toast(error.message, true));
+    }
+    if (this.input.consume("AltLeft") || this.input.consume("AltRight")) {
+      this.cycleVent()?.catch((error) => this.ui.toast(error.message, true));
+    }
     if (this.input.consume("KeyR")) this.interactWithIncident().catch((error) => this.ui.toast(error.message, true));
     if (this.input.consume("KeyQ")) this.tryEliminate().catch((error) => this.ui.toast(error.message, true));
     if (this.input.consume("KeyG")) this.performRoleAction().catch((error) => this.ui.toast(error.message, true));
