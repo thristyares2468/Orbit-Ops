@@ -1,4 +1,5 @@
 import { createMapDefinition, station, task } from "./mapFactory.js";
+import { SKELD_WALK_GRID } from "./skeldWalkGrid.js";
 
 // The supplied 1200x672 Skeld image is a measuring reference only. It is never
 // preloaded or rendered. Room art, floor silhouettes, corridors, fixtures and
@@ -297,6 +298,7 @@ export const THE_SKELD = createMapDefinition({
   // orthographic camera tilted 24 degrees, so the deck reads top-down while each
   // room's far wall stays visible. groundBox is where the model's y=0 plane lands in
   // the image; it is pinned to worldBox so world coordinates sit on the art exactly.
+  walkGrid: SKELD_WALK_GRID,
   deck: {
     assetKey: "skeld-deck",
     image: { width: 4096, height: 2435 },
@@ -326,14 +328,14 @@ export const THE_SKELD = createMapDefinition({
   // The reference clone's nine assignments, on the rooms it puts them in.
   tasks: [
     taskAt("skeld-turn-on-lights", "Turn On The Lights", "electrical", 454, 395, "wiring"),
-    taskAt("skeld-fix-wiring", "Fix The Electricity Wires", "electrical", 486, 428, "wiring"),
-    taskAt("skeld-stabilize-nav", "Stabilize The Ship's Navigation", "navigation", 1152, 286, "route"),
-    taskAt("skeld-reboot-wifi", "Reboot The Wifi", "communications", 848, 601, "sequence"),
-    taskAt("skeld-empty-garbage", "Empty The Garbage", "storage", 704, 597, "garbage"),
-    taskAt("skeld-divert-power", "Divert Power To Reactor", "reactor", 232, 293, "power"),
-    taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 214, 176, "balance"),
-    taskAt("skeld-fuel-engine", "Fuel Lower Engine", "lower-engine", 285, 512, "fuel"),
-    taskAt("skeld-clear-asteroids", "Clear The Asteroids", "weapons", 947, 205, "asteroids", 10)
+    taskAt("skeld-fix-wiring", "Fix The Electricity Wires", "electrical", 486, 439, "wiring"),
+    taskAt("skeld-stabilize-nav", "Stabilize The Ship's Navigation", "navigation", 1127, 286, "route"),
+    taskAt("skeld-reboot-wifi", "Reboot The Wifi", "communications", 827, 580, "sequence"),
+    taskAt("skeld-empty-garbage", "Empty The Garbage", "storage", 698, 589, "garbage"),
+    taskAt("skeld-divert-power", "Divert Power To Reactor", "reactor", 233, 295, "power"),
+    taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 233, 198, "balance"),
+    taskAt("skeld-fuel-engine", "Fuel Lower Engine", "lower-engine", 286, 507, "fuel"),
+    taskAt("skeld-clear-asteroids", "Clear The Asteroids", "weapons", 948, 201, "asteroids", 10)
   ],
   sabotages: [
     { id: "skeld-reactor-meltdown", name: "Reactor Meltdown", critical: true, durationMs: 20000, repairStations: ["skeld-reactor-alpha", "skeld-reactor-beta"], roomId: "reactor" },
@@ -345,26 +347,26 @@ export const THE_SKELD = createMapDefinition({
     stationAt("meeting-console", "meeting", "cafeteria", 677, 151),
     stationAt("skeld-cameras", "security", "security", 378, 269),
     stationAt("skeld-admin-table", "admin", "admin", 770, 337),
-    stationAt("skeld-vent-cafeteria", "maintenance", "cafeteria", 807, 183, "vent-hub"),
+    stationAt("skeld-vent-cafeteria", "maintenance", "cafeteria", 804, 183, "vent-hub"),
     stationAt("skeld-vent-admin", "maintenance", "admin", 761, 417, "vent-hub"),
     stationAt("skeld-vent-medbay", "maintenance", "medbay", 442, 276, "vent-port"),
     stationAt("skeld-vent-electrical-a", "maintenance", "electrical", 452, 488, "vent-port"),
-    stationAt("skeld-vent-electrical-b", "maintenance", "electrical", 536, 441, "vent-port"),
-    stationAt("skeld-vent-security", "maintenance", "security", 400, 343, "vent-port"),
-    stationAt("skeld-vent-reactor-upper", "maintenance", "reactor", 204, 239, "vent-engines"),
-    stationAt("skeld-vent-upper-engine", "maintenance", "upper-engine", 211, 184, "vent-engines"),
-    stationAt("skeld-vent-reactor-lower", "maintenance", "reactor", 204, 347, "vent-engines"),
-    stationAt("skeld-vent-lower-engine", "maintenance", "lower-engine", 311, 519, "vent-engines"),
-    stationAt("skeld-vent-weapons", "maintenance", "weapons", 977, 178, "vent-starboard"),
+    stationAt("skeld-vent-electrical-b", "maintenance", "electrical", 524, 442, "vent-port"),
+    stationAt("skeld-vent-security", "maintenance", "security", 386, 342, "vent-port"),
+    stationAt("skeld-vent-reactor-upper", "maintenance", "reactor", 198, 254, "vent-engines"),
+    stationAt("skeld-vent-upper-engine", "maintenance", "upper-engine", 210, 198, "vent-engines"),
+    stationAt("skeld-vent-reactor-lower", "maintenance", "reactor", 198, 348, "vent-engines"),
+    stationAt("skeld-vent-lower-engine", "maintenance", "lower-engine", 310, 510, "vent-engines"),
+    stationAt("skeld-vent-weapons", "maintenance", "weapons", 971, 178, "vent-starboard"),
     stationAt("skeld-vent-navigation-a", "maintenance", "navigation", 1104, 246, "vent-starboard"),
     stationAt("skeld-vent-navigation-b", "maintenance", "navigation", 1104, 332, "vent-starboard"),
-    stationAt("skeld-vent-shields", "maintenance", "shields", 961, 536, "vent-starboard"),
-    stationAt("skeld-reactor-alpha", "repair", "reactor", 92, 291, "skeld-reactor-meltdown"),
+    stationAt("skeld-vent-shields", "maintenance", "shields", 939, 516, "vent-starboard"),
+    stationAt("skeld-reactor-alpha", "repair", "reactor", 116, 281, "skeld-reactor-meltdown"),
     stationAt("skeld-reactor-beta", "repair", "reactor", 195, 291, "skeld-reactor-meltdown"),
-    stationAt("skeld-o2-panel", "repair", "o2", 899, 225, "skeld-o2-depletion"),
-    stationAt("skeld-admin-o2", "repair", "admin", 858, 336, "skeld-o2-depletion"),
+    stationAt("skeld-o2-panel", "repair", "o2", 907, 225, "skeld-o2-depletion"),
+    stationAt("skeld-admin-o2", "repair", "admin", 854, 336, "skeld-o2-depletion"),
     stationAt("skeld-comms-panel", "repair", "communications", 756, 539, "skeld-comms-sabotage"),
-    stationAt("skeld-light-panel", "repair", "electrical", 550, 369, "skeld-lights-out")
+    stationAt("skeld-light-panel", "repair", "electrical", 543, 386, "skeld-lights-out")
   ],
   spawnPoints: [
     [worldX(677), worldZ(116)], [worldX(641), worldZ(151)], [worldX(713), worldZ(151)], [worldX(677), worldZ(187)],

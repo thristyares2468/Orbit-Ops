@@ -46,6 +46,7 @@ export function createMapDefinition({
   corridors: authoredCorridors = null,
   zones = [],
   deck = null,
+  walkGrid = null,
   tasks,
   sabotages,
   stations = [],
@@ -116,6 +117,7 @@ export function createMapDefinition({
     taskDefinitions: frozenTasks,
     sabotageDefinitions: frozenSabotages,
     collisionRects: frozenCollisions,
+    walkGrid: walkGrid ? Object.freeze({ ...walkGrid }) : null,
     decals: frozenDecals,
     stations: allStations,
     spawnPoints: frozenSpawns,
@@ -161,8 +163,46 @@ export function createMapDefinition({
   return map;
 }
 
+// Decoded walk-grid bitmasks, cached per map so the base64 is unpacked once.
+const WALK_GRID_CACHE = new WeakMap();
+
+function walkGridBits(grid) {
+  let bits = WALK_GRID_CACHE.get(grid);
+  if (bits) return bits;
+  const binary = typeof atob === "function"
+    ? atob(grid.bits)
+    : Buffer.from(grid.bits, "base64").toString("binary");
+  bits = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bits[i] = binary.charCodeAt(i);
+  WALK_GRID_CACHE.set(grid, bits);
+  return bits;
+}
+
+// A cell is walkable only if it and the four points a margin away all are, so a
+// player is never squeezed into a wall by their own radius.
+function walkGridAllows(grid, x, z, margin) {
+  const bits = walkGridBits(grid);
+  const stride = (grid.cols + 7) >> 3;
+  const probe = (px, pz) => {
+    const col = Math.floor((px - grid.originX) / grid.cell);
+    const row = Math.floor((pz - grid.originZ) / grid.cell);
+    if (col < 0 || row < 0 || col >= grid.cols || row >= grid.rows) return false;
+    return (bits[row * stride + (col >> 3)] >> (col & 7) & 1) === 1;
+  };
+  if (!probe(x, z)) return false;
+  if (margin <= 0) return true;
+  return probe(x - margin, z) && probe(x + margin, z)
+    && probe(x, z - margin) && probe(x, z + margin);
+}
+
 export function mapIsWalkable(map, x, z, margin = 0.55) {
   if (!map || !Number.isFinite(x) || !Number.isFinite(z)) return false;
+  // When a map carries a walk grid derived from its own art, that grid is the
+  // authority on floor; the authored rects only add props on top of it.
+  if (map.walkGrid) {
+    if (!walkGridAllows(map.walkGrid, x, z, margin)) return false;
+    return !map.collisionRects.some((rect) => pointInCollisionRect(x, z, rect, margin));
+  }
   const insideFloor = map.rooms.some((room) => pointInMapShape(x, z, room, margin))
     || map.zones.some((zone) => zone.walkable !== false
       && pointInMapShape(x, z, zone, Math.min(margin, 0.25)))
