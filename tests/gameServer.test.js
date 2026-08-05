@@ -515,3 +515,90 @@ test("clearing a sabotage releases every bot repair assignment", () => {
   server.tickBot(room, responder, Date.now(), 0.05);
   assert.notEqual(responder.botTarget?.repairSabotageId, "skeld-lights-out");
 });
+
+test("sight is limited to a radius and collapses when the lights go out", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const crew = player("crew", "crew");
+  const operative = player("operative", "operative");
+  for (const member of [crew, operative]) room.players.set(member.id, member);
+
+  const litCrew = server.visionRadiusFor(room, crew);
+  const litOperative = server.visionRadiusFor(room, operative);
+  assert.ok(litCrew > 0);
+  assert.ok(litOperative > litCrew, "operatives see further than crew");
+
+  room.activeSabotage = { id: "skeld-lights-out", repairStations: [], repairs: new Set() };
+  assert.equal(server.lightsAreOut(room), true);
+  const darkCrew = server.visionRadiusFor(room, crew);
+  const darkOperative = server.visionRadiusFor(room, operative);
+  assert.ok(darkCrew < litCrew * 0.6, "a lights sabotage badly blinds the crew");
+  assert.ok(darkOperative > darkCrew, "the operative keeps the advantage in the dark");
+
+  // A non-lighting sabotage must not darken anything.
+  room.activeSabotage = { id: "skeld-reactor-meltdown", repairStations: [], repairs: new Set() };
+  assert.equal(server.lightsAreOut(room), false);
+  assert.equal(server.visionRadiusFor(room, crew), litCrew);
+});
+
+test("host visibility settings still scale the sight radius", () => {
+  server = new GameServer(new RecordingIo());
+  const wide = server.createRoom("private", { crewVisibility: 1.5 });
+  const narrow = server.createRoom("private", { crewVisibility: 0.5 });
+  wide.phase = PHASES.ACTIVE;
+  narrow.phase = PHASES.ACTIVE;
+  const a = player("a", "crew");
+  const b = player("b", "crew");
+  wide.players.set(a.id, a);
+  narrow.players.set(b.id, b);
+  assert.ok(server.visionRadiusFor(wide, a) > server.visionRadiusFor(narrow, b));
+});
+
+test("ghosts and meetings see the whole deck", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const alive = player("alive", "crew");
+  const dead = player("dead", "crew");
+  dead.alive = false;
+  for (const member of [alive, dead]) room.players.set(member.id, member);
+
+  assert.equal(server.seesEverything(room, alive), false, "the living are limited to their radius");
+  assert.equal(server.seesEverything(room, dead), true, "ghosts spectate everything");
+
+  room.phase = PHASES.DISCUSSION;
+  assert.equal(server.seesEverything(room, alive), true, "meetings reveal everyone");
+});
+
+test("snapshots cull players and bodies beyond the viewer's sight radius", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now();
+
+  const viewer = player("viewer", "crew", { x: 0, z: 0 });
+  const radius = server.visionRadiusFor(room, viewer);
+  const near = player("near", "crew", { x: radius - 2, z: 0 });
+  const far = player("far", "crew", { x: radius + 40, z: 0 });
+  for (const member of [viewer, near, far]) room.players.set(member.id, member);
+  room.incidents.set("body-near", { id: "body-near", x: 1, z: 0, roomId: "cafeteria", reported: false });
+  room.incidents.set("body-far", { id: "body-far", x: radius + 50, z: 0, roomId: "navigation", reported: false });
+
+  room.lastSnapshotAt = 0;
+  server.tick();
+
+  const sent = io.events.filter((entry) => entry.event === "worldSnapshot" && entry.target === viewer.socketId);
+  assert.ok(sent.length > 0, "the viewer receives a snapshot");
+  const payload = sent.at(-1).payload;
+  const ids = payload.players.map((snapshot) => snapshot.id);
+  assert.ok(ids.includes("viewer"), "you always see yourself");
+  assert.ok(ids.includes("near"), "players inside the radius are visible");
+  assert.ok(!ids.includes("far"), "players beyond the radius are not sent at all");
+  assert.ok(payload.incidents.some((incident) => incident.id === "body-near"));
+  assert.ok(!payload.incidents.some((incident) => incident.id === "body-far"),
+    "bodies beyond the radius are not sent either");
+  assert.equal(payload.visionRadius, Number(radius.toFixed(2)));
+  assert.equal(payload.lightsOut, false);
+});

@@ -11,6 +11,7 @@ The host can select one of three isolated maps: **The Skeld**, **MIRA HQ**, or *
 - Public matchmaking with all-ready auto-launch, private room codes, practice simulations with bots, host settings, ready state, and host reassignment
 - 45-second reconnect reservation with rotated rejoin tokens
 - 20 Hz authoritative movement simulation and 10 Hz world snapshots
+- Limited sight: the deck is dark beyond a radius around you, enforced server-side so culled players and bodies are never sent to the client at all. Operatives see further than crew, and a lights sabotage collapses the crew's radius while barely touching the operative's. Ghosts and meetings reveal everything.
 - Server-private role assignment with Engineer, Medic, Sheriff, Tracker, Morphling, Swooper, Janitor, Jester, Survivor, and base Crew/Operative roles
 - Ghosts: eliminated players keep drifting through walls at a small speed bonus, finish their assignments, and chat on the dead-only channel, while the living never receive ghost positions; the first fallen crew member returns as the Guardian Angel with a protect shield
 - Eight map-specific server-sequenced assignments per map using supplied task artwork

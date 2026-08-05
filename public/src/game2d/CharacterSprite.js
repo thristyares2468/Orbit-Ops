@@ -53,6 +53,7 @@ export class CharacterSprite {
       this.nameplate
     ]);
     this.container.setDepth(500);
+    this.seen = true;
   }
 
   applyAppearance(appearance = this.player.appearance) {
@@ -97,6 +98,13 @@ export class CharacterSprite {
     if (immediate || !Number.isFinite(this.container.x)) {
       this.container.setPosition(next.x, next.y);
     }
+  }
+
+  // Out of sight: hidden entirely rather than dimmed, so nothing leaks through the dark.
+  setSeen(seen) {
+    if (this.seen === seen) return;
+    this.seen = seen;
+    this.container.setVisible(seen || this.isLocal);
   }
 
   setTracked(tracked) {

@@ -14,7 +14,7 @@ import {
 } from "../public/src/roleData.js";
 import {
   BOT_SABOTAGE, DEFAULT_SETTINGS, DISCONNECT_GRACE_MS, MAX_ROOM_PLAYERS, MIN_MATCH_PLAYERS,
-  PHASES, PLAYER_SPEED, SERVER_VERSION, SESSION_SECRET, SNAPSHOT_RATE, TICK_RATE
+  PHASES, PLAYER_SPEED, SERVER_VERSION, SESSION_SECRET, SNAPSHOT_RATE, TICK_RATE, VISION
 } from "./constants.js";
 import { RateLimiter } from "./rateLimits.js";
 import {
@@ -872,6 +872,28 @@ export class GameServer {
     return { ok: true, sabotage: this.publicSabotage(room.activeSabotage) };
   }
 
+  // True while a lights sabotage is blinding the deck.
+  lightsAreOut(room) {
+    return Boolean(room.activeSabotage && /lights|lighting/u.test(room.activeSabotage.id));
+  }
+
+  // How far a player can see right now, in world units. The host's crew/operative
+  // visibility settings scale it, so existing room settings still mean something.
+  visionRadiusFor(room, player) {
+    const dark = this.lightsAreOut(room);
+    const operative = player.faction === "operative";
+    const base = operative
+      ? (dark ? VISION.lightsOutOperativeRadius : VISION.operativeRadius)
+      : (dark ? VISION.lightsOutCrewRadius : VISION.crewRadius);
+    const scale = operative ? room.settings.operativeVisibility : room.settings.crewVisibility;
+    return base * (Number(scale) || 1);
+  }
+
+  // Dead players spectate the whole deck, and meetings reveal everyone.
+  seesEverything(room, player) {
+    return !player.alive || room.phase !== PHASES.ACTIVE;
+  }
+
   // Bot pacing measures from the moment the deck was last clear, so a repaired or
   // expired sabotage starts the next cooldown instead of chaining immediately.
   clearActiveSabotage(room) {
@@ -1401,19 +1423,29 @@ export class GameServer {
           phase: room.phase,
           incidents: [...room.incidents.values()].filter((incident) => !incident.reported).map((incident) => ({ id: incident.id, x: incident.x, z: incident.z, roomId: incident.roomId }))
         };
-        if (snapshots.every((snapshot) => snapshot.alive)) {
-          this.io.to(room.code).emit("worldSnapshot", { ...base, players: snapshots });
-        } else {
-          // Ghost positions are private to the dead: living players receive a
-          // snapshot without them (their last known body is the incident marker).
-          const living = snapshots.filter((snapshot) => snapshot.alive);
-          for (const member of members) {
-            if (!member.socketId || !member.connected) continue;
-            this.io.to(member.socketId).emit("worldSnapshot", {
-              ...base,
-              players: member.alive ? living : snapshots
-            });
+        // Sight is enforced here rather than dimmed on the client, so a tampered
+        // client still cannot see crew, bodies or ghosts beyond its own radius.
+        const living = snapshots.filter((snapshot) => snapshot.alive);
+        for (const member of members) {
+          if (!member.socketId || !member.connected) continue;
+          // Ghost positions stay private to the dead: their last known body is the
+          // incident marker the living can see instead.
+          const visibleToMember = member.alive ? living : snapshots;
+          if (this.seesEverything(room, member)) {
+            this.io.to(member.socketId).emit("worldSnapshot", { ...base, players: visibleToMember });
+            continue;
           }
+          const radius = this.visionRadiusFor(room, member);
+          const cull = radius + VISION.cullMargin;
+          this.io.to(member.socketId).emit("worldSnapshot", {
+            ...base,
+            visionRadius: Number(radius.toFixed(2)),
+            lightsOut: this.lightsAreOut(room),
+            players: visibleToMember.filter((snapshot) =>
+              snapshot.id === member.id || distance2D(snapshot, member.position) <= cull),
+            incidents: base.incidents.filter((incident) =>
+              distance2D(incident, member.position) <= cull)
+          });
         }
       }
     }

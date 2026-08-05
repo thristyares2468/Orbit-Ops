@@ -1,5 +1,6 @@
 import { CharacterSprite } from "./CharacterSprite.js";
 import { MapBuilder } from "./MapBuilder.js";
+import { VisionOverlay } from "./VisionOverlay.js";
 import { DEFAULT_MAP_ID, getMapDefinition } from "../shipData.js";
 import {
   PHASER_ASSETS,
@@ -34,6 +35,7 @@ export class MeridianScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor("#02060c");
     this.cameras.main.setRoundPixels(true);
+    this.vision = new VisionOverlay(this);
     this.setMap(this.bridge.activeMapId() ?? DEFAULT_MAP_ID);
 
     this.bridge.onSceneReady(this);
@@ -105,7 +107,24 @@ export class MeridianScene extends Phaser.Scene {
     this.characters.get(playerId)?.markDead(vanish);
   }
 
+  // The server tells us how far we can see; the overlay only draws that decision.
+  applyVisionState(snapshot) {
+    if (snapshot.visionRadius === undefined) {
+      this.visionRadius = null;
+      this.lightsOut = false;
+      return;
+    }
+    this.visionRadius = snapshot.visionRadius;
+    this.lightsOut = Boolean(snapshot.lightsOut);
+  }
+
   applySnapshot(snapshot) {
+    this.applyVisionState(snapshot);
+    const visible = new Set((snapshot.players ?? []).map((player) => player.id));
+    for (const [id, character] of this.characters) {
+      // Anyone the server culled is outside our sight radius entirely.
+      character.setSeen(visible.has(id));
+    }
     for (const player of snapshot.players ?? []) {
       this.characters.get(player.id)?.applySnapshot(player, false);
     }
@@ -160,6 +179,20 @@ export class MeridianScene extends Phaser.Scene {
     this.sabotageOverlay.setAlpha(alpha);
   }
 
+  updateVision(deltaSeconds) {
+    if (!this.vision) return;
+    const local = this.characters.get(this.bridge.playerId);
+    const active = this.visionRadius !== null && this.visionRadius !== undefined && Boolean(local);
+    this.vision.setEnabled(active);
+    if (!active) return;
+    this.vision.update(
+      { x: local.container.x, y: local.container.y },
+      this.visionRadius * this.metrics.scale,
+      deltaSeconds,
+      this.lightsOut ? 1 : 0.94
+    );
+  }
+
   clearCharacters() {
     for (const character of this.characters.values()) character.destroy();
     this.characters.clear();
@@ -188,6 +221,7 @@ export class MeridianScene extends Phaser.Scene {
       });
     }
     this.setSabotage(this.bridge.activeSabotage, time / 1000);
+    this.updateVision(deltaSeconds);
     this.bridge.onRenderFrame(time, deltaMs);
   }
 }

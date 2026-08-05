@@ -35,6 +35,18 @@ export const DEFAULT_SETTINGS = Object.freeze({
   allowSinglePlayer: false
 });
 
+// Sight is limited to a radius around each player, as in the reference clone: the deck
+// is dark beyond it and a lights sabotage collapses the crew's radius. Radii are world
+// units. Ghosts and meetings ignore all of this and see everything.
+export const VISION = Object.freeze({
+  crewRadius: 14,
+  operativeRadius: 16.8,
+  lightsOutCrewRadius: 5,
+  lightsOutOperativeRadius: 14,
+  // Culling margin so a player entering your radius is already interpolating smoothly.
+  cullMargin: 4
+});
+
 // Practice bots paced this way so a new player gets an opening window to explore, and
 // so a repaired or expired sabotage never chains straight into the next one.
 export const BOT_SABOTAGE = Object.freeze({
