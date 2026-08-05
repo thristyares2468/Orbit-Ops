@@ -199,6 +199,12 @@ export class OrbitOpsGame {
       this.ui.closeModal("meeting");
       this.input.setEnabled(true);
     });
+    // Private role findings (Detective forensics, Investigator reports, seances).
+    this.network.on("roleFinding", (finding) => this.ui.showRoleFinding(finding));
+    this.network.on("votesSwapped", () => this.ui.toast("The vote was tampered with."));
+    this.network.on("playerRevived", ({ playerId }) => {
+      this.ui.toast(playerId === this.playerId ? "You have been revived." : "Someone was pulled back from the dead.");
+    });
     this.network.on("chatMessage", (payload) => this.ui.appendChat(payload));
     this.network.on("matchEnded", (results) => {
       this.currentPhase = "results";

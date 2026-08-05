@@ -611,6 +611,22 @@ export class GameUI {
     this.openModal("admin");
   }
 
+  // Findings are private to the role that earned them, so they surface as a
+  // persistent card rather than a toast that can be missed.
+  showRoleFinding(finding) {
+    const log = byId("role-findings");
+    if (!log) return;
+    setVisible(log, true);
+    const entry = document.createElement("p");
+    const label = document.createElement("b");
+    label.textContent = `${titleCase(finding.type)}: `;
+    const detail = document.createElement("span");
+    detail.textContent = finding.detail;
+    entry.append(label, detail);
+    log.append(entry);
+    while (log.children.length > 6) log.firstElementChild.remove();
+  }
+
   showSecurity(data) {
     const content = byId("security-content"); content.replaceChildren();
     const summary = document.createElement("p"); summary.textContent = `${data.motion.length} life signs on camera across ${new Set(data.motion.map((item) => item.roomId)).size} sectors.`;

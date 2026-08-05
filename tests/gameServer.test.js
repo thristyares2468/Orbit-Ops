@@ -846,3 +846,101 @@ test("the Jester still wins by being voted out", () => {
   assert.ok(win);
   assert.match(win.reason, /jester/u);
 });
+
+test("the Swapper exchanges two players' votes before the tally", () => {
+  const io = new RecordingIo();
+  server = new GameServer(io);
+  const room = server.createRoom("private", { votingSeconds: 10 });
+  room.phase = PHASES.ACTIVE;
+  room.matchStartedAt = Date.now() - 20_000;
+  room.taskTotal = 15;
+  const swapper = assignRole(player("swapper", "crew"), "swapper", "crew", 1);
+  const doomed = player("doomed", "crew", { x: 1, z: 0 });
+  const spared = player("spared", "crew", { x: 2, z: 0 });
+  const operative = player("operative", "operative", { x: 3, z: 0 });
+  for (const member of [swapper, doomed, spared, operative]) room.players.set(member.id, member);
+  swapper.roleState.swapFirstId = doomed.id;
+  swapper.roleState.swapSecondId = spared.id;
+
+  room.meeting = { id: "m", reporterId: swapper.id, incidentId: null, incidentRoom: null, evidence: [], votes: new Map() };
+  server.startVoting(room);
+  for (const timer of room.timers) clearTimeout(timer);
+  room.timers.clear();
+  // Everyone piles onto "doomed" - the swap should send it to "spared" instead.
+  server.submitVote(room, swapper, doomed.id);
+  server.submitVote(room, operative, doomed.id);
+  server.submitVote(room, doomed, doomed.id);
+  server.submitVote(room, spared, doomed.id);
+
+  const result = io.events.filter((entry) => entry.event === "voteResult").at(-1).payload;
+  assert.equal(result.removedId, spared.id, "the votes landed on the swapped player");
+  assert.equal(swapper.roleState.swapFirstId, null, "the swap is spent");
+  for (const timer of room.timers) clearTimeout(timer);
+  room.timers.clear();
+});
+
+test("a blackmailed player cannot speak during the meeting", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.DISCUSSION;
+  const blackmailer = assignRole(player("bm", "operative"), "blackmailer", "operative");
+  const silenced = player("silenced", "crew");
+  const free = player("free", "crew");
+  for (const member of [blackmailer, silenced, free]) room.players.set(member.id, member);
+  blackmailer.roleState.blackmailedId = silenced.id;
+
+  assert.throws(() => server.chat(room, silenced, "it was not me"), /blackmailed/u);
+  assert.equal(server.chat(room, free, "I saw something").ok, true, "others still speak");
+
+  // Outside a meeting the silence does not apply.
+  room.phase = PHASES.ACTIVE;
+  silenced.alive = false;
+  assert.equal(server.chat(room, silenced, "ghost talk").ok, true);
+});
+
+test("the Plumber seals a vent and it stops working", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const vent = stationById("the-skeld", "skeld-vent-cafeteria");
+  const plumber = assignRole(player("plumber", "crew", { x: vent.x, z: vent.z }), "plumber", "crew", 2);
+  const operative = player("operative", "operative", { x: vent.x, z: vent.z });
+  for (const member of [plumber, operative]) room.players.set(member.id, member);
+
+  server.roleAction(room, plumber, {});
+  assert.ok((room.sealedVents ?? []).length === 1, "a vent was sealed");
+  assert.throws(() => server.enterVent(room, operative, room.sealedVents[0]), /welded shut/u);
+});
+
+test("a killer neutral takes the match once nothing living opposes it", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const wolf = assignRole(player("wolf", "neutral"), "werewolf", "neutral");
+  const prey = player("prey", "crew");
+  for (const member of [wolf, prey]) room.players.set(member.id, member);
+
+  assert.equal(checkSoloWin(room), null, "not yet - someone still lives");
+  prey.alive = false;
+  const win = checkSoloWin(room);
+  assert.ok(win, "the last one standing wins");
+  assert.match(win.reason, /last-standing/u);
+  assert.deepEqual(win.winnerIds, [wolf.id]);
+});
+
+test("the Phantom wins by finishing its assignments after death", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const phantom = assignRole(player("phantom", "neutral"), "phantom", "neutral");
+  phantom.tasks = [{ id: "a" }, { id: "b" }];
+  phantom.alive = false;
+  room.players.set(phantom.id, phantom);
+
+  phantom.completedTasks = new Set(["a"]);
+  assert.equal(checkSoloWin(room), null, "half-finished is not a win");
+  phantom.completedTasks = new Set(["a", "b"]);
+  const win = checkSoloWin(room);
+  assert.ok(win, "finishing every assignment wins, even dead");
+  assert.deepEqual(win.winnerIds, [phantom.id]);
+});

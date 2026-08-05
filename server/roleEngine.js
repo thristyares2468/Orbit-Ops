@@ -7,6 +7,12 @@ import { getRoleDefinition } from "../public/src/roleData.js";
 
 const ROLE_TARGET_RANGE = 3.2;
 
+// Every vent on the map plus any the Miner has dug.
+function getRoleVents(server, room) {
+  const authored = server.mapFor(room).stations.filter((station) => station.type === "maintenance");
+  return [...authored, ...(room.minedVents ?? [])];
+}
+
 function distance(a, b) {
   return Math.hypot(Number(a?.x) - Number(b?.x), Number(a?.z) - Number(b?.z));
 }
@@ -103,6 +109,26 @@ function buildAbilityApi(server, room, player) {
       server.io.to(room.code).emit("ventMined", { vent });
     },
 
+    // Push a fresh private state to someone whose own state a role just changed.
+    notify: (target) => server.sendPrivateState(room, target),
+
+    // The Plumber welds shut the nearest vent so nobody can use it again.
+    sealNearestVent: (position) => {
+      const vents = server.ventsInNetwork
+        ? getRoleVents(server, room)
+        : [];
+      let nearest = null;
+      for (const vent of vents) {
+        if ((room.sealedVents ?? []).includes(vent.id)) continue;
+        const gap = distance(position, vent);
+        if (!nearest || gap < nearest.gap) nearest = { vent, gap };
+      }
+      if (!nearest) throw new Error("There is no vent to seal here.");
+      room.sealedVents = room.sealedVents ?? [];
+      room.sealedVents.push(nearest.vent.id);
+      server.io.to(room.code).emit("ventSealed", { ventId: nearest.vent.id });
+    },
+
     becomeRoleOf: (victimId) => {
       const victim = room.players.get(String(victimId ?? ""));
       if (!victim?.role) throw new Error("There is nothing to remember here.");
@@ -154,6 +180,14 @@ export function checkSoloWin(room, { votedOutId = null } = {}) {
       const targetId = player.roleState?.executionerTargetId;
       if (targetId && votedOutId === targetId && player.alive) {
         return { winner: FACTIONS.NEUTRAL, reason: `${definition.id}-target-removed`, winnerIds: [player.id] };
+      }
+    }
+    // Killer neutrals take the match once nothing living opposes them.
+    if (definition.win.kind === WIN_KINDS.LAST_STANDING && player.alive) {
+      const rivals = [...room.players.values()].filter((candidate) =>
+        candidate.alive && candidate.id !== player.id);
+      if (rivals.length === 0) {
+        return { winner: FACTIONS.NEUTRAL, reason: `${definition.id}-last-standing`, winnerIds: [player.id] };
       }
     }
     if (definition.win.check) {

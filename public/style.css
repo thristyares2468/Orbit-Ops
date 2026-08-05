@@ -271,6 +271,23 @@ input[type="range"] { min-height: 24px; padding: 0; accent-color: var(--cyan); }
 .admin-room.is-occupied { border-color: rgba(116,229,255,.6); background: rgba(24,74,99,.6); }
 .admin-room.is-occupied span { color: var(--cyan-bright); }
 
+.role-findings {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: 120px;
+  width: min(320px, calc(100vw - 36px));
+  max-height: 30vh;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid rgba(171,121,255,.4);
+  border-radius: var(--radius);
+  background: rgba(10,6,20,.9);
+  font-size: .72rem;
+  line-height: 1.5;
+}
+.role-findings p { margin: 0 0 6px; color: #cbbde8; }
+.role-findings b { color: var(--violet); }
+
 .vent-panel {
   position: fixed;
   z-index: 17;

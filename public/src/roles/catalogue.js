@@ -183,6 +183,180 @@ export const CREW_ROLES = [
     }
   }),
   defineRole({
+    id: "jailor",
+    name: "Jailor",
+    faction: FACTIONS.CREW,
+    colour: "#93a4b8",
+    objective: "Hold a suspect for the meeting, and execute if you must.",
+    ability: {
+      id: "jail", label: "Jail", icon: icon("sheriff"),
+      targeting: TARGETING.PLAYER, cooldownMs: 30_000, uses: null,
+      perform: ({ state, target }) => {
+        state.jailedId = target.id;
+        return { effect: "jail", targetId: target.id };
+      }
+    },
+    state: { jailedId: null }
+  }),
+  defineRole({
+    id: "lookout",
+    name: "Lookout",
+    faction: FACTIONS.CREW,
+    colour: "#7fd4ff",
+    objective: "Watch a crewmate and learn who came near them.",
+    ability: {
+      id: "watch", label: "Watch", icon: icon("tracker"),
+      targeting: TARGETING.PLAYER, cooldownMs: 25_000, uses: null,
+      perform: ({ api, room, target }) => {
+        const nearby = [...room.players.values()].filter((candidate) =>
+          candidate.alive && candidate.id !== target.id
+          && Math.hypot(candidate.position.x - target.position.x, candidate.position.z - target.position.z) < 8);
+        api.reportPrivately({
+          type: "lookout",
+          detail: nearby.length
+            ? `Near ${target.displayName}: ${nearby.map((c) => c.displayName).join(", ")}.`
+            : `${target.displayName} is alone.`
+        });
+        return { effect: "watch", targetId: target.id };
+      }
+    }
+  }),
+  defineRole({
+    id: "snitch",
+    name: "Snitch",
+    faction: FACTIONS.CREW,
+    colour: "#ffd98a",
+    objective: "Finish your assignments and the Operatives light up.",
+    ability: null
+  }),
+  defineRole({
+    id: "spy",
+    name: "Spy",
+    faction: FACTIONS.CREW,
+    colour: "#a0e7c8",
+    objective: "Read the deck the way the Operatives do.",
+    ability: {
+      id: "spy-sweep", label: "Sweep", icon: icon("investigator"),
+      targeting: TARGETING.NONE, cooldownMs: 30_000, uses: null,
+      perform: ({ api, room, player }) => {
+        const others = [...room.players.values()].filter((c) => c.alive && c.id !== player.id);
+        api.reportPrivately({
+          type: "sweep",
+          detail: `${others.filter((c) => c.ventId).length} of ${others.length} are inside the vents right now.`
+        });
+        return { effect: "spy-sweep" };
+      }
+    }
+  }),
+  defineRole({
+    id: "trapper",
+    name: "Trapper",
+    faction: FACTIONS.CREW,
+    colour: "#8fb98f",
+    objective: "Lay a trap and learn who walks into it.",
+    ability: {
+      id: "trap", label: "Trap", icon: icon("engineer"),
+      targeting: TARGETING.NONE, cooldownMs: 25_000, uses: 3,
+      perform: ({ state, player }) => {
+        state.traps = state.traps ?? [];
+        state.traps.push({ x: player.position.x, z: player.position.z });
+        return { effect: "trap" };
+      }
+    },
+    state: { traps: [] }
+  }),
+  defineRole({
+    id: "transporter",
+    name: "Transporter",
+    faction: FACTIONS.CREW,
+    colour: "#b7f7ff",
+    objective: "Swap two players' positions and watch the chaos.",
+    ability: {
+      id: "transport", label: "Transport", icon: icon("tracker"),
+      targeting: TARGETING.PLAYER, cooldownMs: 30_000, uses: null,
+      perform: ({ api, state, target, room }) => {
+        if (!state.transportFirstId) {
+          state.transportFirstId = target.id;
+          return { effect: "transport-armed", targetId: target.id };
+        }
+        const first = room.players.get(state.transportFirstId);
+        state.transportFirstId = null;
+        if (!first || !first.alive) return { effect: "transport-failed", targetId: target.id };
+        const spot = { ...first.position };
+        api.teleport(first, target.position);
+        api.teleport(target, spot);
+        return { effect: "transport", targetId: target.id };
+      }
+    },
+    state: { transportFirstId: null }
+  }),
+  defineRole({
+    id: "prosecutor",
+    name: "Prosecutor",
+    faction: FACTIONS.CREW,
+    colour: "#d8a657",
+    objective: "Bring one case to trial that nobody can vote down.",
+    ability: {
+      id: "prosecute", label: "Prosecute", icon: icon("sheriff"),
+      targeting: TARGETING.PLAYER, cooldownMs: 0, uses: 1,
+      requires: ({ room, api }) => (api.inMeeting(room) ? null : "The Prosecutor only acts during a meeting."),
+      perform: ({ api, player, target }) => {
+        api.eliminate(player, target, "prosecution", { ignoreFaction: true, ignoreProtection: true });
+        return { effect: "prosecute", targetId: target.id };
+      }
+    }
+  }),
+  defineRole({
+    id: "oracle",
+    name: "Oracle",
+    faction: FACTIONS.CREW,
+    colour: "#c9a7ff",
+    objective: "Bless a crewmate; if you fall, the deck learns what they are.",
+    ability: {
+      id: "bless", label: "Bless", icon: icon("medic"),
+      targeting: TARGETING.PLAYER, cooldownMs: 30_000, uses: null,
+      perform: ({ state, target }) => {
+        state.blessedId = target.id;
+        return { effect: "bless", targetId: target.id };
+      }
+    },
+    state: { blessedId: null }
+  }),
+  defineRole({
+    id: "hunter",
+    name: "Hunter",
+    faction: FACTIONS.CREW,
+    colour: "#a3703f",
+    objective: "Stalk your quarry and strike when you are certain.",
+    ability: {
+      id: "hunt", label: "Hunt", icon: icon("sheriff"),
+      targeting: TARGETING.PLAYER, cooldownMs: 35_000, uses: 1,
+      perform: ({ api, player, target }) => {
+        if (target.faction === FACTIONS.CREW) {
+          api.eliminate(player, player, "hunter remorse", { ignoreFaction: true, ignoreProtection: true });
+          return { effect: "hunt-misfire", targetId: target.id };
+        }
+        api.eliminate(player, target, "hunted down", { ignoreFaction: true });
+        return { effect: "hunt-hit", targetId: target.id };
+      }
+    }
+  }),
+  defineRole({
+    id: "plumber",
+    name: "Plumber",
+    faction: FACTIONS.CREW,
+    colour: "#6da3c0",
+    objective: "Seal a vent so nobody can use it again.",
+    ability: {
+      id: "seal", label: "Seal", icon: icon("engineer"),
+      targeting: TARGETING.NONE, cooldownMs: 30_000, uses: 2,
+      perform: ({ api, player }) => {
+        api.sealNearestVent(player.position);
+        return { effect: "seal" };
+      }
+    }
+  }),
+  defineRole({
     id: "altruist",
     name: "Altruist",
     faction: FACTIONS.CREW,
@@ -397,6 +571,99 @@ export const OPERATIVE_ROLES = [
     state: { markX: null, markZ: null }
   }),
   defineRole({
+    id: "grenadier",
+    name: "Grenadier",
+    faction: FACTIONS.OPERATIVE,
+    colour: "#ff5f6f",
+    objective: "Blind everyone nearby and walk away clean.",
+    ability: {
+      id: "flash", label: "Flash", icon: icon("swooper"),
+      targeting: TARGETING.NONE, cooldownMs: 30_000, uses: null,
+      perform: ({ api, room, player, now }) => {
+        for (const candidate of room.players.values()) {
+          if (!candidate.alive || candidate.id === player.id) continue;
+          if (Math.hypot(candidate.position.x - player.position.x, candidate.position.z - player.position.z) > 10) continue;
+          candidate.roleState = candidate.roleState ?? {};
+          candidate.roleState.blindedUntil = now + 8_000;
+          api.notify(candidate);
+        }
+        return { effect: "flash" };
+      }
+    }
+  }),
+  defineRole({
+    id: "bomber",
+    name: "Bomber",
+    faction: FACTIONS.OPERATIVE,
+    colour: "#ff5f6f",
+    objective: "Plant a charge and be somewhere else when it goes off.",
+    ability: {
+      id: "plant", label: "Plant", icon: icon("janitor"),
+      targeting: TARGETING.NONE, cooldownMs: 35_000, uses: null,
+      perform: ({ state, player, now }) => {
+        state.bomb = { x: player.position.x, z: player.position.z, at: now + 6_000 };
+        return { effect: "plant" };
+      }
+    },
+    state: { bomb: null }
+  }),
+  defineRole({
+    id: "hypnotist",
+    name: "Hypnotist",
+    faction: FACTIONS.OPERATIVE,
+    colour: "#ff5f6f",
+    objective: "Cloud a crewmate's sight until they cannot trust it.",
+    ability: {
+      id: "hypnotise", label: "Hypnotise", icon: icon("morphling"),
+      targeting: TARGETING.PLAYER, cooldownMs: 28_000, uses: null,
+      perform: ({ api, target, now }) => {
+        target.roleState = target.roleState ?? {};
+        target.roleState.blindedUntil = now + 12_000;
+        api.notify(target);
+        return { effect: "hypnotise", targetId: target.id };
+      }
+    }
+  }),
+  defineRole({
+    id: "warlock",
+    name: "Warlock",
+    faction: FACTIONS.OPERATIVE,
+    colour: "#ff5f6f",
+    objective: "Curse a crewmate; whoever they touch next dies with them.",
+    ability: {
+      id: "curse", label: "Curse", icon: icon("morphling"),
+      targeting: TARGETING.PLAYER, cooldownMs: 30_000, uses: null,
+      perform: ({ state, target }) => {
+        state.cursedId = target.id;
+        return { effect: "curse", targetId: target.id };
+      }
+    },
+    state: { cursedId: null }
+  }),
+  defineRole({
+    id: "traitor",
+    name: "Traitor",
+    faction: FACTIONS.OPERATIVE,
+    colour: "#ff5f6f",
+    objective: "You were crew until the last Operative fell.",
+    ability: null
+  }),
+  defineRole({
+    id: "venerer",
+    name: "Venerer",
+    faction: FACTIONS.OPERATIVE,
+    colour: "#ff5f6f",
+    objective: "Take a trophy from each kill and grow harder to catch.",
+    ability: {
+      id: "quarry", label: "Quarry", icon: icon("swooper"),
+      targeting: TARGETING.NONE, cooldownMs: 25_000, uses: null,
+      perform: ({ state, player, now }) => {
+        state.activeUntil = now + 6_000 + Math.min(6_000, player.matchStats.eliminations * 2_000);
+        return { effect: "quarry" };
+      }
+    }
+  }),
+  defineRole({
     id: "miner",
     name: "Miner",
     faction: FACTIONS.OPERATIVE,
@@ -529,6 +796,136 @@ export const NEUTRAL_ROLES = [
     win: { kind: WIN_KINDS.SURVIVE }
   }),
   defineRole({
+    id: "glitch",
+    name: "The Glitch",
+    faction: FACTIONS.NEUTRAL,
+    colour: "#38e07b",
+    objective: "Mimic, hack and outlast everyone aboard.",
+    ability: {
+      id: "mimic", label: "Mimic", icon: icon("morphling"),
+      targeting: TARGETING.PLAYER, cooldownMs: 25_000, uses: null,
+      perform: ({ state, target, now }) => {
+        state.morphTargetId = target.id;
+        state.activeUntil = now + 10_000;
+        return { effect: "mimic", targetId: target.id };
+      }
+    },
+    win: { kind: WIN_KINDS.LAST_STANDING, solo: true }
+  }),
+  defineRole({
+    id: "juggernaut",
+    name: "Juggernaut",
+    faction: FACTIONS.NEUTRAL,
+    colour: "#b5473c",
+    objective: "Every kill makes the next one come faster.",
+    ability: {
+      id: "juggernaut-strike", label: "Strike", icon: icon("sheriff"),
+      targeting: TARGETING.PLAYER, cooldownMs: 30_000, uses: null,
+      perform: ({ api, player, target }) => {
+        api.eliminate(player, target, "juggernaut strike", { ignoreFaction: true });
+        return { effect: "juggernaut-strike", targetId: target.id };
+      }
+    },
+    win: { kind: WIN_KINDS.LAST_STANDING, solo: true }
+  }),
+  defineRole({
+    id: "plaguebearer",
+    name: "Plaguebearer",
+    faction: FACTIONS.NEUTRAL,
+    colour: "#9fbf6a",
+    objective: "Infect everyone aboard, and become Pestilence.",
+    ability: {
+      id: "infect", label: "Infect", icon: icon("survivor"),
+      targeting: TARGETING.PLAYER, cooldownMs: 12_000, uses: null,
+      perform: ({ state, player, target, room }) => {
+        state.infected = state.infected ?? [];
+        if (!state.infected.includes(target.id)) state.infected.push(target.id);
+        const living = [...room.players.values()].filter((c) => c.alive && c.id !== player.id);
+        if (living.every((c) => state.infected.includes(c.id))) {
+          player.role = "pestilence";
+          return { effect: "become-pestilence", targetId: target.id };
+        }
+        return { effect: "infect", targetId: target.id };
+      }
+    },
+    win: { kind: WIN_KINDS.LAST_STANDING, solo: true },
+    state: { infected: [] }
+  }),
+  defineRole({
+    id: "pestilence",
+    name: "Pestilence",
+    faction: FACTIONS.NEUTRAL,
+    colour: "#6f8f3f",
+    objective: "Nothing can stop you now. Finish it.",
+    ability: {
+      id: "pestilence-strike", label: "Strike", icon: icon("sheriff"),
+      targeting: TARGETING.PLAYER, cooldownMs: 20_000, uses: null,
+      perform: ({ api, player, target }) => {
+        api.eliminate(player, target, "pestilence", { ignoreFaction: true, ignoreProtection: true });
+        return { effect: "pestilence-strike", targetId: target.id };
+      }
+    },
+    win: { kind: WIN_KINDS.LAST_STANDING, solo: true }
+  }),
+  defineRole({
+    id: "doomsayer",
+    name: "Doomsayer",
+    faction: FACTIONS.NEUTRAL,
+    colour: "#c77dff",
+    objective: "Name what everyone is, and win the moment you are right enough.",
+    ability: {
+      id: "observe", label: "Observe", icon: icon("investigator"),
+      targeting: TARGETING.PLAYER, cooldownMs: 20_000, uses: null,
+      perform: ({ api, state, target }) => {
+        state.observed = state.observed ?? [];
+        if (!state.observed.includes(target.id)) state.observed.push(target.id);
+        api.reportPrivately({
+          type: "omen",
+          detail: `${target.displayName} reads as ${target.faction}.`
+        });
+        return { effect: "observe", targetId: target.id };
+      }
+    },
+    win: { kind: WIN_KINDS.SURVIVE, solo: true },
+    state: { observed: [] }
+  }),
+  defineRole({
+    id: "mercenary",
+    name: "Mercenary",
+    faction: FACTIONS.NEUTRAL,
+    colour: "#d4a373",
+    objective: "Take a contract, keep them breathing, get paid.",
+    ability: {
+      id: "guard", label: "Guard", icon: icon("medic"),
+      targeting: TARGETING.PLAYER, cooldownMs: 30_000, uses: null,
+      perform: ({ api, state, target, now }) => {
+        state.contractId = target.id;
+        api.protect(target, now + 12_000);
+        return { effect: "guard", targetId: target.id };
+      }
+    },
+    win: { kind: WIN_KINDS.SURVIVE },
+    state: { contractId: null }
+  }),
+  defineRole({
+    id: "soul-collector",
+    name: "Soul Collector",
+    faction: FACTIONS.NEUTRAL,
+    colour: "#8e7dbe",
+    objective: "Reap the souls of the fallen until the tally is yours.",
+    ability: {
+      id: "reap", label: "Reap", icon: icon("survivor"),
+      targeting: TARGETING.INCIDENT, cooldownMs: 10_000, uses: null,
+      perform: ({ api, state, incident }) => {
+        state.souls = (state.souls ?? 0) + 1;
+        api.removeIncident(incident);
+        return { effect: "reap", targetId: incident.id };
+      }
+    },
+    win: { kind: WIN_KINDS.SURVIVE, solo: true },
+    state: { souls: 0 }
+  }),
+  defineRole({
     id: "arsonist",
     name: "Arsonist",
     faction: FACTIONS.NEUTRAL,
@@ -608,7 +1005,13 @@ export const NEUTRAL_ROLES = [
     colour: "#9d8df1",
     objective: "Finish your assignments unseen, after death.",
     ability: null,
-    win: { kind: WIN_KINDS.SURVIVE, solo: true }
+    win: {
+      kind: WIN_KINDS.SURVIVE,
+      solo: true,
+      // The Phantom's victory is finishing every assignment, dead or alive.
+      check: ({ player }) => player.tasks.length > 0
+        && player.tasks.every((task) => player.completedTasks.has(task.id))
+    }
   })
 ];
 

@@ -1002,6 +1002,10 @@ export class GameServer {
     return roomAt(activeMapId(room), position.x, position.z)?.id ?? null;
   }
 
+  mapFor(room) {
+    return getMapDefinition(activeMapId(room));
+  }
+
   freshRoleState(roleId) {
     return makeRoleState(roleId);
   }
@@ -1135,6 +1139,8 @@ export class GameServer {
       player.input = normaliseInput({});
       player.ventId = null;
       player.vote = null;
+      // Blackmail covers the meeting it was cast before, then lapses.
+      if (player.roleState?.blackmailedId) player.roleState.pendingBlackmailClear = true;
       player.activeTask = null;
       if (player.roleState) {
         player.roleState.activeUntil = 0;
@@ -1202,6 +1208,21 @@ export class GameServer {
 
   finishVoting(room) {
     if (room.phase !== PHASES.VOTING || !room.meeting) return;
+    // The Swapper exchanges two players' received votes before anything is counted.
+    const swapper = [...room.players.values()].find((candidate) =>
+      candidate.role === "swapper" && candidate.alive
+      && candidate.roleState?.swapFirstId && candidate.roleState?.swapSecondId);
+    if (swapper) {
+      const { swapFirstId, swapSecondId } = swapper.roleState;
+      for (const voter of room.players.values()) {
+        if (voter.vote === swapFirstId) voter.vote = swapSecondId;
+        else if (voter.vote === swapSecondId) voter.vote = swapFirstId;
+      }
+      this.io.to(room.code).emit("votesSwapped", { by: swapper.id });
+      swapper.roleState.swapFirstId = null;
+      swapper.roleState.swapSecondId = null;
+    }
+
     const totals = new Map();
     for (const player of room.players.values()) {
       if (!player.alive || !player.vote) continue;
@@ -1246,7 +1267,13 @@ export class GameServer {
       }
       if (!this.checkWinConditions(room, "vote")) {
         room.meeting = null;
-        for (const player of room.players.values()) player.vote = null;
+        for (const player of room.players.values()) {
+          player.vote = null;
+          if (player.roleState?.pendingBlackmailClear) {
+            player.roleState.blackmailedId = null;
+            player.roleState.pendingBlackmailClear = false;
+          }
+        }
         this.setPhase(room, PHASES.ACTIVE, null);
         this.io.to(room.code).emit("matchResumed", { at: Date.now() });
       }
@@ -1260,7 +1287,8 @@ export class GameServer {
     const authored = getMapDefinition(mapId).stations
       .filter((station) => station.type === "maintenance" && station.refId === networkId);
     const mined = (room?.minedVents ?? []).filter((vent) => vent.refId === networkId);
-    return [...authored, ...mined];
+    const sealed = new Set(room?.sealedVents ?? []);
+    return [...authored, ...mined].filter((vent) => !sealed.has(vent.id));
   }
 
   publicVentState(mapId, player) {
@@ -1282,6 +1310,7 @@ export class GameServer {
     if (player.ventId) throw new Error("You are already inside the vents.");
     const vent = stationById(room.mapId, stationId);
     if (!vent || vent.type !== "maintenance") throw new Error("Vent not found.");
+    if ((room.sealedVents ?? []).includes(vent.id)) throw new Error("That vent has been welded shut.");
     if (distance2D(player.position, vent) > INTERACTION_RANGE) throw new Error("Move closer to the vent.");
     player.ventId = vent.id;
     player.position = { x: vent.x, z: vent.z };
@@ -1376,6 +1405,13 @@ export class GameServer {
 
   chat(room, player, messageInput) {
     const message = validateChat(messageInput);
+    // A blackmailed player is silenced for the whole meeting.
+    const silenced = [...room.players.values()].some((candidate) =>
+      candidate.alive && candidate.role === "blackmailer"
+      && candidate.roleState?.blackmailedId === player.id);
+    if (silenced && [PHASES.DISCUSSION, PHASES.VOTING, PHASES.INCIDENT, PHASES.REMOVAL].includes(room.phase)) {
+      throw new Error("You have been blackmailed and cannot speak this meeting.");
+    }
     let channel = "lobby";
     let recipients = [...room.players.values()].filter((candidate) => candidate.connected && candidate.socketId);
     if ([PHASES.DISCUSSION, PHASES.VOTING, PHASES.INCIDENT, PHASES.REMOVAL].includes(room.phase)) {
@@ -1394,6 +1430,15 @@ export class GameServer {
   }
 
   checkWinConditions(room, reason) {
+    // Roles that win on their own terms are settled before faction parity.
+    if ([PHASES.ACTIVE, PHASES.REMOVAL, PHASES.DISCUSSION, PHASES.VOTING].includes(room.phase)) {
+      const solo = checkSoloWin(room);
+      if (solo) {
+        room.specialWinnerIds = new Set(solo.winnerIds);
+        this.endMatch(room, solo.winner, solo.reason);
+        return true;
+      }
+    }
     if (![PHASES.ACTIVE, PHASES.REMOVAL, PHASES.DISCUSSION, PHASES.VOTING].includes(room.phase)) return false;
     const connectedOrBots = [...room.players.values()].filter((player) => player.connected || player.bot);
     const livingCrew = connectedOrBots.filter((player) => player.alive && player.faction === "crew").length;
