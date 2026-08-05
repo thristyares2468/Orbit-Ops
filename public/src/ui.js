@@ -71,6 +71,7 @@ export class GameUI {
       minimap: byId("minimap"), task: byId("task-modal"), meeting: byId("meeting-modal"), sabotage: byId("sabotage-modal"), security: byId("security-modal"),
       pause: byId("pause-modal"), settings: byId("settings-modal"), howto: byId("howto-modal"), profile: byId("profile-modal"), assets: byId("assets-modal"),
       lobbySettings: byId("lobby-settings-modal"),
+      admin: byId("admin-modal"),
       firstRunHint: byId("first-run-hint"),
       ventPanel: byId("vent-panel")
     };
@@ -450,7 +451,7 @@ export class GameUI {
     setVisible(byId("report-button"), false);
     setVisible(byId("meeting-button"), false);
     if (!nearest) { setVisible(prompt, false); return; }
-    const labels = { task: "Access assignment", repair: "Repair system", meeting: "Call emergency meeting", security: "Open camera telemetry", doorLogs: "Review door logs", maintenance: "Climb into the vent", incident: "Report incident", launch: "Launch the operation" };
+    const labels = { task: "Access assignment", repair: "Repair system", meeting: "Call emergency meeting", security: "Watch the cameras", doorLogs: "Review door logs", admin: "Read the admin table", maintenance: "Climb into the vent", incident: "Report incident", launch: "Launch the operation" };
     prompt.querySelector("span").textContent = labels[nearest.station.type] ?? "Interact";
     setVisible(prompt, true);
     if (inLobby) return;
@@ -565,9 +566,33 @@ export class GameUI {
     this.invoke("chat", { message }); input.value = "";
   }
 
+  // Admin table: live head count per room.
+  showAdmin(data) {
+    const content = byId("admin-content");
+    content.replaceChildren();
+    const occupied = data.rooms.filter((room) => room.count > 0);
+    const summary = document.createElement("p");
+    summary.textContent = occupied.length
+      ? `${occupied.reduce((total, room) => total + room.count, 0)} crew detected across ${occupied.length} rooms.`
+      : "No crew detected on the deck.";
+    content.append(summary);
+    const grid = document.createElement("div");
+    grid.className = "admin-grid";
+    for (const room of data.rooms) {
+      const cell = document.createElement("div");
+      cell.className = `admin-room${room.count ? " is-occupied" : ""}`;
+      const name = document.createElement("b"); name.textContent = room.name;
+      const count = document.createElement("span"); count.textContent = String(room.count);
+      cell.append(name, count);
+      grid.append(cell);
+    }
+    content.append(grid);
+    this.openModal("admin");
+  }
+
   showSecurity(data) {
     const content = byId("security-content"); content.replaceChildren();
-    const summary = document.createElement("p"); summary.textContent = `${data.motion.length} life signs detected across ${new Set(data.motion.map((item) => item.roomId)).size} sectors (two-second delay).`;
+    const summary = document.createElement("p"); summary.textContent = `${data.motion.length} life signs on camera across ${new Set(data.motion.map((item) => item.roomId)).size} sectors.`;
     const list = document.createElement("ul");
     for (const log of data.doorLogs) { const item = document.createElement("li"); item.textContent = `${titleCase(log.from)} → ${titleCase(log.to)} · ${Math.max(1, Math.round((Date.now() - log.at) / 1000))}s ago`; list.append(item); }
     content.append(summary, list); this.openModal("security");

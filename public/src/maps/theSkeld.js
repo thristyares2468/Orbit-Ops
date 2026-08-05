@@ -312,15 +312,17 @@ export const THE_SKELD = createMapDefinition({
   corridors: SKELD_CORRIDORS,
   connections: SKELD_ROUTES.map(({ from, to }) => [from, to]),
   corridorRoutes: SKELD_ROUTES,
+  // The reference clone's nine assignments, on the rooms it puts them in.
   tasks: [
-    taskAt("skeld-swipe-card", "Swipe Card", "admin", 770, 337, "sequence"),
+    taskAt("skeld-turn-on-lights", "Turn On The Lights", "electrical", 454, 395, "wiring"),
+    taskAt("skeld-fix-wiring", "Fix The Electricity Wires", "electrical", 486, 428, "wiring"),
+    taskAt("skeld-stabilize-nav", "Stabilize The Ship's Navigation", "navigation", 1152, 286, "route"),
+    taskAt("skeld-reboot-wifi", "Reboot The Wifi", "communications", 848, 601, "sequence"),
+    taskAt("skeld-empty-garbage", "Empty The Garbage", "storage", 704, 597, "garbage"),
+    taskAt("skeld-divert-power", "Divert Power To Reactor", "reactor", 232, 293, "power"),
     taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 214, 176, "balance"),
-    taskAt("skeld-calibrate-distributor", "Calibrate Distributor", "electrical", 454, 395, "sequence"),
-    taskAt("skeld-submit-scan", "Submit Scan", "medbay", 514, 307, "scan"),
-    taskAt("skeld-stabilize-steering", "Stabilize Steering", "navigation", 1152, 286, "route"),
-    taskAt("skeld-clean-o2-filter", "Clean O2 Filter", "o2", 814, 260, "filter"),
-    taskAt("skeld-empty-garbage", "Empty Garbage", "storage", 704, 597, "classify"),
-    taskAt("skeld-prime-shields", "Prime Shields", "shields", 887, 519, "sync")
+    taskAt("skeld-fuel-engine", "Fuel Lower Engine", "lower-engine", 285, 512, "fuel"),
+    taskAt("skeld-clear-asteroids", "Clear The Asteroids", "weapons", 947, 205, "asteroids", 10)
   ],
   sabotages: [
     { id: "skeld-reactor-meltdown", name: "Reactor Meltdown", critical: true, durationMs: 20000, repairStations: ["skeld-reactor-alpha", "skeld-reactor-beta"], roomId: "reactor" },
@@ -331,6 +333,7 @@ export const THE_SKELD = createMapDefinition({
   stations: [
     stationAt("meeting-console", "meeting", "cafeteria", 677, 151),
     stationAt("skeld-cameras", "security", "security", 378, 269),
+    stationAt("skeld-admin-table", "admin", "admin", 770, 337),
     stationAt("skeld-vent-cafeteria", "maintenance", "cafeteria", 807, 183, "vent-hub"),
     stationAt("skeld-vent-admin", "maintenance", "admin", 761, 417, "vent-hub"),
     stationAt("skeld-vent-medbay", "maintenance", "medbay", 442, 276, "vent-port"),

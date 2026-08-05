@@ -693,3 +693,64 @@ test("meetings empty the vents", () => {
   for (const timer of room.timers) clearTimeout(timer);
   room.timers.clear();
 });
+
+test("the admin table reports live occupancy without naming anyone", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const table = stationById("the-skeld", "skeld-admin-table");
+  const reader = player("reader", "crew", { x: table.x, z: table.z });
+  const other = player("other", "crew", { x: table.x, z: table.z });
+  const vented = player("vented", "operative", { x: table.x, z: table.z });
+  vented.ventId = "skeld-vent-cafeteria";
+  for (const member of [reader, other, vented]) room.players.set(member.id, member);
+
+  const view = server.requestAdmin(room, reader);
+  const admin = view.rooms.find((item) => item.id === "admin");
+  assert.equal(admin.count, 2, "both standing players are counted");
+  assert.ok(!JSON.stringify(view).includes("reader"), "the table never names anyone");
+  assert.ok(view.rooms.every((item) => typeof item.count === "number"));
+
+  // Vented players are off the table entirely, and darkness kills the feed.
+  assert.equal(view.rooms.reduce((total, item) => total + item.count, 0), 2);
+  room.activeSabotage = { id: "skeld-lights-out", repairStations: [], repairs: new Set() };
+  assert.throws(() => server.requestAdmin(room, reader), /dark/u);
+});
+
+test("cameras show a live feed and exclude vented players", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const cameras = stationById("the-skeld", "skeld-cameras");
+  const watcher = player("watcher", "crew", { x: cameras.x, z: cameras.z });
+  const walker = player("walker", "crew", { x: 10, z: 10 });
+  const vented = player("vented", "operative", { x: 12, z: 12 });
+  vented.ventId = "skeld-vent-cafeteria";
+  for (const member of [watcher, walker, vented]) room.players.set(member.id, member);
+
+  const feed = server.requestSecurity(room, watcher);
+  const ids = feed.motion.map((entry) => entry.playerId);
+  assert.ok(ids.includes("walker"), "moving crew appear on camera");
+  assert.ok(!ids.includes("vented"), "vented players do not");
+  const walkerFeed = feed.motion.find((entry) => entry.playerId === "walker");
+  assert.equal(typeof walkerFeed.x, "number", "the feed carries live positions");
+  assert.ok(walkerFeed.at >= Date.now() - 1000, "and is current, not delayed");
+});
+
+test("the nine reference assignments all resolve to real stations", () => {
+  server = new GameServer(new RecordingIo());
+  const map = getMapDefinition("the-skeld");
+  assert.equal(map.taskDefinitions.length, 9);
+  const names = map.taskDefinitions.map((task) => task.name);
+  for (const expected of [
+    "Turn On The Lights", "Fix The Electricity Wires", "Stabilize The Ship's Navigation",
+    "Reboot The Wifi", "Empty The Garbage", "Divert Power To Reactor",
+    "Align Engine Output", "Fuel Lower Engine", "Clear The Asteroids"
+  ]) {
+    assert.ok(names.includes(expected), `${expected} is assignable`);
+  }
+  for (const task of map.taskDefinitions) {
+    assert.ok(stationById("the-skeld", `task:${task.id}`), `${task.id} has a station`);
+    assert.ok(map.rooms.some((room) => room.id === task.roomId), `${task.id} sits in a real room`);
+  }
+});

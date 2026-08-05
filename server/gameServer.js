@@ -349,6 +349,7 @@ export class GameServer {
     socket.on("moveVent", (payload, ack) => this.withPlayer(socket, "moveVent", 20, 10_000, ack, (room, player) => this.moveVent(room, player, payload?.stationId)));
     socket.on("exitVent", (_payload, ack) => this.withPlayer(socket, "exitVent", 8, 10_000, ack, (room, player) => this.exitVent(room, player)));
     socket.on("requestSecurity", (_payload, ack) => this.withPlayer(socket, "requestSecurity", 5, 10_000, ack, (room, player) => this.requestSecurity(room, player)));
+    socket.on("requestAdmin", (_payload, ack) => this.withPlayer(socket, "requestAdmin", 8, 10_000, ack, (room, player) => this.requestAdmin(room, player)));
     socket.on("chatMessage", (payload, ack) => this.withPlayer(socket, "chatMessage", 6, 10_000, ack, (room, player) => this.chat(room, player, payload?.message)));
     socket.on("customisePlayer", (payload, ack) => this.withPlayer(socket, "customisePlayer", 8, 10_000, ack, (room, player) => {
       if (room.phase !== PHASES.LOBBY) throw new Error("Appearance is locked during a match.");
@@ -1349,15 +1350,48 @@ export class GameServer {
     return { ok: true, position: player.position };
   }
 
+  // Admin table: live head count per room, as in the reference. It never names
+  // anyone - it is a count, which is exactly what makes it useful but deniable.
+  requestAdmin(room, player) {
+    if (room.phase !== PHASES.ACTIVE || !player.alive) throw new Error("Admin systems are unavailable.");
+    if (player.ventId) throw new Error("Climb out of the vent first.");
+    const console_ = getMapDefinition(room.mapId).stations.find((station) => station.type === "admin");
+    if (!console_ || distance2D(player.position, console_) > INTERACTION_RANGE) {
+      throw new Error("Move to the admin table.");
+    }
+    if (this.lightsAreOut(room)) throw new Error("The admin table is dark.");
+    const counts = new Map();
+    for (const candidate of room.players.values()) {
+      if (!candidate.alive || candidate.ventId) continue;
+      counts.set(candidate.currentRoom, (counts.get(candidate.currentRoom) ?? 0) + 1);
+    }
+    return {
+      ok: true,
+      rooms: getMapDefinition(room.mapId).rooms.map((item) => ({
+        id: item.id, name: item.name, count: counts.get(item.id) ?? 0
+      }))
+    };
+  }
+
   requestSecurity(room, player) {
     if (room.phase !== PHASES.ACTIVE || !player.alive) throw new Error("Security systems are unavailable.");
     const consoles = getMapDefinition(room.mapId).stations.filter((station) => ["security", "doorLogs"].includes(station.type));
     if (!consoles.some((station) => distance2D(player.position, station) <= INTERACTION_RANGE)) throw new Error("Move to a security console.");
     if (room.activeSabotage?.id.includes("comms") || room.activeSabotage?.id.includes("security")) throw new Error("Security telemetry is being jammed.");
-    const delayedCutoff = Date.now() - 2_000;
+    if (player.ventId) throw new Error("Climb out of the vent first.");
     return {
       ok: true,
-      motion: [...room.players.values()].filter((candidate) => candidate.alive).map((candidate) => ({ roomId: candidate.currentRoom, at: delayedCutoff })),
+      // Live feed, as in the reference: the monitor shows who is moving right now.
+      motion: [...room.players.values()]
+        .filter((candidate) => candidate.alive && !candidate.ventId)
+        .map((candidate) => ({
+          playerId: candidate.id,
+          displayName: candidate.displayName,
+          roomId: candidate.currentRoom,
+          x: Number(candidate.position.x.toFixed(2)),
+          z: Number(candidate.position.z.toFixed(2)),
+          at: Date.now()
+        })),
       doorLogs: room.doorLogs.slice(-12).map(({ playerId: _private, ...log }) => log),
       incidents: [...room.incidents.values()].map((incident) => ({ roomId: incident.roomId, createdAt: incident.createdAt, reported: incident.reported })),
       maintenance: room.maintenanceLogs.slice(-6)

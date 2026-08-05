@@ -398,7 +398,9 @@ export class OrbitOpsGame {
     else if (station.type === "repair") await this.network.request("repairSabotage", { stationId: station.id });
     else if (station.type === "meeting") await this.network.request("callMeeting");
     else if (station.type === "maintenance") await this.enterVent(station.id);
-    else if (station.type === "security" || station.type === "doorLogs") {
+    else if (station.type === "admin") {
+      this.ui.showAdmin(await this.network.request("requestAdmin"));
+    } else if (station.type === "security" || station.type === "doorLogs") {
       this.ui.showSecurity(await this.network.request("requestSecurity"));
     } else if (station.type === "incident") {
       await this.network.request("reportIncident", { incidentId: station.id });

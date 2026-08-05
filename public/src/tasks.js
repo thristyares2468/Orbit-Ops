@@ -12,10 +12,16 @@ const TASK_ART = Object.freeze({
 });
 
 const TASK_INSTRUCTIONS = Object.freeze({
+  wiring: "Join each loose wire to the terminal of the matching colour.",
+  route: "Plot a safe course through every marked orbital sector.",
+  sequence: "Reboot the transceiver by entering the restart sequence.",
+  garbage: "Pull the release in order until the chute runs clear.",
+  power: "Throw the breakers that divert power to the reactor.",
+  balance: "Balance the engine output by confirming the highlighted order.",
+  fuel: "Fill the can, carry it over, and pump the engine full.",
+  asteroids: "Track and destroy each asteroid before it reaches the hull.",
+  // Retained so older assignment kinds still read sensibly.
   frequency: "Match the four carrier bands in the transmitted order.",
-  balance: "Balance pressure valves by confirming the highlighted sequence.",
-  route: "Plot a safe route through each marked orbital sector.",
-  sequence: "Reconstruct the corrupted signal fragment in order.",
   classify: "Classify the four samples by their telemetry signature.",
   filter: "Replace the damaged filters in the indicated airflow order.",
   manifest: "Verify each cargo record against the highlighted manifest code.",
