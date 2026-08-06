@@ -1,5 +1,5 @@
 import { AudioManager } from "./audio.js";
-import { VENT_DIRECTION_KEYS, pickVentExit } from "./ventNavigation.js";
+import { VENT_DIRECTION_KEYS, ventExitForDirection } from "./ventNavigation.js";
 import { MeridianScene } from "./game2d/MeridianScene.js";
 import { InputController } from "./input.js";
 import { getRoleDefinition } from "./roleData.js";
@@ -354,14 +354,22 @@ export class OrbitOpsGame {
   handlePrivateState(state) {
     this.privateState = { ...state, completedTaskIds: [...(state.completedTaskIds ?? [])] };
     this.ui.setPrivateState(this.privateState);
-    // The server is authoritative about being in a vent: it empties them for
-    // meetings, on death and at match reset. Without this the client would keep
-    // showing the vent panel and E would try to climb out of a vent it already left.
-    if (!state.vent && this.vent) {
+    // The server is authoritative about being in a vent, in both directions. It
+    // empties vents for meetings, death and match reset, and it is also the only
+    // thing that knows you got in if the enter request's response never landed.
+    // Mirroring it here means the client can never be stuck believing the opposite
+    // of the server - which is what left players vented but unable to move or exit.
+    const ventedNow = Boolean(state.vent?.inVent);
+    if (!ventedNow && this.vent) {
       this.vent = null;
       this.ventCursor = null;
       this.ventActionPending = false;
       this.ui.showVent(null);
+    } else if (ventedNow && state.vent.ventId !== this.vent?.ventId) {
+      this.vent = state.vent;
+      this.ventCursor = null;
+      this.ventActionPending = false;
+      this.ui.showVent(this.vent);
     }
     if (this.sceneReady) {
       this.phaserScene.applyPrivateRoleState(this.privateState);
@@ -481,11 +489,9 @@ export class OrbitOpsGame {
   // (or for players who prefer it).
   handleVentNavigation() {
     if (!this.vent?.exits?.length || this.ventActionPending) return;
-    const local = this.latestSnapshots.get(this.playerId);
-    if (!local) return;
-    for (const { code, x, z } of VENT_DIRECTION_KEYS) {
+    for (const { code, direction } of VENT_DIRECTION_KEYS) {
       if (!this.input.consume(code)) continue;
-      const exit = pickVentExit(local, this.vent.exits, { x, z });
+      const exit = ventExitForDirection(this.vent.exits, direction);
       if (exit) this.hopVent(exit.id).catch((error) => this.ui.toast(error.message, true));
       return;
     }

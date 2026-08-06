@@ -31,8 +31,10 @@ export function task(id, name, roomId, x, z, kind, steps = 4, assetKey = null) {
   return { id, name, roomId, x, z, kind, steps, ...(assetKey ? { assetKey } : {}) };
 }
 
-export function station(id, type, roomId, x, z, refId = null) {
-  return { id, type, roomId, x, z, ...(refId ? { refId } : {}) };
+export function station(id, type, roomId, x, z, refId = null, label = null) {
+  // label overrides the room name in the UI, for stations whose room rect does not
+  // describe where they actually are (the Hallway vent sits inside Admin's rect).
+  return { id, type, roomId, x, z, ...(refId ? { refId } : {}), ...(label ? { label } : {}) };
 }
 
 export function createMapDefinition({

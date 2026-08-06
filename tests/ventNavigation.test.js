@@ -1,51 +1,120 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getMapDefinition } from "../public/src/shipData.js";
-import { VENT_DIRECTION_KEYS, pickVentExit } from "../public/src/ventNavigation.js";
+import { getMapDefinition, stationById } from "../public/src/shipData.js";
+import { VENT_DIRECTION_KEYS, ventExitForDirection } from "../public/src/ventNavigation.js";
+import { GameServer } from "../server/gameServer.js";
+import { PHASES } from "../server/constants.js";
 
-test("pickVentExit chooses the exit aligned with the pressed direction", () => {
-  const exits = [{ id: "east", x: 10, z: 0 }, { id: "south", x: 0, z: 10 }];
-  assert.equal(pickVentExit({ x: 0, z: 0 }, exits, { x: 1, z: 0 })?.id, "east", "D presses east");
-  assert.equal(pickVentExit({ x: 0, z: 0 }, exits, { x: 0, z: 1 })?.id, "south", "S presses south");
-  assert.equal(pickVentExit({ x: 0, z: 0 }, exits, { x: 0, z: -1 }), null, "W matches neither exit");
-  assert.equal(pickVentExit({ x: 0, z: 0 }, exits, { x: -1, z: 0 }), null, "A matches neither exit");
+class RecordingIo {
+  constructor() { this.events = []; }
+  on() {}
+  to(target) { return { emit: (event, payload) => this.events.push({ target, event, payload }) }; }
+}
+
+function makeVentedRoom() {
+  const server = new GameServer(new RecordingIo());
+  clearInterval(server.loop);
+  clearInterval(server.rateCleanup);
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const entry = stationById("the-skeld", "skeld-vent-cafeteria");
+  const operative = server.makePlayer({
+    id: "op", socketId: "sock", displayName: "Op",
+    appearance: { colour: "cyan", symbol: "orbit", number: 1 },
+    x: entry.x, z: entry.z, mapId: "the-skeld"
+  });
+  operative.faction = "operative";
+  operative.role = "signal-operative";
+  room.players.set(operative.id, operative);
+  return { server, room, operative, entry };
+}
+
+test("the vent flow runs end to end without throwing", () => {
+  // publicVentState once referenced an out-of-scope `room`, so entering a vent threw
+  // "room is not defined" AFTER the server had already marked the player vented -
+  // leaving them frozen, hidden and unable to exit. Only executing it catches that.
+  const { server, room, operative, entry } = makeVentedRoom();
+
+  const entered = server.enterVent(room, operative, entry.id);
+  assert.equal(entered.vent.inVent, true);
+  assert.equal(operative.ventId, entry.id);
+  assert.equal(entered.vent.exits.length, 2, "the Cafeteria loop offers two exits");
+
+  const hopped = server.moveVent(room, operative, entered.vent.exits[0].id);
+  assert.equal(operative.ventId, entered.vent.exits[0].id);
+  assert.ok(hopped.vent.exits.some((exit) => exit.id === entry.id), "can travel back");
+
+  assert.equal(server.exitVent(room, operative).ok, true);
+  assert.equal(operative.ventId, null);
+  assert.throws(() => server.exitVent(room, operative), /not inside the vents/u);
+
+  for (const timer of room.timers) clearTimeout(timer);
+  room.timers.clear();
 });
 
-test("pickVentExit picks the closer alignment when two exits both lean the same way", () => {
-  // One exit almost due east, one exit north-east: pressing D should prefer the
-  // more directly-east one rather than whichever happens to be listed first.
-  const exits = [{ id: "diagonal", x: 6, z: -6 }, { id: "straight", x: 10, z: -1 }];
-  assert.equal(pickVentExit({ x: 0, z: 0 }, exits, { x: 1, z: 0 })?.id, "straight");
+test("private state carries the full vent view so the client can resync", () => {
+  // The client mirrors the server in both directions. If private state only said
+  // "you are vented" without the exits, a client that missed the enter response
+  // could never rebuild the panel and would be stuck underground.
+  const { server, room, operative, entry } = makeVentedRoom();
+  assert.equal(server.privatePlayerState(room, operative).vent, null);
+
+  server.enterVent(room, operative, entry.id);
+  const vented = server.privatePlayerState(room, operative).vent;
+  assert.equal(vented.inVent, true);
+  assert.equal(vented.ventId, entry.id);
+  assert.ok(vented.exits.length > 0, "private state must include the exits");
+
+  server.exitVent(room, operative);
+  assert.equal(server.privatePlayerState(room, operative).vent, null);
+
+  for (const timer of room.timers) clearTimeout(timer);
+  room.timers.clear();
 });
 
-test("pickVentExit degrades safely on missing or empty input", () => {
-  assert.equal(pickVentExit(null, [{ id: "x", x: 1, z: 0 }], { x: 1, z: 0 }), null);
-  assert.equal(pickVentExit({ x: 0, z: 0 }, [], { x: 1, z: 0 }), null);
-  assert.equal(pickVentExit({ x: 0, z: 0 }, [{ id: "x", x: 1, z: 0 }], null), null);
-  assert.equal(pickVentExit({ x: 0, z: 0 }, [{ id: "x", x: 1, z: 0 }], { x: 0, z: 0 }), null,
-    "a zero-length direction (no key pressed) must not resolve to an exit");
-  // An exit sitting exactly on the current vent (malformed data) must not divide by zero.
-  assert.equal(pickVentExit({ x: 5, z: 5 }, [{ id: "same-spot", x: 5, z: 5 }], { x: 1, z: 0 }), null);
-});
+test("every vent gives each exit its own WASD key and a distinct name", () => {
+  // From the Cafeteria vent both Admin and the Hallway lie south, so a plain
+  // nearest-direction scheme would leave one of them unreachable by keyboard, and
+  // both would render as "Admin" in the panel.
+  const { server, room, operative } = makeVentedRoom();
+  const vents = getMapDefinition("the-skeld").stations.filter((s) => s.type === "maintenance");
+  assert.equal(vents.length, 14);
 
-test("VENT_DIRECTION_KEYS matches InputController.movement()'s WASD convention", () => {
-  const byCode = Object.fromEntries(VENT_DIRECTION_KEYS.map((k) => [k.code, k]));
-  assert.deepEqual(byCode.KeyW, { code: "KeyW", x: 0, z: -1 });
-  assert.deepEqual(byCode.KeyS, { code: "KeyS", x: 0, z: 1 });
-  assert.deepEqual(byCode.KeyA, { code: "KeyA", x: -1, z: 0 });
-  assert.deepEqual(byCode.KeyD, { code: "KeyD", x: 1, z: 0 });
-});
-
-test("every vent on the Skeld has at least one WASD direction that reaches an exit", () => {
-  // Confirms the real vent layout is actually navigable by direction, not just by
-  // the always-available Alt-cycle fallback.
-  const map = getMapDefinition("the-skeld");
-  const vents = map.stations.filter((station) => station.type === "maintenance");
-  assert.ok(vents.length > 0);
   for (const vent of vents) {
-    const network = vents.filter((other) => other.refId === vent.refId && other.id !== vent.id);
-    if (!network.length) continue;
-    const reachable = VENT_DIRECTION_KEYS.some(({ x, z }) => pickVentExit(vent, network, { x, z }) !== null);
-    assert.ok(reachable, `${vent.id} has no WASD direction that reaches any of its exits`);
+    operative.ventId = vent.id;
+    const view = server.publicVentState(room, operative);
+    assert.ok(view.exits.length > 0, `${vent.id} is a dead end`);
+
+    const keys = view.exits.map((exit) => exit.direction);
+    assert.ok(keys.every((key) => "WASD".includes(key)), `${vent.id} keys: ${keys}`);
+    assert.equal(new Set(keys).size, keys.length, `${vent.id} has duplicate keys: ${keys}`);
+
+    const names = view.exits.map((exit) => exit.label ?? exit.roomId);
+    assert.equal(new Set(names).size, names.length, `${vent.id} exits are ambiguous: ${names}`);
+
+    // Every advertised key must actually resolve back to an exit on the client side.
+    for (const exit of view.exits) {
+      assert.equal(ventExitForDirection(view.exits, exit.direction)?.id, exit.id);
+    }
   }
+  operative.ventId = null;
+  for (const timer of room.timers) clearTimeout(timer);
+  room.timers.clear();
+});
+
+test("ventExitForDirection is an exact key match, not a guess", () => {
+  const exits = [{ id: "north", direction: "W" }, { id: "east", direction: "D" }];
+  assert.equal(ventExitForDirection(exits, "W")?.id, "north");
+  assert.equal(ventExitForDirection(exits, "D")?.id, "east");
+  assert.equal(ventExitForDirection(exits, "S"), null, "an unused key hops nowhere");
+  assert.equal(ventExitForDirection([], "W"), null);
+  assert.equal(ventExitForDirection(null, "W"), null);
+  assert.equal(ventExitForDirection(exits, null), null);
+});
+
+test("VENT_DIRECTION_KEYS covers WASD and matches the server's key letters", () => {
+  assert.deepEqual(
+    VENT_DIRECTION_KEYS.map((entry) => [entry.code, entry.direction]).sort(),
+    [["KeyA", "A"], ["KeyD", "D"], ["KeyS", "S"], ["KeyW", "W"]]
+  );
 });

@@ -461,7 +461,10 @@ export class GameUI {
     for (const exit of vent.exits) {
       const button = document.createElement("button");
       button.type = "button";
-      button.textContent = titleCase(exit.roomId);
+      // Show the key that reaches this exit, since WASD is the primary control and
+      // two exits on one loop can share a room name.
+      const name = exit.label ?? titleCase(exit.roomId);
+      button.textContent = exit.direction ? `${exit.direction} · ${name}` : name;
       button.addEventListener("click", () => this.invoke("hopVent", { stationId: exit.id }));
       list.append(button);
     }

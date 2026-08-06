@@ -148,6 +148,40 @@ function snapshotPlayer(player, room) {
   };
 }
 
+// Assign each vent exit the WASD key that reaches it, guaranteeing the keys are
+// unique within the loop. A plain "nearest compass direction" is not enough: from the
+// Cafeteria vent both Admin and the Hallway lie south, so one of them would have been
+// unreachable by keyboard. Each exit is scored against all four directions and the
+// strongest unambiguous pairing wins, so every exit always has its own key.
+const VENT_KEYS = Object.freeze([
+  Object.freeze({ key: "W", x: 0, z: -1 }),
+  Object.freeze({ key: "S", x: 0, z: 1 }),
+  Object.freeze({ key: "A", x: -1, z: 0 }),
+  Object.freeze({ key: "D", x: 1, z: 0 })
+]);
+
+function assignVentKeys(from, exits) {
+  const scored = [];
+  for (const exit of exits) {
+    const dx = Number(exit.x) - Number(from.x);
+    const dz = Number(exit.z) - Number(from.z);
+    const length = Math.hypot(dx, dz) || 1;
+    for (const { key, x, z } of VENT_KEYS) {
+      scored.push({ exitId: exit.id, key, score: (dx / length) * x + (dz / length) * z });
+    }
+  }
+  // Strongest alignment first, each exit and each key claimed at most once.
+  scored.sort((a, b) => b.score - a.score);
+  const byExit = new Map();
+  const usedKeys = new Set();
+  for (const candidate of scored) {
+    if (byExit.has(candidate.exitId) || usedKeys.has(candidate.key)) continue;
+    byExit.set(candidate.exitId, candidate.key);
+    usedKeys.add(candidate.key);
+  }
+  return byExit;
+}
+
 export class GameServer {
   constructor(io) {
     this.io = io;
@@ -554,7 +588,7 @@ export class GameServer {
       tasks: player.tasks, completedTaskIds: [...player.completedTasks],
       emergencyMeetings: Math.max(0, room.settings.emergencyMeetings - player.emergencyMeetings),
       position: player.position,
-      vent: player.ventId ? { id: player.ventId } : null,
+      vent: player.ventId ? this.publicVentState(room, player) : null,
       teammates: player.faction === "operative"
         ? [...room.players.values()].filter((candidate) => candidate.faction === "operative" && candidate.id !== player.id).map((candidate) => candidate.id)
         : []
@@ -1298,15 +1332,27 @@ export class GameServer {
     return [...authored, ...mined].filter((vent) => !sealed.has(vent.id));
   }
 
-  publicVentState(mapId, player) {
+  publicVentState(room, player) {
     if (!player.ventId) return { inVent: false, ventId: null, exits: [] };
-    const vent = stationById(mapId, player.ventId);
+    const mapId = activeMapId(room);
+    const vent = stationById(mapId, player.ventId)
+      ?? (room.minedVents ?? []).find((mined) => mined.id === player.ventId);
+    const reachable = this.ventsInNetwork(mapId, vent?.refId, room)
+      .filter((station) => station.id !== player.ventId);
+    const keys = vent ? assignVentKeys(vent, reachable) : new Map();
+    const ventExits = reachable.map((station) => ({
+      id: station.id,
+      roomId: station.roomId,
+      // The key that reaches this exit, unique within the loop.
+      direction: keys.get(station.id) ?? null,
+      label: station.label ?? null,
+      x: station.x,
+      z: station.z
+    }));
     return {
       inVent: true,
       ventId: player.ventId,
-      exits: this.ventsInNetwork(mapId, vent?.refId, room)
-        .filter((station) => station.id !== player.ventId)
-        .map((station) => ({ id: station.id, roomId: station.roomId, x: station.x, z: station.z }))
+      exits: ventExits
     };
   }
 
@@ -1326,7 +1372,7 @@ export class GameServer {
     room.maintenanceLogs.push({ roomId: vent.roomId, at: Date.now() });
     room.maintenanceLogs = room.maintenanceLogs.slice(-20);
     this.sendPrivateState(room, player);
-    return { ok: true, vent: this.publicVentState(room.mapId, player) };
+    return { ok: true, vent: this.publicVentState(room, player) };
   }
 
   moveVent(room, player, stationId) {
@@ -1344,7 +1390,7 @@ export class GameServer {
     room.maintenanceLogs.push({ roomId: to.roomId, at: Date.now() });
     room.maintenanceLogs = room.maintenanceLogs.slice(-20);
     this.sendPrivateState(room, player);
-    return { ok: true, vent: this.publicVentState(room.mapId, player) };
+    return { ok: true, vent: this.publicVentState(room, player) };
   }
 
   exitVent(room, player) {
