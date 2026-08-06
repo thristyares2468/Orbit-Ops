@@ -361,15 +361,11 @@ export class OrbitOpsGame {
     // of the server - which is what left players vented but unable to move or exit.
     const ventedNow = Boolean(state.vent?.inVent);
     if (!ventedNow && this.vent) {
-      this.vent = null;
-      this.ventCursor = null;
       this.ventActionPending = false;
-      this.ui.showVent(null);
+      this.applyVentState(null);
     } else if (ventedNow && state.vent.ventId !== this.vent?.ventId) {
-      this.vent = state.vent;
-      this.ventCursor = null;
       this.ventActionPending = false;
-      this.ui.showVent(this.vent);
+      this.applyVentState(state.vent);
     }
     if (this.sceneReady) {
       this.phaserScene.applyPrivateRoleState(this.privateState);
@@ -399,6 +395,7 @@ export class OrbitOpsGame {
     this.vent = null;
     this.ventCursor = null;
     this.ventActionPending = false;
+    if (this.sceneReady) this.phaserScene.setVentState(null);
     this.currentPhase = "menu";
     this.latestIncidents = [];
     this.clearCharacters();
@@ -445,14 +442,21 @@ export class OrbitOpsGame {
   // this.vent as null (it is only set from the response) and fall through to
   // interact() -> enterVent() again, which read as "pressing E while already vented
   // tries to re-enter" - it was really a race, not the exit logic being wrong.
+  // Single point where vent state is applied, so the HUD panel and the in-world
+  // arrows always agree with each other and with the server.
+  applyVentState(vent) {
+    this.vent = vent?.inVent ? vent : null;
+    this.ventCursor = null;
+    this.ui.showVent(this.vent);
+    if (this.sceneReady) this.phaserScene.setVentState(this.vent);
+  }
+
   async enterVent(stationId) {
     if (this.ventActionPending) return;
     this.ventActionPending = true;
     try {
       const result = await this.network.request("enterVent", { stationId });
-      this.vent = result.vent;
-      this.ventCursor = null;
-      this.ui.showVent(this.vent);
+      this.applyVentState(result.vent);
     } finally {
       this.ventActionPending = false;
     }
@@ -463,8 +467,7 @@ export class OrbitOpsGame {
     this.ventActionPending = true;
     try {
       const result = await this.network.request("moveVent", { stationId });
-      this.vent = result.vent;
-      this.ui.showVent(this.vent);
+      this.applyVentState(result.vent);
     } finally {
       this.ventActionPending = false;
     }
@@ -475,9 +478,7 @@ export class OrbitOpsGame {
     this.ventActionPending = true;
     try {
       await this.network.request("exitVent");
-      this.vent = null;
-      this.ventCursor = null;
-      this.ui.showVent(null);
+      this.applyVentState(null);
     } finally {
       this.ventActionPending = false;
     }

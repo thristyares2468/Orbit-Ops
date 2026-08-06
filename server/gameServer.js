@@ -1364,6 +1364,8 @@ export class GameServer {
     const vent = stationById(room.mapId, stationId);
     if (!vent || vent.type !== "maintenance") throw new Error("Vent not found.");
     if ((room.sealedVents ?? []).includes(vent.id)) throw new Error("That vent has been welded shut.");
+    // Never let a player into a vent they could not climb back out of.
+    if (!isWalkable(room.mapId, vent.x, vent.z, 0.55)) throw new Error("That vent is blocked.");
     if (distance2D(player.position, vent) > INTERACTION_RANGE) throw new Error("Move closer to the vent.");
     player.ventId = vent.id;
     player.position = { x: vent.x, z: vent.z };

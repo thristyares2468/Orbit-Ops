@@ -1,6 +1,7 @@
 import { CharacterSprite } from "./CharacterSprite.js";
 import { MapBuilder } from "./MapBuilder.js";
 import { VisionOverlay } from "./VisionOverlay.js";
+import { VentArrows } from "./VentArrows.js";
 import { DEFAULT_MAP_ID, getMapDefinition } from "../shipData.js";
 import {
   PHASER_ASSETS,
@@ -36,6 +37,7 @@ export class MeridianScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor("#02060c");
     this.cameras.main.setRoundPixels(true);
     this.vision = new VisionOverlay(this);
+    this.ventArrows = new VentArrows(this);
     this.setMap(this.bridge.activeMapId() ?? DEFAULT_MAP_ID);
 
     this.bridge.onSceneReady(this);
@@ -48,6 +50,7 @@ export class MeridianScene extends Phaser.Scene {
     for (const marker of this.incidentMarkers.values()) marker.destroy();
     this.incidentMarkers.clear();
     this.sabotageOverlay?.destroy();
+    this.ventArrows?.hide();
     this.mapBuilder?.destroy();
 
     this.mapId = map.id;
@@ -181,6 +184,29 @@ export class MeridianScene extends Phaser.Scene {
     this.sabotageOverlay.setAlpha(alpha);
   }
 
+  // Show one arrow per exit while vented, anchored on the player's own vent.
+  setVentState(vent) {
+    this.ventState = vent?.inVent ? vent : null;
+    if (!this.ventArrows) return;
+    if (!this.ventState) {
+      this.ventArrows.hide();
+      return;
+    }
+    const local = this.characters.get(this.bridge.playerId);
+    const centre = local
+      ? { x: local.container.x, y: local.container.y }
+      : null;
+    this.ventArrows.show(centre, this.ventState.exits ?? [], this.detailScale);
+  }
+
+  updateVentArrows(deltaSeconds) {
+    if (!this.ventArrows) return;
+    if (!this.ventState) return;
+    const local = this.characters.get(this.bridge.playerId);
+    if (local) this.ventArrows.moveTo({ x: local.container.x, y: local.container.y });
+    this.ventArrows.update(deltaSeconds);
+  }
+
   updateVision(deltaSeconds) {
     if (!this.vision) return;
     const local = this.characters.get(this.bridge.playerId);
@@ -223,6 +249,7 @@ export class MeridianScene extends Phaser.Scene {
       });
     }
     this.setSabotage(this.bridge.activeSabotage, time / 1000);
+    this.updateVentArrows(deltaSeconds);
     this.updateVision(deltaSeconds);
     this.bridge.onRenderFrame(time, deltaMs);
   }

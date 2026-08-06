@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getMapDefinition, stationById } from "../public/src/shipData.js";
+import { getMapDefinition, isWalkable, stationById } from "../public/src/shipData.js";
 import { VENT_DIRECTION_KEYS, ventExitForDirection } from "../public/src/ventNavigation.js";
 import { GameServer } from "../server/gameServer.js";
 import { PHASES } from "../server/constants.js";
@@ -117,4 +117,56 @@ test("VENT_DIRECTION_KEYS covers WASD and matches the server's key letters", () 
     VENT_DIRECTION_KEYS.map((entry) => [entry.code, entry.direction]).sort(),
     [["KeyA", "A"], ["KeyD", "D"], ["KeyS", "S"], ["KeyW", "W"]]
   );
+});
+
+test("no vent strands a player who climbs out of it", () => {
+  // Exiting leaves you standing on the vent, so a vent with no room around it traps
+  // you. The Hallway vent by Shields did exactly that until its position was fixed.
+  const { server, room, operative } = makeVentedRoom();
+  const vents = getMapDefinition("the-skeld").stations.filter((s) => s.type === "maintenance");
+  const directions = [[0, -1], [0, 1], [-1, 0], [1, 0], [1, -1], [-1, -1], [1, 1], [-1, 1]];
+
+  for (const vent of vents) {
+    operative.alive = true;
+    operative.ventId = vent.id;
+    operative.position = { x: vent.x, z: vent.z };
+    server.exitVent(room, operative);
+    const start = { ...operative.position };
+
+    const usable = directions.filter(([dx, dz]) => {
+      operative.position = { ...start };
+      const length = Math.hypot(dx, dz);
+      operative.input = { x: dx / length, z: dz / length, yaw: 0, sprint: false, crouch: false, seq: 1 };
+      operative.lastInputAt = Date.now();
+      for (let step = 0; step < 6; step += 1) {
+        server.tickPlayerMovement(room, operative, Date.now(), 0.05);
+      }
+      return Math.hypot(operative.position.x - start.x, operative.position.z - start.z) > 0.15;
+    });
+    operative.position = { ...start };
+    assert.equal(usable.length, directions.length,
+      `${vent.id}: can only leave in ${usable.length} of ${directions.length} directions`);
+  }
+  operative.ventId = null;
+  for (const timer of room.timers) clearTimeout(timer);
+  room.timers.clear();
+});
+
+test("a vent with no standable floor cannot be entered at all", () => {
+  const { server, room, operative } = makeVentedRoom();
+  const vent = stationById("the-skeld", "skeld-vent-cafeteria");
+  // Pretend the deck around this vent is solid by moving the player far away: the
+  // range check fires first, so target a vent we can reach but blockade instead.
+  operative.position = { x: vent.x, z: vent.z };
+  assert.equal(server.enterVent(room, operative, vent.id).vent.inVent, true);
+  server.exitVent(room, operative);
+
+  // Every authored vent must pass the standable check, or entering would trap.
+  for (const station of getMapDefinition("the-skeld").stations) {
+    if (station.type !== "maintenance") continue;
+    assert.ok(isWalkable("the-skeld", station.x, station.z, 0.55),
+      `${station.id} sits on unwalkable floor and would strand anyone who exits there`);
+  }
+  for (const timer of room.timers) clearTimeout(timer);
+  room.timers.clear();
 });
