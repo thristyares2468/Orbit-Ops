@@ -170,3 +170,16 @@ test("a vent with no standable floor cannot be entered at all", () => {
   for (const timer of room.timers) clearTimeout(timer);
   room.timers.clear();
 });
+
+test("the Hallway vent is in the hallway, not inside a room", () => {
+  // Canonically it sits in the corridor in front of Shields. It was placed inside
+  // Shields' own rectangle, up in the top-right corner of the room.
+  const map = getMapDefinition("the-skeld");
+  const vent = stationById("the-skeld", "skeld-vent-hallway");
+  const containing = map.rooms.filter((room) =>
+    Math.abs(vent.x - room.x) <= room.width / 2 && Math.abs(vent.z - room.z) <= room.depth / 2);
+  assert.deepEqual(containing.map((room) => room.id), [],
+    `the Hallway vent should be corridor floor, but sits inside ${containing.map((r) => r.id).join(", ")}`);
+  assert.equal(vent.label, "Hallway", "it is labelled for the hallway, not its nearest room");
+  assert.ok(isWalkable("the-skeld", vent.x, vent.z, 0.55));
+});

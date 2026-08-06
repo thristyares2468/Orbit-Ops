@@ -357,7 +357,7 @@ export const THE_SKELD = createMapDefinition({
     stationAt("skeld-vent-admin", "maintenance", "admin", 761, 417, "vent-cafeteria-admin"),
     stationAt("skeld-vent-medbay", "maintenance", "medbay", 442, 276, "vent-electrical-security-medbay"),
     stationAt("skeld-vent-electrical", "maintenance", "electrical", 452, 488, "vent-electrical-security-medbay"),
-    stationAt("skeld-vent-hallway", "maintenance", "shields", 982, 437, "vent-cafeteria-admin", "Hallway"),
+    stationAt("skeld-vent-hallway", "maintenance", "shields", 937, 400, "vent-cafeteria-admin", "Hallway"),
     stationAt("skeld-vent-security", "maintenance", "security", 371, 342, "vent-electrical-security-medbay"),
     stationAt("skeld-vent-reactor-upper", "maintenance", "reactor", 174, 254, "vent-upper-engine"),
     stationAt("skeld-vent-upper-engine", "maintenance", "upper-engine", 210, 198, "vent-upper-engine"),
