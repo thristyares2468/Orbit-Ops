@@ -82,17 +82,19 @@ test("the dropship lobby is a valid map that is never selectable as a match map"
     "two paired exhaust sprites make four plumes on each engine pod");
 });
 
-test("room artwork uses only the verified Skeld room images or deliberate crops", () => {
-  const allowed = new Set([
-    "skeld-cafeteria", "skeld-upper-engine", "skeld-lower-engine", "skeld-reactor",
-    "skeld-security", "skeld-medbay", "skeld-electrical", "skeld-storage",
-    "skeld-communications", "skeld-admin", "skeld-shields", "skeld-o2",
-    "skeld-weapons", "skeld-navigation"
-  ]);
-  for (const room of getMapDefinition("the-skeld").rooms) {
-    assert.ok(allowed.has(room.assetKey), `${room.id}:${room.assetKey}`);
-    assert.ok(Object.hasOwn(PHASER_ASSETS, room.assetKey), `${room.assetKey} is preloaded`);
+test("the deck is the only Skeld map art, and nothing unused is preloaded", () => {
+  const skeld = getMapDefinition("the-skeld");
+  // The baked 3D deck supplies the whole map, so no room carries its own image.
+  for (const room of skeld.rooms) {
+    assert.equal(room.assetKey, undefined, `${room.id} must not carry per-room art`);
   }
+  assert.ok(skeld.render.deck, "the Skeld renders from the baked deck");
+  assert.equal(skeld.render.deck.assetKey, "skeld-deck");
+  assert.ok(Object.hasOwn(PHASER_ASSETS, "skeld-deck"), "the deck is preloaded");
+  // The superseded per-room images must not still be downloaded on every load.
+  const stale = Object.keys(PHASER_ASSETS)
+    .filter((key) => key.startsWith("skeld-") && key !== "skeld-deck");
+  assert.deepEqual(stale, [], `superseded room art still preloaded: ${stale.join(", ")}`);
   for (const mapId of [...MAP_IDS, LOBBY_MAP_ID]) {
     for (const decal of getMapDefinition(mapId).decals) {
       assert.ok(Object.hasOwn(PHASER_ASSETS, decal.assetKey), `${mapId}:${decal.id}:${decal.assetKey}`);
@@ -103,11 +105,13 @@ test("room artwork uses only the verified Skeld room images or deliberate crops"
 test("Skeld room art and interaction positions match the supplied deck reference", () => {
   const skeld = getMapDefinition("the-skeld");
   const rooms = new Map(skeld.rooms.map((room) => [room.id, room]));
+  // Room rectangles still anchor labels, collision props and room detection even
+  // though the deck now draws them.
   for (const roomId of [
     "upper-engine", "lower-engine", "reactor", "security", "medbay", "electrical",
     "storage", "communications", "admin", "shields", "weapons", "navigation"
   ]) {
-    assert.ok(rooms.get(roomId)?.assetKey, `${roomId} uses its supplied or rebuilt room art`);
+    assert.ok(rooms.get(roomId), `${roomId} is still an authored room`);
   }
   assert.deepEqual(rooms.get("cafeteria").referenceRect, { left: 539, top: 2, right: 826, bottom: 294 });
   assert.deepEqual(rooms.get("reactor").referenceRect, { left: 69, top: 190, right: 219, bottom: 392 });
@@ -122,18 +126,20 @@ test("Skeld room art and interaction positions match the supplied deck reference
   assert.ok(o2Panel.z < rooms.get("o2").z, "the O2 sabotage panel sits at the top of O2");
   assert.ok(shieldsVent.z > rooms.get("shields").z, "the Shields vent sits at the bottom of Shields");
 
-  const expectedTasks = {
-    "skeld-swipe-card": { x: 770, y: 337 },
-    "skeld-align-engine": { x: 214, y: 176 },
-    "skeld-calibrate-distributor": { x: 454, y: 395 },
-    "skeld-submit-scan": { x: 514, y: 307 },
-    "skeld-stabilize-steering": { x: 1152, y: 286 },
-    "skeld-clean-o2-filter": { x: 814, y: 260 },
-    "skeld-empty-garbage": { x: 704, y: 597 },
-    "skeld-prime-shields": { x: 887, y: 519 }
+  // Task consoles are no longer frozen to traced pixels: they are snapped onto the
+  // floor derived from the 3D model, so what matters is that each one can be reached.
+  const reachable = (x, z) => {
+    for (let radius = 0.3; radius <= 2.8; radius += 0.15) {
+      for (let step = 0; step < 24; step += 1) {
+        const angle = step / 24 * Math.PI * 2;
+        if (isWalkable("the-skeld", x + Math.cos(angle) * radius, z + Math.sin(angle) * radius, 0.55)) return true;
+      }
+    }
+    return false;
   };
   for (const definition of skeld.taskDefinitions) {
-    assert.deepEqual(definition.referencePosition, expectedTasks[definition.id], `${definition.name} uses its traced console`);
+    assert.ok(reachable(definition.x, definition.z), `${definition.name} console is reachable`);
+    assert.ok(skeld.rooms.some((room) => room.id === definition.roomId), `${definition.name} sits in a real room`);
   }
 });
 

@@ -226,6 +226,8 @@ export class MapBuilder {
   }
 
   buildZones(layerDefinition) {
+    // The deck art already contains the floor; procedural fills would sit on top.
+    if (this.deckProvidesArt) return;
     const style = this.map.render.zone;
     const detail = this.detailScale;
     const layer = this.createLayer(layerDefinition.id, layerDefinition.depth ?? style.depth);
@@ -261,6 +263,7 @@ export class MapBuilder {
   }
 
   buildCorridors(layerDefinition) {
+    if (this.deckProvidesArt) return;
     const style = this.map.render.corridor;
     const detail = this.detailScale;
     const layer = this.createLayer(layerDefinition.id, layerDefinition.depth ?? style.depth);

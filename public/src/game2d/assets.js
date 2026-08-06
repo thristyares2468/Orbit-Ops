@@ -39,21 +39,7 @@ export const PHASER_ASSETS = Object.freeze({
   lobbyEquipmentCase: "/assets/lobby/equipment-case.svg",
   lobbyLaptop: "/assets/lobby/laptop.png",
   lobbyExhaust: "/assets/lobby/exhaust.png",
-  "skeld-deck": "/assets/maps/skeld-deck.png",
-  "skeld-cafeteria": "/assets/art/Maps/Cafeteria/Cafeteria-sharedassets0.assets-210.png",
-  "skeld-upper-engine": "/assets/rooms/skeld-upper-engine.png",
-  "skeld-lower-engine": "/assets/rooms/skeld-lower-engine.png",
-  "skeld-reactor": "/assets/rooms/skeld-reactor.png",
-  "skeld-security": "/assets/rooms/skeld-security.png",
-  "skeld-medbay": "/assets/art/Maps/MedBay-sharedassets0.assets-110.png",
-  "skeld-electrical": "/assets/rooms/skeld-electrical.png",
-  "skeld-storage": "/assets/rooms/skeld-storage.png",
-  "skeld-admin": "/assets/rooms/skeld-admin.png",
-  "skeld-communications": "/assets/rooms/skeld-communications.png",
-  "skeld-shields": "/assets/rooms/skeld-shields.png",
-  "skeld-weapons": "/assets/rooms/skeld-weapons.png",
-  "skeld-navigation": "/assets/art/Maps/Navigation-sharedassets0.assets-160.png",
-  "skeld-o2": "/assets/rooms/skeld-o2.png"
+  "skeld-deck": "/assets/maps/skeld-deck.png"
 });
 
 export const PLAYER_FRAME_COUNTS = Object.freeze({ walk: 12, death: 42 });

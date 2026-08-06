@@ -116,7 +116,7 @@ const ROOMS = [
       [812, 219], [761, 278], [706, 278], [706, 306], [651, 306], [651, 278], [604, 278],
       [553, 222], [553, 163], [531, 163], [531, 114], [553, 114], [553, 69]
     ],
-    navigationAnchor: [679, 260], assetKey: "skeld-cafeteria", colour: 0x5b6566
+    navigationAnchor: [679, 260], colour: 0x5b6566
   }),
   roomFromReference({
     id: "upper-engine", name: "Upper Engine", rect: [203, 82, 327, 218],
@@ -126,7 +126,7 @@ const ROOMS = [
       [284, 207], [284, 226], [241, 226], [241, 207], [212, 207], [212, 188], [195, 188],
       [195, 112], [212, 112], [212, 104]
     ],
-    navigationAnchor: [238, 191], assetKey: "skeld-upper-engine", colour: 0x4a342a
+    navigationAnchor: [238, 191], colour: 0x4a342a
   }),
   roomFromReference({
     id: "reactor", name: "Reactor", rect: [69, 190, 219, 392],
@@ -135,13 +135,13 @@ const ROOMS = [
       [98, 199], [189, 199], [210, 220], [210, 250], [231, 250], [231, 332], [210, 332],
       [210, 362], [188, 383], [98, 383], [78, 362], [78, 220]
     ],
-    navigationAnchor: [177, 291], assetKey: "skeld-reactor", colour: 0x512d35
+    navigationAnchor: [177, 291], colour: 0x512d35
   }),
   roomFromReference({
     id: "security", name: "Security", rect: [330, 219, 419, 362],
     artOutline: [[351, 219], [399, 219], [419, 239], [419, 362], [330, 362], [330, 239]],
     floorOutline: [[350, 228], [399, 228], [411, 241], [411, 351], [323, 351], [323, 278], [336, 278], [336, 242]],
-    navigationAnchor: [355, 325], assetKey: "skeld-security", colour: 0x314c42
+    navigationAnchor: [355, 325], colour: 0x314c42
   }),
   roomFromReference({
     id: "medbay", name: "MedBay", rect: [419, 158, 572, 350],
@@ -150,7 +150,7 @@ const ROOMS = [
       [446, 169], [546, 169], [546, 193], [558, 193], [558, 246], [570, 260], [570, 315],
       [538, 342], [453, 342], [427, 316], [427, 191], [446, 191]
     ],
-    navigationAnchor: [481, 303], assetKey: "skeld-medbay", artCrop: { x: 0, y: 0, width: 520, height: 520 }, colour: 0x315b60
+    navigationAnchor: [481, 303], colour: 0x315b60
   }),
   roomFromReference({
     id: "lower-engine", name: "Lower Engine", rect: [203, 394, 327, 537],
@@ -160,7 +160,7 @@ const ROOMS = [
       [317, 485], [317, 525], [226, 525], [212, 510], [212, 491], [195, 491], [195, 424],
       [212, 424], [212, 404], [242, 404]
     ],
-    navigationAnchor: [238, 510], assetKey: "skeld-lower-engine", colour: 0x4a342a
+    navigationAnchor: [238, 510], colour: 0x4a342a
   }),
   roomFromReference({
     id: "electrical", name: "Electrical", rect: [437, 347, 569, 513],
@@ -169,7 +169,7 @@ const ROOMS = [
       [445, 355], [560, 355], [560, 389], [543, 421], [543, 476], [526, 504], [526, 526],
       [431, 526], [431, 485], [426, 485], [426, 433], [445, 433]
     ],
-    navigationAnchor: [516, 471], assetKey: "skeld-electrical", colour: 0x594437
+    navigationAnchor: [516, 471], colour: 0x594437
   }),
   roomFromReference({
     id: "storage", name: "Storage", rect: [559, 394, 727, 620],
@@ -179,7 +179,7 @@ const ROOMS = [
       [737, 443], [737, 499], [719, 499], [719, 574], [698, 610], [622, 610], [566, 573],
       [566, 561], [548, 561], [548, 511], [566, 511], [566, 426]
     ],
-    navigationAnchor: [591, 556], assetKey: "skeld-storage", colour: 0x443c32
+    navigationAnchor: [591, 556], colour: 0x443c32
   }),
   roomFromReference({
     id: "communications", name: "Communications", rect: [724, 496, 872, 626],
@@ -188,7 +188,7 @@ const ROOMS = [
       [748, 506], [784, 506], [784, 486], [828, 486], [828, 506], [848, 506], [862, 523],
       [862, 598], [846, 616], [750, 616], [734, 598], [734, 523]
     ],
-    navigationAnchor: [762, 588], assetKey: "skeld-communications", colour: 0x24485b
+    navigationAnchor: [762, 588], colour: 0x24485b
   }),
   roomFromReference({
     id: "admin", name: "Admin", rect: [744, 317, 878, 438],
@@ -197,13 +197,13 @@ const ROOMS = [
       [729, 344], [764, 344], [764, 324], [857, 324], [869, 338], [869, 415], [856, 429],
       [763, 429], [751, 415], [751, 380], [729, 380]
     ],
-    navigationAnchor: [847, 409], assetKey: "skeld-admin", colour: 0x503040
+    navigationAnchor: [847, 409], colour: 0x503040
   }),
   roomFromReference({
     id: "o2", name: "O2", rect: [800, 215, 921, 313],
     artOutline: [[820, 215], [900, 215], [921, 236], [921, 292], [900, 313], [820, 313], [800, 292], [800, 236]],
     floorOutline: [[819, 222], [899, 222], [914, 238], [928, 238], [928, 294], [913, 294], [898, 305], [819, 305], [807, 290], [807, 239]],
-    navigationAnchor: [874, 263], assetKey: "skeld-o2", colour: 0x355b51
+    navigationAnchor: [874, 263], colour: 0x355b51
   }),
   roomFromReference({
     id: "weapons", name: "Weapons", rect: [858, 60, 995, 199],
@@ -212,7 +212,7 @@ const ROOMS = [
       [882, 68], [965, 68], [987, 90], [987, 169], [968, 191], [958, 191], [958, 210],
       [916, 210], [916, 191], [880, 191], [866, 174], [866, 167], [847, 167], [847, 113], [866, 113], [866, 83]
     ],
-    navigationAnchor: [950, 176], assetKey: "skeld-weapons", colour: 0x655342
+    navigationAnchor: [950, 176], colour: 0x655342
   }),
   roomFromReference({
     id: "navigation", name: "Navigation", rect: [1090, 224, 1200, 356],
@@ -221,7 +221,7 @@ const ROOMS = [
       [1081, 232], [1145, 232], [1192, 257], [1192, 323], [1145, 348], [1081, 348],
       [1081, 315], [1068, 315], [1068, 257], [1081, 257]
     ],
-    navigationAnchor: [1128, 291], assetKey: "skeld-navigation", artCrop: { x: 0, y: 0, width: 344, height: 420 }, colour: 0x253b65
+    navigationAnchor: [1128, 291], colour: 0x253b65
   }),
   roomFromReference({
     id: "shields", name: "Shields", rect: [873, 418, 1010, 555],
@@ -230,7 +230,7 @@ const ROOMS = [
       [914, 409], [986, 409], [986, 427], [1002, 447], [1002, 525], [979, 547], [895, 547],
       [882, 532], [882, 509], [863, 509], [863, 454], [882, 454], [882, 442], [895, 427], [914, 427]
     ],
-    navigationAnchor: [912, 520], assetKey: "skeld-shields", colour: 0x665744
+    navigationAnchor: [912, 520], colour: 0x665744
   })
 ];
 
