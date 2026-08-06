@@ -196,14 +196,56 @@ test("Skeld uses clipped room hulls and keeps every interaction reachable", () =
   };
   assert.ok(skeld.stations.every(reachableWithinInteractionRange),
     "every task, vent, meeting button, security console, and sabotage panel has a reachable use position");
-  assert.ok(skeld.collisionRects.every((collision) => !isWalkable("the-skeld", collision.x, collision.z, 0.2)),
-    "every visible room fixture has matching collision");
-  assert.ok(skeld.collisionRects.every((collision) => pointInMapShape(
-    collision.x,
-    collision.z,
-    rooms.get(collision.roomId),
-    0
-  )), "every fixture collision belongs to its authored room");
+  // Collision comes entirely from the model-derived walk grid now. Authored
+  // rectangles are gone: they were traced against superseded geometry and sat across
+  // doorways, which made Reactor, both Engines and Electrical unreachable.
+  assert.equal(skeld.collisionRects.length, 0, "the walk grid supplies all collision");
+  assert.ok(skeld.walkGrid, "the Skeld carries a model-derived walk grid");
+
+  // The whole ship must be reachable by a player of real size, not just connected
+  // cell-to-cell. This is the check that would have caught the sealed-off rooms.
+  const CELL = skeld.walkGrid.cell;
+  const cols = Math.round((skeld.bounds.maxX - skeld.bounds.minX) / CELL);
+  const rows = Math.round((skeld.bounds.maxZ - skeld.bounds.minZ) / CELL);
+  const wx = (c) => skeld.bounds.minX + (c + 0.5) * CELL;
+  const wz = (r) => skeld.bounds.minZ + (r + 0.5) * CELL;
+  const open = [];
+  for (let r = 0; r < rows; r += 1) {
+    const line = [];
+    for (let c = 0; c < cols; c += 1) line.push(isWalkable("the-skeld", wx(c), wz(r), 0.55));
+    open.push(line);
+  }
+  const [spawnX, spawnZ] = skeld.spawnPoints[0];
+  const startC = Math.floor((spawnX - skeld.bounds.minX) / CELL);
+  const startR = Math.floor((spawnZ - skeld.bounds.minZ) / CELL);
+  assert.ok(open[startR]?.[startC], "the first spawn is standable");
+  const reached = open.map((line) => line.map(() => false));
+  const queue = [[startC, startR]];
+  reached[startR][startC] = true;
+  while (queue.length) {
+    const [c, r] = queue.pop();
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nc = c + dc;
+      const nr = r + dr;
+      if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+      if (open[nr][nc] && !reached[nr][nc]) { reached[nr][nc] = true; queue.push([nc, nr]); }
+    }
+  }
+  for (const room of skeld.rooms) {
+    let inside = 0;
+    let got = 0;
+    for (let r = 0; r < rows; r += 1) {
+      for (let c = 0; c < cols; c += 1) {
+        if (Math.abs(wx(c) - room.x) > room.width / 2) continue;
+        if (Math.abs(wz(r) - room.z) > room.depth / 2) continue;
+        if (!open[r][c]) continue;
+        inside += 1;
+        if (reached[r][c]) got += 1;
+      }
+    }
+    assert.ok(inside > 0, `${room.id} has standable floor`);
+    assert.ok(got / inside >= 0.8, `${room.id} is reachable from spawn (${Math.round(got / inside * 100)}%)`);
+  }
 });
 
 test("the outer ship silhouette is decorative and never becomes walkable floor", () => {

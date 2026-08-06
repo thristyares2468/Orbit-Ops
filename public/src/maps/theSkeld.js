@@ -347,9 +347,9 @@ export const THE_SKELD = createMapDefinition({
     { id: "skeld-lights-out", name: "Lights Out", critical: false, durationMs: 40000, repairStations: ["skeld-light-panel"], roomId: "electrical" }
   ],
   stations: [
-    stationAt("meeting-console", "meeting", "cafeteria", 677, 151),
+    stationAt("meeting-console", "meeting", "cafeteria", 668, 166),
     stationAt("skeld-cameras", "security", "security", 371, 269),
-    stationAt("skeld-admin-table", "admin", "admin", 771, 339),
+    stationAt("skeld-admin-table", "admin", "admin", 771, 342),
     stationAt("skeld-vent-cafeteria", "maintenance", "cafeteria", 804, 183, "vent-hub"),
     stationAt("skeld-vent-admin", "maintenance", "admin", 761, 417, "vent-hub"),
     stationAt("skeld-vent-medbay", "maintenance", "medbay", 442, 276, "vent-port"),
@@ -372,58 +372,16 @@ export const THE_SKELD = createMapDefinition({
     stationAt("skeld-light-panel", "repair", "electrical", 543, 386, "skeld-lights-out")
   ],
   spawnPoints: [
-    [worldX(677), worldZ(116)], [worldX(641), worldZ(151)], [worldX(713), worldZ(151)], [worldX(677), worldZ(187)],
-    [worldX(605), worldZ(151)], [worldX(749), worldZ(151)], [worldX(641), worldZ(187)], [worldX(713), worldZ(187)],
+    [worldX(677), worldZ(104)], [worldX(633), worldZ(151)], [worldX(713), worldZ(151)], [worldX(677), worldZ(187)],
+    [worldX(605), worldZ(151)], [worldX(749), worldZ(151)], [worldX(641), worldZ(187)], [worldX(704), worldZ(181)],
     [worldX(580), worldZ(151)], [worldX(774), worldZ(151)], [worldX(641), worldZ(260)], [worldX(713), worldZ(260)],
-    [worldX(677), worldZ(260)], [worldX(641), worldZ(54)], [worldX(713), worldZ(54)], [worldX(677), worldZ(276)]
+    [worldX(677), worldZ(260)], [worldX(641), worldZ(54)], [worldX(707), worldZ(48)], [worldX(677), worldZ(276)]
   ],
-  collisionRects: [
-    collisionAt("skeld-cafeteria-table-nw", "table", "cafeteria", 614, 89, 63, 49, { shape: "ellipse" }),
-    collisionAt("skeld-cafeteria-table-ne", "table", "cafeteria", 744, 89, 63, 49, { shape: "ellipse" }),
-    // Only the emergency table's solid pedestal blocks movement. The tabletop
-    // remains visible in the room art while players can reach the central button
-    // from its rim without crossing the furniture collision.
-    collisionAt("skeld-emergency-table", "table", "cafeteria", 677, 151, 40, 28, { shape: "ellipse" }),
-    collisionAt("skeld-cafeteria-table-sw", "table", "cafeteria", 612, 222, 63, 49, { shape: "ellipse" }),
-    collisionAt("skeld-cafeteria-table-se", "table", "cafeteria", 738, 222, 63, 49, { shape: "ellipse" }),
-    collisionAt("skeld-upper-engine-core", "engine", "upper-engine", 274, 151, 82, 60, { shape: "ellipse" }),
-    collisionAt("skeld-upper-engine-console", "console", "upper-engine", 244, 157, 25, 48),
-    collisionAt("skeld-lower-engine-core", "engine", "lower-engine", 274, 465, 82, 60, { shape: "ellipse" }),
-    collisionAt("skeld-lower-engine-console", "console", "lower-engine", 244, 470, 25, 48),
-    collisionAt("skeld-reactor-core", "reactor", "reactor", 144, 291, 43, 42, { shape: "ellipse" }),
-    collisionAt("skeld-reactor-tube-nw", "reactor", "reactor", 109, 225, 17, 34, { shape: "ellipse" }),
-    collisionAt("skeld-reactor-tube-ne", "reactor", "reactor", 181, 225, 17, 34, { shape: "ellipse" }),
-    collisionAt("skeld-reactor-tube-sw", "reactor", "reactor", 109, 327, 17, 34, { shape: "ellipse" }),
-    collisionAt("skeld-reactor-tube-se", "reactor", "reactor", 181, 327, 17, 34, { shape: "ellipse" }),
-    collisionAt("skeld-reactor-panel-west", "console", "reactor", 91, 291, 18, 27),
-    collisionAt("skeld-reactor-panel-east", "console", "reactor", 196, 291, 18, 18),
-    collisionAt("skeld-security-console", "console", "security", 380, 247, 56, 38),
-    collisionAt("skeld-security-desk", "console", "security", 401, 311, 30, 34),
-    collisionAt("skeld-med-bed-west-north", "bed", "medbay", 435, 211, 22, 36),
-    collisionAt("skeld-med-bed-west-south", "bed", "medbay", 435, 257, 22, 36),
-    collisionAt("skeld-med-bed-east-north", "bed", "medbay", 524, 211, 22, 36),
-    collisionAt("skeld-med-bed-east-south", "bed", "medbay", 524, 257, 22, 36),
-    collisionAt("skeld-med-scanner", "scanner", "medbay", 514, 307, 40, 32, { shape: "ellipse" }),
-    collisionAt("skeld-electrical-cabinets", "console", "electrical", 502, 369, 108, 30),
-    collisionAt("skeld-electrical-breaker-bank", "console", "electrical", 471, 417, 43, 38),
-    collisionAt("skeld-storage-barrel-bank", "cargo", "storage", 584, 422, 36, 45),
-    collisionAt("skeld-storage-crates-north", "cargo", "storage", 645, 450, 48, 42),
-    collisionAt("skeld-storage-crates-main", "cargo", "storage", 667, 493, 70, 78),
-    collisionAt("skeld-storage-crate-south", "cargo", "storage", 650, 535, 36, 31),
-    collisionAt("skeld-storage-barrel-east", "cargo", "storage", 709, 511, 17, 27),
-    collisionAt("skeld-admin-table", "table", "admin", 811, 387, 74, 45, { shape: "ellipse" }),
-    collisionAt("skeld-admin-console-bank", "console", "admin", 811, 338, 104, 22),
-    collisionAt("skeld-o2-canisters", "console", "o2", 859, 288, 99, 23),
-    collisionAt("skeld-o2-water-tank", "console", "o2", 898, 237, 28, 32),
-    collisionAt("skeld-weapons-platform", "console", "weapons", 925, 130, 67, 56, { shape: "ellipse" }),
-    collisionAt("skeld-navigation-console", "console", "navigation", 1174, 287, 39, 76),
-    collisionAt("skeld-navigation-north-console", "console", "navigation", 1158, 246, 39, 22),
-    collisionAt("skeld-navigation-north-chair", "chair", "navigation", 1107, 244, 22, 23),
-    collisionAt("skeld-navigation-south-chairs", "chair", "navigation", 1113, 332, 39, 24),
-    collisionAt("skeld-shields-task-console", "console", "shields", 887, 519, 22, 20),
-    collisionAt("skeld-comms-desk", "console", "communications", 810, 590, 72, 31),
-    collisionAt("skeld-comms-equipment", "console", "communications", 754, 538, 30, 31)
-  ],
+  // No authored collision rectangles: the walk grid is derived from the model with a
+  // threshold just above the floor, so every solid object already blocks. The old
+  // hand-traced rectangles were placed against superseded geometry and sat across
+  // doorways, which is what made Reactor, both Engines and Electrical unreachable.
+  collisionRects: [],
   theme: {
     worldScale: 40,
     corridorFill: 0x526d76,
