@@ -507,8 +507,11 @@ export class MapBuilder {
       const ringDepth = Number.isFinite(station.ringDepth)
         ? station.ringDepth * this.metrics.scale
         : 30 * detail;
+      // A dark disc behind the icon so markers stay readable over the detailed deck
+      // art; without it a small console icon disappears into a busy floor.
+      const backing = this.scene.add.ellipse(0, 0, ringWidth * 1.06, ringDepth * 1.16, 0x02070d, 0.5);
       const ring = this.scene.add.ellipse(0, 0, ringWidth, ringDepth)
-        .setStrokeStyle(Math.max(1, 2 * detail), station.type === "repair" ? 0xffbd4a : 0x74e5ff, 0.72);
+        .setStrokeStyle(Math.max(2, 3 * detail), station.type === "repair" ? 0xffbd4a : 0x74e5ff, 0.95);
       const icon = this.scene.add.image(
         (station.artOffsetX ?? 0) * this.metrics.scale,
         Number.isFinite(station.artOffsetZ) ? station.artOffsetZ * this.metrics.scale : -4 * detail,
@@ -519,8 +522,8 @@ export class MapBuilder {
       } else {
         icon.setDisplaySize(style.iconSize * detail, style.iconSize * detail);
       }
-      icon.setAlpha(station.artAlpha ?? 0.9);
-      stationContainer.add([ring, icon]);
+      icon.setAlpha(station.artAlpha ?? 1);
+      stationContainer.add([backing, ring, icon]);
       stationContainer.setData({ stationId: station.id, roomId: station.roomId, stationType: station.type });
       layer.add(stationContainer);
       this.stationMarkers.push({

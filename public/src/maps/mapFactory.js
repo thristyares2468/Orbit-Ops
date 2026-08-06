@@ -26,8 +26,9 @@ function freezeItems(values = []) {
   return Object.freeze(values.map((value) => Object.freeze(value)));
 }
 
-export function task(id, name, roomId, x, z, kind, steps = 4) {
-  return { id, name, roomId, x, z, kind, steps };
+export function task(id, name, roomId, x, z, kind, steps = 4, assetKey = null) {
+  // assetKey lets a task show its own console art instead of a generic one.
+  return { id, name, roomId, x, z, kind, steps, ...(assetKey ? { assetKey } : {}) };
 }
 
 export function station(id, type, roomId, x, z, refId = null) {
@@ -83,7 +84,8 @@ export function createMapDefinition({
       refId: definition.id,
       roomId: definition.roomId,
       x: definition.x,
-      z: definition.z
+      z: definition.z,
+      ...(definition.assetKey ? { assetKey: definition.assetKey } : {})
     })),
     ...stations
   ]);
@@ -155,7 +157,7 @@ export function createMapDefinition({
         radius: 30
       }),
       prop: Object.freeze({ depth: -180 }),
-      station: Object.freeze({ depth: 210, iconSize: 34 })
+      station: Object.freeze({ depth: 210, iconSize: 52 })
     })
   });
   const validation = validateMapDefinition(map);

@@ -76,9 +76,12 @@ function route(id, from, to, points = []) {
   });
 }
 
-function taskAt(id, name, roomId, x, y, kind, steps = 4) {
+function taskAt(id, name, roomId, x, y, kind, steps = 4, assetKey = null) {
   const point = referencePoint(x, y);
-  return { ...task(id, name, roomId, point.x, point.z, kind, steps), referencePosition: Object.freeze({ x, y }) };
+  return {
+    ...task(id, name, roomId, point.x, point.z, kind, steps, assetKey),
+    referencePosition: Object.freeze({ x, y })
+  };
 }
 
 function stationAt(id, type, roomId, x, y, refId = null) {
@@ -327,15 +330,15 @@ export const THE_SKELD = createMapDefinition({
   corridorRoutes: SKELD_ROUTES,
   // The reference clone's nine assignments, on the rooms it puts them in.
   tasks: [
-    taskAt("skeld-turn-on-lights", "Turn On The Lights", "electrical", 454, 395, "wiring"),
-    taskAt("skeld-fix-wiring", "Fix The Electricity Wires", "electrical", 492, 439, "wiring"),
-    taskAt("skeld-stabilize-nav", "Stabilize The Ship's Navigation", "navigation", 1127, 286, "route"),
-    taskAt("skeld-reboot-wifi", "Reboot The Wifi", "communications", 827, 580, "sequence"),
-    taskAt("skeld-empty-garbage", "Empty The Garbage", "storage", 698, 589, "garbage"),
-    taskAt("skeld-divert-power", "Divert Power To Reactor", "reactor", 233, 295, "power"),
-    taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 233, 198, "balance"),
-    taskAt("skeld-fuel-engine", "Fuel Lower Engine", "lower-engine", 286, 507, "fuel"),
-    taskAt("skeld-clear-asteroids", "Clear The Asteroids", "weapons", 948, 201, "asteroids", 10)
+    taskAt("skeld-turn-on-lights", "Turn On The Lights", "electrical", 454, 395, "wiring", 4, "taskLights"),
+    taskAt("skeld-fix-wiring", "Fix The Electricity Wires", "electrical", 492, 439, "wiring", 4, "taskWiring"),
+    taskAt("skeld-stabilize-nav", "Stabilize The Ship's Navigation", "navigation", 1127, 286, "route", 4, "taskNavigation"),
+    taskAt("skeld-reboot-wifi", "Reboot The Wifi", "communications", 827, 580, "sequence", 4, "taskWifi"),
+    taskAt("skeld-empty-garbage", "Empty The Garbage", "storage", 698, 589, "garbage", 4, "taskGarbage"),
+    taskAt("skeld-divert-power", "Divert Power To Reactor", "reactor", 233, 295, "power", 4, "taskDivertPower"),
+    taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 233, 198, "balance", 4, "taskEngineAlign"),
+    taskAt("skeld-fuel-engine", "Fuel Lower Engine", "lower-engine", 286, 507, "fuel", 4, "taskFuel"),
+    taskAt("skeld-clear-asteroids", "Clear The Asteroids", "weapons", 948, 201, "asteroids", 4, "taskAsteroids", 10)
   ],
   sabotages: [
     { id: "skeld-reactor-meltdown", name: "Reactor Meltdown", critical: true, durationMs: 20000, repairStations: ["skeld-reactor-alpha", "skeld-reactor-beta"], roomId: "reactor" },
