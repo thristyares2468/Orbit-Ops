@@ -353,6 +353,14 @@ export class OrbitOpsGame {
   handlePrivateState(state) {
     this.privateState = { ...state, completedTaskIds: [...(state.completedTaskIds ?? [])] };
     this.ui.setPrivateState(this.privateState);
+    // The server is authoritative about being in a vent: it empties them for
+    // meetings, on death and at match reset. Without this the client would keep
+    // showing the vent panel and E would try to climb out of a vent it already left.
+    if (!state.vent && this.vent) {
+      this.vent = null;
+      this.ventCursor = null;
+      this.ui.showVent(null);
+    }
     if (this.sceneReady) {
       this.phaserScene.applyPrivateRoleState(this.privateState);
       this.phaserScene.setGhostView(this.privateState.alive === false);

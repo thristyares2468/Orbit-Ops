@@ -1022,3 +1022,82 @@ test("the full Town Of Us R roster is present and well formed", () => {
     }
   }
 });
+
+test("the vent network matches the canonical Skeld layout", () => {
+  const map = getMapDefinition("the-skeld");
+  const vents = map.stations.filter((station) => station.type === "maintenance");
+  assert.equal(vents.length, 14, "the Skeld has fourteen vents");
+
+  const networks = new Map();
+  for (const vent of vents) {
+    if (!networks.has(vent.refId)) networks.set(vent.refId, []);
+    networks.get(vent.refId).push(vent.roomId);
+  }
+  // Two three-vent loops and four two-vent loops, as on the real map.
+  const sizes = [...networks.values()].map((rooms) => rooms.length).sort();
+  assert.deepEqual(sizes, [2, 2, 2, 2, 3, 3]);
+
+  const expected = {
+    "vent-cafeteria-admin": ["admin", "admin", "cafeteria"],
+    "vent-electrical-security-medbay": ["electrical", "medbay", "security"],
+    "vent-upper-engine": ["reactor", "upper-engine"],
+    "vent-lower-engine": ["lower-engine", "reactor"],
+    "vent-weapons-navigation": ["navigation", "weapons"],
+    "vent-navigation-shields": ["navigation", "shields"]
+  };
+  for (const [id, rooms] of Object.entries(expected)) {
+    assert.deepEqual([...(networks.get(id) ?? [])].sort(), rooms, id);
+  }
+
+  // Navigation and Reactor each hold two vents that must NOT link to each other,
+  // which is what stops an operative crossing the ship in one hop.
+  for (const roomId of ["navigation", "reactor"]) {
+    const pair = vents.filter((vent) => vent.roomId === roomId);
+    assert.equal(pair.length, 2, `${roomId} has two vents`);
+    assert.notEqual(pair[0].refId, pair[1].refId, `${roomId}'s vents are on separate loops`);
+  }
+  // No vent may be a dead end.
+  for (const [id, rooms] of networks) assert.ok(rooms.length >= 2, `${id} is a dead end`);
+});
+
+test("an operative cannot cross the ship through a single vent network", () => {
+  const map = getMapDefinition("the-skeld");
+  const vents = map.stations.filter((station) => station.type === "maintenance");
+  const networks = new Map();
+  for (const vent of vents) {
+    if (!networks.has(vent.refId)) networks.set(vent.refId, []);
+    networks.get(vent.refId).push(vent);
+  }
+  // The point of separate loops is limited reach: no single network may span more
+  // than half the deck, or venting becomes a teleport across the map.
+  const deckWidth = map.bounds.maxX - map.bounds.minX;
+  for (const [id, list] of networks) {
+    let span = 0;
+    for (const a of list) for (const b of list) span = Math.max(span, Math.abs(a.x - b.x));
+    assert.ok(span < deckWidth * 0.5, `${id} spans ${Math.round(span)} of ${Math.round(deckWidth)} units`);
+  }
+});
+
+test("entering, hopping and leaving a vent all round-trip", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const entry = stationById("the-skeld", "skeld-vent-cafeteria");
+  const operative = player("operative", "operative", { x: entry.x, z: entry.z });
+  room.players.set(operative.id, operative);
+
+  const entered = server.enterVent(room, operative, entry.id);
+  assert.equal(entered.vent.inVent, true);
+  // The Cafeteria loop offers Admin and the Hallway.
+  assert.equal(entered.vent.exits.length, 2, "the three-vent loop offers two destinations");
+
+  const hop = server.moveVent(room, operative, entered.vent.exits[0].id);
+  assert.equal(hop.vent.inVent, true);
+  assert.equal(operative.ventId, entered.vent.exits[0].id);
+
+  const left = server.exitVent(room, operative);
+  assert.equal(left.ok, true);
+  assert.equal(operative.ventId, null, "leaving clears the vent state the client mirrors");
+  // Leaving twice must be refused rather than silently succeeding.
+  assert.throws(() => server.exitVent(room, operative), /not inside the vents/u);
+});
