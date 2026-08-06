@@ -21,7 +21,7 @@ The host can select one of three isolated maps: **The Skeld**, **MIRA HQ**, or *
 - The reference's nine assignments: Turn On The Lights, Fix The Electricity Wires, Stabilize The Ship's Navigation, Reboot The Wifi, Empty The Garbage, Divert Power To Reactor, Align Engine Output, Fuel Lower Engine, and Clear The Asteroids.
 - An Admin table showing live per-room head counts (never names, and dark during a lights sabotage) and a security monitor showing a live camera feed rather than delayed telemetry. Vented players appear on neither.
 - The vent network follows the real Skeld: two three-vent loops (Cafeteria/Admin/Hallway and Electrical/Security/MedBay) and four two-vent loops (Reactor/Upper Engine, Reactor/Lower Engine, Weapons/Navigation, Navigation/Shields). Navigation and Reactor each hold two vents that deliberately do not link to each other, which is what stops an operative crossing the deck in a single hop.
-- Vents are a connected network rather than fixed pairs: an operative climbs in, travels between any vents sharing that network, and climbs out. While inside they are frozen, hidden from every other client's snapshot, and cannot kill, be killed, report, or run assignments. Meetings empty the vents.
+- Vents are a connected network rather than fixed pairs: an operative climbs in, travels between any vents sharing that network with WASD (whichever exit lies in the pressed direction), and climbs out with E. While inside they are frozen, hidden from every other client's snapshot, and cannot kill, be killed, report, or run assignments. Meetings empty the vents, and the client always mirrors the server's vent state rather than tracking its own guess - E climbs out and only out, never back in.
 - Sensory states are server truths the client only renders: being flashed, hypnotised or eclipsed collapses sight to almost nothing, cuffs block acting entirely, and the HUD says which is happening rather than leaving the player guessing.
 - Limited sight: the deck is dark beyond a radius around you, enforced server-side so culled players and bodies are never sent to the client at all. Operatives see further than crew, and a lights sabotage collapses the crew's radius while barely touching the operative's. Ghosts and meetings reveal everything.
 - Server-private role assignment with Engineer, Medic, Sheriff, Tracker, Morphling, Swooper, Janitor, Jester, Survivor, and base Crew/Operative roles
@@ -57,8 +57,9 @@ npm run dev
 | `W A S D` or arrow keys | Move |
 | `Shift` | Sprint |
 | `C` or `Ctrl` | Stealth-walk |
-| `E` | Use a nearby station, repair, console, reportable incident, vent, or the lobby boarding console |
-| `Alt` | Move to the next vent while inside the vent network |
+| `E` | Use a nearby station, repair, console, reportable incident, or the lobby boarding console; enter a vent, and always climb back out (never re-enters) |
+| `W A S D` (while vented) | Hop to whichever vent exit lies in the pressed direction |
+| `Alt` | Fallback: cycle through vent exits in order, for when no direction lines up well enough |
 | `R` | Report a nearby incident |
 | `Q` | Operative elimination attempt |
 | `F` | Operative sabotage panel |

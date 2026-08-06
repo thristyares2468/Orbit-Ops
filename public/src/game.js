@@ -1,4 +1,5 @@
 import { AudioManager } from "./audio.js";
+import { VENT_DIRECTION_KEYS, pickVentExit } from "./ventNavigation.js";
 import { MeridianScene } from "./game2d/MeridianScene.js";
 import { InputController } from "./input.js";
 import { getRoleDefinition } from "./roleData.js";
@@ -359,6 +360,7 @@ export class OrbitOpsGame {
     if (!state.vent && this.vent) {
       this.vent = null;
       this.ventCursor = null;
+      this.ventActionPending = false;
       this.ui.showVent(null);
     }
     if (this.sceneReady) {
@@ -387,6 +389,8 @@ export class OrbitOpsGame {
     this.playerId = null;
     this.privateState = null;
     this.vent = null;
+    this.ventCursor = null;
+    this.ventActionPending = false;
     this.currentPhase = "menu";
     this.latestIncidents = [];
     this.clearCharacters();
@@ -428,22 +432,63 @@ export class OrbitOpsGame {
     this.audio.playCue("interact");
   }
 
+  // enterVent, hopVent and leaveVent all share one in-flight guard. Without it, a
+  // second E press fired before the first request's ack arrives would still see
+  // this.vent as null (it is only set from the response) and fall through to
+  // interact() -> enterVent() again, which read as "pressing E while already vented
+  // tries to re-enter" - it was really a race, not the exit logic being wrong.
   async enterVent(stationId) {
-    const result = await this.network.request("enterVent", { stationId });
-    this.vent = result.vent;
-    this.ui.showVent(this.vent);
+    if (this.ventActionPending) return;
+    this.ventActionPending = true;
+    try {
+      const result = await this.network.request("enterVent", { stationId });
+      this.vent = result.vent;
+      this.ventCursor = null;
+      this.ui.showVent(this.vent);
+    } finally {
+      this.ventActionPending = false;
+    }
   }
 
   async hopVent(stationId) {
-    const result = await this.network.request("moveVent", { stationId });
-    this.vent = result.vent;
-    this.ui.showVent(this.vent);
+    if (this.ventActionPending) return;
+    this.ventActionPending = true;
+    try {
+      const result = await this.network.request("moveVent", { stationId });
+      this.vent = result.vent;
+      this.ui.showVent(this.vent);
+    } finally {
+      this.ventActionPending = false;
+    }
   }
 
   async leaveVent() {
-    await this.network.request("exitVent");
-    this.vent = null;
-    this.ui.showVent(null);
+    if (this.ventActionPending) return;
+    this.ventActionPending = true;
+    try {
+      await this.network.request("exitVent");
+      this.vent = null;
+      this.ventCursor = null;
+      this.ui.showVent(null);
+    } finally {
+      this.ventActionPending = false;
+    }
+  }
+
+  // WASD is the primary way to move through a vent loop: press the direction the
+  // exit you want lies in, and the best-aligned exit is chosen. Alt still cycles
+  // through exits in order as a fallback for when no direction lines up well enough
+  // (or for players who prefer it).
+  handleVentNavigation() {
+    if (!this.vent?.exits?.length || this.ventActionPending) return;
+    const local = this.latestSnapshots.get(this.playerId);
+    if (!local) return;
+    for (const { code, x, z } of VENT_DIRECTION_KEYS) {
+      if (!this.input.consume(code)) continue;
+      const exit = pickVentExit(local, this.vent.exits, { x, z });
+      if (exit) this.hopVent(exit.id).catch((error) => this.ui.toast(error.message, true));
+      return;
+    }
   }
 
   // Alt cycles to the next vent on the network, as in the reference.
@@ -644,12 +689,18 @@ export class OrbitOpsGame {
       this.lastInputSentAt = time;
       this.network.send("playerInput", this.input.movement());
     }
-    if (this.input.consume("KeyE")) {
-      if (this.vent) this.leaveVent().catch((error) => this.ui.toast(error.message, true));
-      else this.interact().catch((error) => this.ui.toast(error.message, true));
-    }
-    if (this.input.consume("AltLeft") || this.input.consume("AltRight")) {
-      this.cycleVent()?.catch((error) => this.ui.toast(error.message, true));
+    if (this.vent) {
+      // Vented: WASD hops to whichever exit lies in the pressed direction, Alt
+      // cycles through exits in order, and E always climbs out - never back in.
+      this.handleVentNavigation();
+      if (this.input.consume("AltLeft") || this.input.consume("AltRight")) {
+        this.cycleVent()?.catch((error) => this.ui.toast(error.message, true));
+      }
+      if (this.input.consume("KeyE")) {
+        this.leaveVent().catch((error) => this.ui.toast(error.message, true));
+      }
+    } else if (this.input.consume("KeyE")) {
+      this.interact().catch((error) => this.ui.toast(error.message, true));
     }
     if (this.input.consume("KeyR")) this.interactWithIncident().catch((error) => this.ui.toast(error.message, true));
     if (this.input.consume("KeyQ")) this.tryEliminate().catch((error) => this.ui.toast(error.message, true));
