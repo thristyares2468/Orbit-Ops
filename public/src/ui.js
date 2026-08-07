@@ -214,6 +214,9 @@ export class GameUI {
   // overlay rather than one of the full-screen menu surfaces.
   showScreen(name) {
     for (const key of ["auth", "menu", "results"]) setVisible(this.elements[key], key === name);
+    // Leaving the match for any reason drops the reveal curtain, so it can never be
+    // left pinned over the lobby or the results.
+    if (name !== "game") this.endRoleReveal();
     if (name !== "game") setVisible(this.elements.firstRunHint, false);
     setVisible(this.elements.lobbyHud, name === "lobby");
     setVisible(this.elements.hud, name === "game");
@@ -336,6 +339,34 @@ export class GameUI {
     this.maybeShowFirstRunHint();
   }
 
+  renderRoleReveal(definition, operative, neutral) {
+    byId("role-reveal-title").textContent = definition.name;
+    byId("role-reveal-description").textContent = definition.objective;
+    byId("role-reveal-title").style.color = definition.colour;
+    this.elements.roleReveal.classList.toggle("is-operative", Boolean(operative));
+    this.elements.roleReveal.classList.toggle("is-neutral", Boolean(neutral));
+  }
+
+  // Raised the moment the match is called, before the ship is on screen, so the
+  // first thing anyone sees is their own clearance rather than the room. The world
+  // still builds behind it; roles have not been dealt yet, hence the placeholder.
+  beginRoleReveal() {
+    this.roleRevealPinned = true;
+    clearTimeout(this.roleRevealTimer);
+    byId("role-reveal-title").textContent = "Assigning";
+    byId("role-reveal-title").style.color = "";
+    byId("role-reveal-description").textContent = "Reading crew manifest…";
+    this.elements.roleReveal.classList.remove("is-operative", "is-neutral");
+    setVisible(this.elements.roleReveal, true);
+  }
+
+  // Dropped when the ship goes live.
+  endRoleReveal() {
+    this.roleRevealPinned = false;
+    clearTimeout(this.roleRevealTimer);
+    setVisible(this.elements.roleReveal, false);
+  }
+
   maybeShowFirstRunHint() {
     if (this.firstRunHintHandled) return;
     let acknowledged = false;
@@ -372,27 +403,33 @@ export class GameUI {
     byId("hud-role").textContent = definition.name.toUpperCase();
     byId("hud-role").style.color = definition.colour;
     byId("hud-objective").textContent = definition.objective;
-    const ghostRole = state.role === "guardian-angel";
     setVisible(byId("primary-ability"), operative && state.alive);
     setVisible(byId("secondary-ability"), operative);
     const roleAbility = definition.ability;
-    setVisible(byId("role-ability"), Boolean(roleAbility && (state.alive || ghostRole)));
+    setVisible(byId("role-ability"),
+      Boolean(roleAbility && (state.alive || definition.capabilities.actsWhileDead)));
     if (roleAbility) {
       byId("role-ability-icon").src = roleAbility.icon;
       byId("role-ability-icon").alt = "";
       byId("role-ability-label").textContent = roleAbility.label;
     }
     this.renderTasks(state.tasks, state.completedTaskIds);
-    byId("role-reveal-title").textContent = definition.name;
-    byId("role-reveal-description").textContent = definition.objective;
-    byId("role-reveal-title").style.color = definition.colour;
-    this.elements.roleReveal.classList.toggle("is-operative", operative);
-    this.elements.roleReveal.classList.toggle("is-neutral", neutral);
-    if (previousRole !== state.role) {
+    this.renderRoleReveal(definition, operative, neutral);
+    // While the start-of-match curtain is up the reveal simply stays and fills in
+    // as soon as the role lands. A role that changes mid-match still only flashes.
+    if (this.roleRevealPinned) {
       setVisible(this.elements.roleReveal, true);
-      setTimeout(() => setVisible(this.elements.roleReveal, false), 3200);
+    } else if (previousRole !== state.role) {
+      setVisible(this.elements.roleReveal, true);
+      clearTimeout(this.roleRevealTimer);
+      this.roleRevealTimer = setTimeout(() => setVisible(this.elements.roleReveal, false), 3200);
     }
     this.updateRoleAbility(Date.now());
+    // A meeting-table ability spends its use mid-meeting, so the list has to be
+    // redrawn or the button lingers after the shot is gone.
+    if (["incidentTransition", "discussion", "voting"].includes(this.meetingPhase)) {
+      this.renderMeetingPlayers(this.meetingPhase === "voting");
+    }
   }
 
   renderTasks(tasks = [], completedIds = []) {
@@ -491,11 +528,12 @@ export class GameUI {
   updateRoleAbility(now = Date.now()) {
     const definition = getRoleDefinition(this.privateState?.role);
     const button = byId("role-ability");
-    const ghostRole = this.privateState?.role === "guardian-angel";
-    if (!definition.ability || (!this.privateState?.alive && !ghostRole)) {
+    const worksDead = definition.capabilities.actsWhileDead;
+    if (!definition.ability || (!this.privateState?.alive && !worksDead)) {
       setVisible(button, false);
       return;
     }
+    setVisible(button, true);
     const status = byId("role-ability-status");
     const view = roleAbilityStatus({
       mode: this.room?.mode,
@@ -561,8 +599,28 @@ export class GameUI {
         button.addEventListener("click", () => this.invoke("vote", { targetId: player.id }));
         card.append(button);
       }
+      // Roles that fire across the meeting table pick a face here, because there is
+      // no "walk up to them" during a meeting. The server still enforces the rules.
+      if (this.canUseMeetingAbilityOn(player)) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "meeting-role-action";
+        button.textContent = getRoleDefinition(this.privateState.role).ability.label;
+        button.addEventListener("click", () => this.invoke("roleAbility", { targetId: player.id }));
+        card.append(button);
+      }
       container.append(card);
     }
+  }
+
+  // The Vigilante fires across the table, so its target is chosen from the meeting
+  // list. Offered only while it still has a use and only against the living.
+  canUseMeetingAbilityOn(player) {
+    if (!this.privateState?.alive || !player.alive || player.id === this.playerId) return false;
+    const definition = getRoleDefinition(this.privateState.role);
+    if (!definition.ability || !definition.capabilities.actsInMeeting) return false;
+    const usesLeft = this.privateState.roleState?.usesLeft;
+    return usesLeft === null || usesLeft === undefined || usesLeft > 0;
   }
 
   setDiscussion(endsAt) { byId("meeting-status").textContent = "Discussion in progress"; this.renderMeetingPlayers(false); this.startPhaseTimer(endsAt); }
@@ -748,14 +806,14 @@ export class GameUI {
     return { width, height: backingHeight };
   }
 
-  drawMinimap({ mapId = this.room?.mapId, playerPosition, tasks = [], completedTaskIds = [], sabotage = null }) {
+  drawMinimap({ mapId = this.room?.mapId, playerPosition, tasks = [], completedTaskIds = [], sabotage = null, tracked = null }) {
     const canvas = byId("minimap-canvas");
     const context = canvas.getContext("2d");
     const map = getMapDefinition(mapId);
     const bounds = map.bounds;
     byId("minimap-title").textContent = map.name;
     this.sizeMinimapCanvas(canvas);
-    this.lastMinimapRequest = { mapId, playerPosition, tasks, completedTaskIds, sabotage };
+    this.lastMinimapRequest = { mapId, playerPosition, tasks, completedTaskIds, sabotage, tracked };
     const padding = Math.max(12, Math.round(Math.min(canvas.width, canvas.height) * 0.045));
     const mapWidth = bounds.maxX - bounds.minX;
     const mapHeight = bounds.maxZ - bounds.minZ;
@@ -884,6 +942,28 @@ export class GameUI {
         context.fill();
         context.stroke();
       }
+    }
+    // The Tracker's mark, in the Tracker's own green, named so it is unambiguous
+    // which of several crewmates is being followed.
+    if (tracked) {
+      const x = sx(tracked.x);
+      const y = sy(tracked.z);
+      context.fillStyle = "#8ce46b";
+      context.strokeStyle = "#f2fff0";
+      context.lineWidth = 3;
+      context.beginPath();
+      context.arc(x, y, 11 * markerScale, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+      context.fillStyle = "#ffffff";
+      context.strokeStyle = "rgba(5, 16, 53, .92)";
+      context.lineWidth = 4;
+      context.font = `800 ${Math.max(9, 13 * markerScale)}px Inter, sans-serif`;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      const label = tracked.displayName ?? "Mark";
+      context.strokeText(label, x, y - 18 * markerScale);
+      context.fillText(label, x, y - 18 * markerScale);
     }
     if (playerPosition) {
       const x = sx(playerPosition.x);

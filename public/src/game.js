@@ -11,6 +11,9 @@ const SESSION_KEY = "orbitOps.accountSession.v1";
 const REJOIN_KEY = "orbitOps.rejoinSession.v1";
 const APPEARANCE_KEY = "orbitOps.appearance.v1";
 const INTERACTION_RANGE = 2.8;
+// Mirrors ROLE_TARGET_RANGE in server/roleEngine.js: the client only picks the
+// target, the server still decides whether the reach was legal.
+const ROLE_TARGET_RANGE = 3.2;
 
 function defaultAppearance() {
   try {
@@ -33,7 +36,7 @@ function nearestInteractable(map, position, incidents = [], allow = null) {
   for (const station of [...map.stations, ...incidents.map((incident) => ({ ...incident, type: "incident" }))]) {
     if (allow && !allow(station)) continue;
     const distance = Math.hypot(position.x - station.x, position.z - station.z);
-    if (distance <= INTERACTION_RANGE && (!nearest || distance < nearest.distance)) {
+    if (distance <= (station.range ?? INTERACTION_RANGE) && (!nearest || distance < nearest.distance)) {
       nearest = { station, distance };
     }
   }
@@ -53,6 +56,7 @@ export class OrbitOpsGame {
     this.privateState = null;
     this.latestSnapshots = new Map();
     this.latestIncidents = [];
+    this.trackedTarget = null;
     this.currentPhase = "menu";
     this.activeSabotage = null;
     this.nearest = null;
@@ -114,11 +118,18 @@ export class OrbitOpsGame {
       this.updateRoom(room);
       this.ui.showLobby(room, this.playerId);
     });
-    this.network.on("countdown", () => { this.currentPhase = "countdown"; this.ui.showGame(); });
+    // The reveal goes up first and the ship is built behind it, so the match never
+    // opens on the game room and only then tells you who you are.
+    this.network.on("countdown", () => {
+      this.currentPhase = "countdown";
+      this.ui.beginRoleReveal();
+      this.ui.showGame();
+    });
     this.network.on("roleAssigned", (state) => this.handlePrivateState(state));
     this.network.on("matchStarted", (payload) => {
       this.currentPhase = "active";
       this.ui.showGame();
+      this.ui.endRoleReveal();
       this.ui.updateTaskProgress(payload.taskProgress);
       this.input.setEnabled(true);
     });
@@ -240,7 +251,7 @@ export class OrbitOpsGame {
       vote: (payload) => this.network.request("submitVote", payload),
       report: () => this.interactWithIncident(),
       primaryAbility: () => this.tryEliminate(),
-      roleAbility: () => this.performRoleAction(),
+      roleAbility: (payload) => this.performRoleAction(payload?.targetId ?? null),
       emergencyMeeting: () => this.callEmergencyMeeting(),
       sabotage: (payload) => this.network.request("sabotageRequest", payload),
       hopVent: (payload) => this.hopVent(payload.stationId),
@@ -383,7 +394,14 @@ export class OrbitOpsGame {
     this.currentPhase = snapshot.phase;
     for (const player of snapshot.players ?? []) this.latestSnapshots.set(player.id, player);
     this.latestIncidents = snapshot.incidents ?? [];
+    // The Tracker's mark rides outside the culled player list, so it survives the
+    // target walking out of sight - which is exactly when the arrow matters.
+    this.trackedTarget = snapshot.tracked ?? null;
     if (this.sceneReady) this.phaserScene.applySnapshot(snapshot);
+    // The map is a live view while it is open, so a moving mark keeps moving on it.
+    if (this.trackedTarget && !document.getElementById("minimap")?.classList.contains("is-hidden")) {
+      this.drawMinimap();
+    }
   }
 
   async leaveRoom() {
@@ -398,6 +416,7 @@ export class OrbitOpsGame {
     if (this.sceneReady) this.phaserScene.setVentState(null);
     this.currentPhase = "menu";
     this.latestIncidents = [];
+    this.trackedTarget = null;
     this.clearCharacters();
     if (this.sceneReady) this.phaserScene.syncIncidents([]);
     this.ui.closeGameplayModals();
@@ -533,12 +552,12 @@ export class OrbitOpsGame {
     return this.network.request("eliminationAttempt", { targetId: target.id });
   }
 
-  nearestRoleTarget(targeting) {
+  nearestRoleTarget(targeting, reach = ROLE_TARGET_RANGE) {
     const local = this.latestSnapshots.get(this.playerId);
     if (!local) throw new Error("Local player position is unavailable.");
     if (targeting === "incident") {
       let nearest = null;
-      let best = 3.2;
+      let best = reach;
       for (const incident of this.latestIncidents) {
         const distance = Math.hypot(local.x - incident.x, local.z - incident.z);
         if (distance < best) {
@@ -550,7 +569,7 @@ export class OrbitOpsGame {
     }
     if (targeting !== "player") return null;
     let nearest = null;
-    let best = 3.2;
+    let best = reach;
     for (const player of this.room?.players ?? []) {
       if (player.id === this.playerId) continue;
       const snapshot = this.latestSnapshots.get(player.id);
@@ -564,19 +583,36 @@ export class OrbitOpsGame {
     return nearest;
   }
 
-  async performRoleAction() {
-    if (!this.privateState?.alive) throw new Error("Your role ability is unavailable.");
+  // explicitTargetId comes from the meeting UI, where you pick a face rather than
+  // stand next to someone. Everywhere else the target is whatever is nearest.
+  async performRoleAction(explicitTargetId = null) {
+    if (!this.privateState) throw new Error("Your role ability is unavailable.");
     const definition = getRoleDefinition(this.privateState.role);
     if (!definition.ability) throw new Error("Your current role has no active ability.");
-    const target = this.nearestRoleTarget(definition.ability.targeting);
-    if (definition.ability.targeting !== "none" && !target) {
-      throw new Error(definition.ability.targeting === "incident"
-        ? "No incident is in ability range."
-        : "No player is in ability range.");
+    // The Guardian Angel acts from the grave; every other role needs to be alive.
+    if (!this.privateState.alive && !definition.capabilities.actsWhileDead) {
+      throw new Error("Your role ability is unavailable.");
     }
-    const payload = definition.ability.targeting === "incident"
+    const { targeting } = definition.ability;
+    // A role that ignores range picks its target by name, not by proximity, so
+    // asking "who is nearest" would wrongly refuse it when nobody is close.
+    // A range-free role still targets whoever is nearest — the Guardian Angel
+    // drifts over to the crewmate it means to cover — it just is not refused for
+    // being far away.
+    const reach = definition.capabilities.ignoresAbilityRange ? Infinity : ROLE_TARGET_RANGE;
+    const target = explicitTargetId
+      ? { id: explicitTargetId }
+      : this.nearestRoleTarget(targeting, reach);
+    if (targeting !== "none" && !target) {
+      throw new Error(targeting === "incident"
+        ? "No incident is in ability range."
+        : definition.capabilities.ignoresAbilityRange
+          ? "There is nobody left to target."
+          : "No player is in ability range.");
+    }
+    const payload = targeting === "incident"
       ? { incidentId: target.id }
-      : definition.ability.targeting === "player" ? { targetId: target.id } : {};
+      : targeting === "player" ? { targetId: target.id } : {};
     const result = await this.network.request("roleAction", payload);
     if (result.privateState) this.handlePrivateState(result.privateState);
     this.ui.toast(`${definition.name}: ${definition.ability.label} activated.`);
@@ -642,7 +678,9 @@ export class OrbitOpsGame {
       playerPosition: local,
       tasks: this.privateState?.tasks ?? [],
       completedTaskIds: this.privateState?.completedTaskIds ?? [],
-      sabotage: this.activeSabotage
+      sabotage: this.activeSabotage,
+      // Only ever populated for a Tracker with a live track.
+      tracked: this.trackedTarget
     });
   }
 

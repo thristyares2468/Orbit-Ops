@@ -1,5 +1,6 @@
 import { FACTIONS, TARGETING, WIN_KINDS } from "../public/src/roles/defineRole.js";
 import { getRoleDefinition } from "../public/src/roleData.js";
+import { MEETING_PHASES } from "./constants.js";
 
 // Executes a role's declared ability against a narrow API, so a role definition can
 // never reach past the rules it is allowed to touch. Everything a role may do to the
@@ -25,8 +26,10 @@ function resolveTarget(server, room, player, definition, payload) {
       if (!target || !target.alive || target.id === player.id) {
         throw new Error("No valid role target is in range.");
       }
-      // Guardian Angel acts from beyond the grave, so it alone ignores range.
-      if (player.role !== "guardian-angel" && distance(player.position, target.position) > ROLE_TARGET_RANGE) {
+      // Roles that reach across the ship (from the grave, or over the meeting
+      // table) declare it; everyone else has to walk up to the target.
+      if (!definition.capabilities.ignoresAbilityRange
+        && distance(player.position, target.position) > ROLE_TARGET_RANGE) {
         throw new Error("Move closer to your target.");
       }
       return { target };
@@ -46,7 +49,7 @@ function resolveTarget(server, room, player, definition, payload) {
 
 function buildAbilityApi(server, room, player) {
   return {
-    inMeeting: (current) => ["discussion", "voting", "incidentTransition"].includes(current.phase),
+    inMeeting: (current) => MEETING_PHASES.includes(current.phase),
 
     eliminate: (attacker, target, category, options) =>
       server.eliminateInternal(room, attacker, target, category, options),

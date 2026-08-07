@@ -21,7 +21,9 @@ export const CREW_ROLES = [
     name: "Engineer",
     faction: FACTIONS.CREW,
     colour: "#ff954f",
-    objective: "Maintain critical systems and remotely resolve one sabotage.",
+    objective: "Maintain critical systems, ride the vents, and remotely resolve one sabotage.",
+    // The Engineer is the one Crew role that shares the Operatives' vent network.
+    capabilities: { canVent: true },
     ability: {
       id: "remote-repair",
       label: "Repair",
@@ -164,6 +166,9 @@ export const CREW_ROLES = [
     faction: FACTIONS.CREW,
     colour: "#d9575f",
     objective: "Execute one suspect during a meeting—wrongly, and you fall with them.",
+    // It fires across the meeting table, so it acts outside the active phase and
+    // without walking up to anyone.
+    capabilities: { actsInMeeting: true, ignoresAbilityRange: true },
     ability: {
       id: "execute",
       label: "Execute",
@@ -926,6 +931,9 @@ export const NEUTRAL_ROLES = [
     faction: FACTIONS.NEUTRAL,
     colour: "#9defff",
     objective: "Shield the living from beyond the grave.",
+    // It is already dead and has no body to walk to a target with, so it acts from
+    // the grave and at any distance.
+    capabilities: { actsWhileDead: true, ignoresAbilityRange: true },
     ability: {
       id: "guardian-shield",
       label: "Protect",

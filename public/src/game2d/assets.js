@@ -42,6 +42,8 @@ export const PHASER_ASSETS = Object.freeze({
   taskEngineAlign: "/assets/art/Tasks/engineAlign_base-sharedassets0.assets-85.png",
   taskFuel: "/assets/art/Tasks/EngineFuel-sharedassets0.assets-94.png",
   taskAsteroids: "/assets/art/Tasks/Weapons-sharedassets0.assets-173.png",
+  // The game's own arrow sprite, reused for the Tracker's bearing to its mark.
+  trackerArrow: "/assets/art/Gui/Arrow-sharedassets0.assets-197.png",
   adminConsole: "/assets/art/Tasks/CardSlide-sharedassets0.assets-169.png",
   vitalsConsole: "/assets/art/Tasks/Vitals-sharedassets0.assets-78.png",
   lobbyDropship: "/assets/lobby/dropship.png",

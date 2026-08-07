@@ -31,10 +31,19 @@ export function task(id, name, roomId, x, z, kind, steps = 4, assetKey = null) {
   return { id, name, roomId, x, z, kind, steps, ...(assetKey ? { assetKey } : {}) };
 }
 
-export function station(id, type, roomId, x, z, refId = null, label = null) {
+export function station(id, type, roomId, x, z, refId = null, label = null, range = null) {
   // label overrides the room name in the UI, for stations whose room rect does not
   // describe where they actually are (the Hallway vent sits inside Admin's rect).
-  return { id, type, roomId, x, z, ...(refId ? { refId } : {}), ...(label ? { label } : {}) };
+  // range overrides the default interaction distance, for a console that sits in
+  // the middle of something solid: the emergency button is on the cafeteria table,
+  // so it has to be reachable from the ring of floor around the table rather than
+  // from a tile nobody can stand on.
+  return {
+    id, type, roomId, x, z,
+    ...(refId ? { refId } : {}),
+    ...(label ? { label } : {}),
+    ...(range ? { range } : {})
+  };
 }
 
 export function createMapDefinition({

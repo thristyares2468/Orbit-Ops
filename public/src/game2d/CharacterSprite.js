@@ -124,7 +124,7 @@ export class CharacterSprite {
     this.container.y += (this.target.y - this.container.y) * interpolation;
     this.container.setDepth(500 + Math.round(this.container.y));
 
-    const moving = ["walk", "sprint", "crouch"].includes(this.animation);
+    const moving = ["walk", "crouch"].includes(this.animation);
     if (!this.player.alive && ghostView) {
       // Fellow ghosts drift: translucent idle model, gentle hover, no ground shadow.
       this.setModelFrame(playerBaseFrameKey("idle"));
@@ -149,8 +149,10 @@ export class CharacterSprite {
       return;
     }
 
-    const amplitude = reducedMotion || !moving ? 0 : this.animation === "sprint" ? 3.5 : 2;
-    const speed = this.animation === "sprint" ? 14 : 9;
+    // Walking now happens at the old sprint speed, so it carries the old sprint
+    // cadence; only the deliberate crouch reads as slow.
+    const amplitude = reducedMotion || !moving ? 0 : this.animation === "crouch" ? 2 : 3.5;
+    const speed = this.animation === "crouch" ? 9 : 14;
     this.phase += deltaSeconds * speed;
     const frame = Math.floor(this.phase / (Math.PI * 2) * PLAYER_FRAME_COUNTS.walk);
     this.setModelFrame(playerBaseFrameKey(moving ? "walk" : "idle", frame));

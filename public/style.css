@@ -424,6 +424,9 @@ kbd { display: inline-grid; place-items: center; min-width: 27px; min-height: 27
 .meeting-player { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px; border: 1px solid var(--line); background: rgba(41,93,114,.07); }
 .meeting-player button { grid-column: 1 / -1; padding: 6px; border: 1px solid rgba(116,229,255,.2); background: rgba(44,121,149,.12); cursor: pointer; }
 .meeting-player.is-dead { opacity: .42; }
+/* A role acting across the table (Vigilante) reads as dangerous, not as a vote. */
+.meeting-player button.meeting-role-action { border-color: rgba(217,87,95,.5); background: rgba(217,87,95,.16); color: #ffd9dc; letter-spacing: .08em; text-transform: uppercase; }
+.meeting-player button.meeting-role-action:hover { background: rgba(217,87,95,.3); }
 .evidence-panel { padding: 12px; border: 1px solid rgba(171,121,255,.22); }
 .evidence-panel li { margin-bottom: 8px; color: #c6bbdc; font-size: .78rem; line-height: 1.5; }
 .sabotage-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }

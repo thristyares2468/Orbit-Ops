@@ -73,6 +73,19 @@ export function defineRole(role) {
       onMeetingStart: role.hooks?.onMeetingStart ?? null,
       onMatchStart: role.hooks?.onMatchStart ?? null
     }),
+    // Standing permissions that bend a default rule for this role. They live here
+    // rather than as `id === "..."` checks so the client and the server agree by
+    // construction: both read the same declaration instead of each keeping a list.
+    capabilities: Object.freeze({
+      // Ride the vent network even though only Operatives normally can.
+      canVent: Boolean(role.capabilities?.canVent),
+      // Keep acting after elimination (the Guardian Angel works from the grave).
+      actsWhileDead: Boolean(role.capabilities?.actsWhileDead),
+      // Act during discussion and voting, not only while the ship is live.
+      actsInMeeting: Boolean(role.capabilities?.actsInMeeting),
+      // Reach any target on the ship rather than only one standing next to you.
+      ignoresAbilityRange: Boolean(role.capabilities?.ignoresAbilityRange)
+    }),
     // Extra per-player state this role needs, merged into roleState at assignment.
     state: Object.freeze({ ...(role.state ?? {}) }),
     modifier: Boolean(role.modifier)

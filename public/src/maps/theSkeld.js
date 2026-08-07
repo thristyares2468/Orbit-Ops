@@ -84,10 +84,10 @@ function taskAt(id, name, roomId, x, y, kind, steps = 4, assetKey = null) {
   };
 }
 
-function stationAt(id, type, roomId, x, y, refId = null, label = null) {
+function stationAt(id, type, roomId, x, y, refId = null, label = null, range = null) {
   const point = referencePoint(x, y);
   return {
-    ...station(id, type, roomId, point.x, point.z, refId, label),
+    ...station(id, type, roomId, point.x, point.z, refId, label, range),
     referencePosition: Object.freeze({ x, y })
   };
 }
@@ -350,7 +350,10 @@ export const THE_SKELD = createMapDefinition({
     { id: "skeld-lights-out", name: "Lights Out", critical: false, durationMs: 40000, repairStations: ["skeld-light-panel"], roomId: "electrical" }
   ],
   stations: [
-    stationAt("meeting-console", "meeting", "cafeteria", 668, 166),
+    // Dead centre of the round cafeteria table, where the model paints the button.
+    // The table is solid, so the reach is widened to 5.0: measured against the walk
+    // grid that is what covers the ring of floor all the way round it.
+    stationAt("meeting-console", "meeting", "cafeteria", 668, 134, null, null, 5),
     stationAt("skeld-cameras", "security", "security", 371, 269),
     stationAt("skeld-admin-table", "admin", "admin", 771, 342),
     stationAt("skeld-vent-cafeteria", "maintenance", "cafeteria", 804, 183, "vent-cafeteria-admin"),

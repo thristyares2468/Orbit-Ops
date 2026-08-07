@@ -13,8 +13,9 @@ import {
   getRoleDefinition, roleIdsForFaction
 } from "../public/src/roleData.js";
 import {
-  BOT_SABOTAGE, DEFAULT_SETTINGS, DISCONNECT_GRACE_MS, MAX_ROOM_PLAYERS, MIN_MATCH_PLAYERS,
-  PHASES, PLAYER_SPEED, SERVER_VERSION, SESSION_SECRET, SNAPSHOT_RATE, TICK_RATE, VISION
+  BOT_SABOTAGE, DEFAULT_SETTINGS, DISCONNECT_GRACE_MS, MAX_ROOM_PLAYERS, MEETING_PHASES,
+  MIN_MATCH_PLAYERS, PHASES, PLAYER_SPEED, SERVER_VERSION, SESSION_SECRET, SNAPSHOT_RATE,
+  TICK_RATE, VISION
 } from "./constants.js";
 import { RateLimiter } from "./rateLimits.js";
 import { checkSoloWin, fireHook, performRoleAbility, survivorWinnerIds } from "./roleEngine.js";
@@ -25,6 +26,9 @@ import {
 
 const ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const INTERACTION_RANGE = 2.8;
+// A station may widen its own reach; the emergency button sits on the cafeteria
+// table, which nobody can stand on, so it is worked from the floor around it.
+const reachOf = (station) => station?.range ?? INTERACTION_RANGE;
 const ROLE_TARGET_RANGE = 3.2;
 
 function hashOpaque(value) {
@@ -100,7 +104,6 @@ function normaliseInput(payload) {
     x: Number.isFinite(x) && magnitude > 0 ? x / Math.max(1, magnitude) : 0,
     z: Number.isFinite(z) && magnitude > 0 ? z / Math.max(1, magnitude) : 0,
     yaw: Number.isFinite(yaw) ? Math.atan2(Math.sin(yaw), Math.cos(yaw)) : 0,
-    sprint: Boolean(payload?.sprint),
     crouch: Boolean(payload?.crouch),
     seq: Math.max(0, Math.round(Number(payload?.seq) || 0))
   };
@@ -932,6 +935,23 @@ export class GameServer {
 
   // How far a player can see right now, in world units. The host's crew/operative
   // visibility settings scale it, so existing room settings still mean something.
+  // Where the Tracker's mark currently is, while the track is still running. Returns
+  // null for everyone else, for an expired track, and once the target is dead - a
+  // body does not walk, so the trail simply stops.
+  trackedTargetFor(room, player, now = Date.now()) {
+    const targetId = player.roleState?.trackedTargetId;
+    if (!targetId || (player.roleState?.activeUntil ?? 0) <= now) return null;
+    const target = room.players.get(String(targetId));
+    if (!target?.alive) return null;
+    return {
+      id: target.id,
+      displayName: target.displayName,
+      x: Number(target.position.x.toFixed(2)),
+      z: Number(target.position.z.toFixed(2)),
+      endsAt: player.roleState.activeUntil
+    };
+  }
+
   visionRadiusFor(room, player) {
     // Being flashed or hypnotised collapses sight harder than any sabotage.
     if ((player.roleState?.blindedUntil ?? 0) > Date.now()) return VISION.blindedRadius;
@@ -1009,9 +1029,15 @@ export class GameServer {
   }
 
   beginRoleAction(room, player) {
-    if (room.phase !== PHASES.ACTIVE) throw new Error("Your role ability is unavailable.");
-    if (!player.alive && player.role !== "guardian-angel") throw new Error("Your role ability is unavailable.");
     const definition = getRoleDefinition(player.role);
+    // Most abilities need the ship live and their owner breathing. Roles that act
+    // across the meeting table (Vigilante) or from the grave (Guardian Angel) say so.
+    const phaseAllows = room.phase === PHASES.ACTIVE
+      || (definition.capabilities.actsInMeeting && MEETING_PHASES.includes(room.phase));
+    if (!phaseAllows) throw new Error("Your role ability is unavailable.");
+    if (!player.alive && !definition.capabilities.actsWhileDead) {
+      throw new Error("Your role ability is unavailable.");
+    }
     if (!definition.ability) throw new Error("Your current role has no active ability.");
     const state = player.roleState ?? makeRoleState(player.role);
     const now = Date.now();
@@ -1163,7 +1189,7 @@ export class GameServer {
     if (reporter.ventId) throw new Error("Climb out of the vent first.");
     if (room.phase !== PHASES.ACTIVE || !reporter.alive) throw new Error("Emergency meeting is unavailable.");
     const station = stationById(room.mapId, "meeting-console");
-    if (!station || distance2D(reporter.position, station) > INTERACTION_RANGE) throw new Error("Move to the emergency meeting button.");
+    if (!station || distance2D(reporter.position, station) > reachOf(station)) throw new Error("Move to the emergency meeting button.");
     if (room.mode !== "practice" && reporter.emergencyMeetings >= room.settings.emergencyMeetings) throw new Error("You have no emergency calls remaining.");
     reporter.emergencyMeetings += 1;
     return this.startMeeting(room, reporter, null);
@@ -1357,7 +1383,11 @@ export class GameServer {
   }
 
   enterVent(room, player, stationId) {
-    if (room.phase !== PHASES.ACTIVE || !player.alive || player.faction !== "operative") {
+    // Operatives ride the vents by faction; a Crew role may earn it by declaring
+    // canVent (the Engineer does).
+    const mayVent = player.faction === "operative"
+      || getRoleDefinition(player.role).capabilities.canVent;
+    if (room.phase !== PHASES.ACTIVE || !player.alive || !mayVent) {
       throw new Error("Your role cannot use the vent network.");
     }
     if (player.ventId) throw new Error("You are already inside the vents.");
@@ -1606,14 +1636,19 @@ export class GameServer {
           // Ghost positions stay private to the dead: their last known body is the
           // incident marker the living can see instead.
           const visibleToMember = member.alive ? living : snapshots;
+          // The Tracker's quarry is normally culled with everyone else, so its
+          // position rides along separately. It is a bearing, not a sighting: the
+          // target still does not appear in `players` unless it is genuinely in view.
+          const tracked = this.trackedTargetFor(room, member, now);
           if (this.seesEverything(room, member)) {
-            this.io.to(member.socketId).emit("worldSnapshot", { ...base, players: visibleToMember });
+            this.io.to(member.socketId).emit("worldSnapshot", { ...base, tracked, players: visibleToMember });
             continue;
           }
           const radius = this.visionRadiusFor(room, member);
           const cull = radius + VISION.cullMargin;
           this.io.to(member.socketId).emit("worldSnapshot", {
             ...base,
+            tracked,
             visionRadius: Number(radius.toFixed(2)),
             lightsOut: this.lightsAreOut(room),
             blinded: (member.roleState?.blindedUntil ?? 0) > now,
@@ -1634,7 +1669,7 @@ export class GameServer {
     if (player.ventId) return;
     const mapId = activeMapId(room);
     const input = now - player.lastInputAt < 500 ? player.input : normaliseInput({});
-    const baseSpeed = input.crouch ? PLAYER_SPEED.crouch : input.sprint ? PLAYER_SPEED.sprint : PLAYER_SPEED.walk;
+    const baseSpeed = input.crouch ? PLAYER_SPEED.crouch : PLAYER_SPEED.walk;
     const factionMultiplier = player.faction === "operative" ? room.settings.operativeSpeed : room.settings.crewSpeed;
     const speed = baseSpeed * factionMultiplier;
     const ghost = !player.alive;
@@ -1656,7 +1691,7 @@ export class GameServer {
     }
     player.rotation = input.yaw;
     player.lastInputSeq = input.seq;
-    player.animation = input.crouch ? "crouch" : Math.hypot(input.x, input.z) < 0.05 ? "idle" : input.sprint ? "sprint" : "walk";
+    player.animation = input.crouch ? "crouch" : Math.hypot(input.x, input.z) < 0.05 ? "idle" : "walk";
     const nextRoom = roomAt(mapId, player.position.x, player.position.z)?.id ?? player.currentRoom;
     if (nextRoom !== player.currentRoom) {
       if (!ghost) {
@@ -1780,7 +1815,7 @@ export class GameServer {
       }
       return;
     }
-    const input = { x: dx / distance, z: dz / distance, yaw: Math.atan2(dx, dz), sprint: false, crouch: false, seq: 0 };
+    const input = { x: dx / distance, z: dz / distance, yaw: Math.atan2(dx, dz), crouch: false, seq: 0 };
     bot.input = input;
     bot.lastInputAt = now;
     this.tickPlayerMovement(room, bot, now, delta);

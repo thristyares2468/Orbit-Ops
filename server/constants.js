@@ -11,7 +11,9 @@ export const MAX_NAME_LENGTH = 22;
 export const MIN_NAME_LENGTH = 2;
 export const MAX_ROOM_PLAYERS = 16;
 export const MIN_MATCH_PLAYERS = 4;
-export const PLAYER_SPEED = Object.freeze({ walk: 5.25, sprint: 7.25, crouch: 2.6 });
+// There is no sprint: everyone walks at what used to be the sprint speed, so the
+// pace of a chase is the same for both sides and never depends on a held key.
+export const PLAYER_SPEED = Object.freeze({ walk: 7.25, crouch: 2.6 });
 
 export const DEFAULT_SETTINGS = Object.freeze({
   mapId: "the-skeld",
@@ -67,3 +69,9 @@ export const PHASES = Object.freeze({
   REMOVAL: "removal",
   RESULTS: "results"
 });
+
+// The phases where the crew is gathered round the table rather than walking the
+// ship. Roles that act during a meeting are checked against this.
+export const MEETING_PHASES = Object.freeze([
+  PHASES.INCIDENT, PHASES.DISCUSSION, PHASES.VOTING
+]);

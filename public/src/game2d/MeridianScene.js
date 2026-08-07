@@ -2,6 +2,7 @@ import { CharacterSprite } from "./CharacterSprite.js";
 import { MapBuilder } from "./MapBuilder.js";
 import { VisionOverlay } from "./VisionOverlay.js";
 import { VentArrows } from "./VentArrows.js";
+import { TrackerArrow } from "./TrackerArrow.js";
 import { DEFAULT_MAP_ID, getMapDefinition } from "../shipData.js";
 import {
   PHASER_ASSETS,
@@ -38,6 +39,7 @@ export class MeridianScene extends Phaser.Scene {
     this.cameras.main.setRoundPixels(true);
     this.vision = new VisionOverlay(this);
     this.ventArrows = new VentArrows(this);
+    this.trackerArrow = new TrackerArrow(this);
     this.setMap(this.bridge.activeMapId() ?? DEFAULT_MAP_ID);
 
     this.bridge.onSceneReady(this);
@@ -51,6 +53,7 @@ export class MeridianScene extends Phaser.Scene {
     this.incidentMarkers.clear();
     this.sabotageOverlay?.destroy();
     this.ventArrows?.hide();
+    this.trackerArrow?.hide();
     this.mapBuilder?.destroy();
 
     this.mapId = map.id;
@@ -125,6 +128,8 @@ export class MeridianScene extends Phaser.Scene {
 
   applySnapshot(snapshot) {
     this.applyVisionState(snapshot);
+    // Sent only to a Tracker with a live track; null for everyone else.
+    this.tracked = snapshot.tracked ?? null;
     const visible = new Set((snapshot.players ?? []).map((player) => player.id));
     for (const [id, character] of this.characters) {
       // Anyone the server culled is outside our sight radius entirely.
@@ -207,6 +212,29 @@ export class MeridianScene extends Phaser.Scene {
     this.ventArrows.update(deltaSeconds);
   }
 
+  // Point at the Tracker's mark, but only while they are off-screen: once the
+  // target is in view the player can see them directly.
+  updateTrackerArrow(deltaSeconds) {
+    if (!this.trackerArrow) return;
+    const local = this.characters.get(this.bridge.playerId);
+    if (!this.tracked || !local) {
+      this.trackerArrow.hide();
+      return;
+    }
+    const point = this.mapPoint(this.tracked.x, this.tracked.z);
+    const view = this.cameras.main.worldView;
+    const onScreen = Phaser.Geom.Rectangle.Contains(view, point.x, point.y);
+    const origin = { x: local.container.x, y: local.container.y };
+    this.trackerArrow.show(origin, point, {
+      onScreen,
+      name: this.tracked.displayName ?? "Mark",
+      scale: this.detailScale,
+      // Report the gap in world units, which is what the map is measured in.
+      distanceUnits: Math.hypot(point.x - origin.x, point.y - origin.y) / this.metrics.scale
+    });
+    this.trackerArrow.update(deltaSeconds);
+  }
+
   updateVision(deltaSeconds) {
     if (!this.vision) return;
     const local = this.characters.get(this.bridge.playerId);
@@ -250,6 +278,7 @@ export class MeridianScene extends Phaser.Scene {
     }
     this.setSabotage(this.bridge.activeSabotage, time / 1000);
     this.updateVentArrows(deltaSeconds);
+    this.updateTrackerArrow(deltaSeconds);
     this.updateVision(deltaSeconds);
     this.bridge.onRenderFrame(time, deltaMs);
   }
