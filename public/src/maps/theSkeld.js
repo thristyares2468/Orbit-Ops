@@ -356,20 +356,27 @@ export const THE_SKELD = createMapDefinition({
     stationAt("meeting-console", "meeting", "cafeteria", 668, 134, null, null, 5),
     stationAt("skeld-cameras", "security", "security", 371, 269),
     stationAt("skeld-admin-table", "admin", "admin", 771, 342),
-    stationAt("skeld-vent-cafeteria", "maintenance", "cafeteria", 804, 183, "vent-cafeteria-admin"),
-    stationAt("skeld-vent-admin", "maintenance", "admin", 761, 417, "vent-cafeteria-admin"),
-    stationAt("skeld-vent-medbay", "maintenance", "medbay", 442, 276, "vent-electrical-security-medbay"),
-    stationAt("skeld-vent-electrical", "maintenance", "electrical", 452, 488, "vent-electrical-security-medbay"),
-    stationAt("skeld-vent-hallway", "maintenance", "shields", 937, 400, "vent-cafeteria-admin", "Hallway"),
-    stationAt("skeld-vent-security", "maintenance", "security", 371, 342, "vent-electrical-security-medbay"),
-    stationAt("skeld-vent-reactor-upper", "maintenance", "reactor", 174, 254, "vent-upper-engine"),
-    stationAt("skeld-vent-upper-engine", "maintenance", "upper-engine", 210, 198, "vent-upper-engine"),
-    stationAt("skeld-vent-reactor-lower", "maintenance", "reactor", 174, 348, "vent-lower-engine"),
-    stationAt("skeld-vent-lower-engine", "maintenance", "lower-engine", 285, 513, "vent-lower-engine"),
-    stationAt("skeld-vent-weapons", "maintenance", "weapons", 971, 178, "vent-weapons-navigation"),
-    stationAt("skeld-vent-navigation-a", "maintenance", "navigation", 1104, 246, "vent-weapons-navigation"),
-    stationAt("skeld-vent-navigation-b", "maintenance", "navigation", 1104, 332, "vent-navigation-shields"),
-    stationAt("skeld-vent-shields", "maintenance", "shields", 939, 516, "vent-navigation-shields"),
+    // Vent positions are the vents the model itself paints on the deck, not hand
+    // placed. The model has no vent geometry to read - every mesh is named
+    // Object_N and the vents are baked into the floor textures - so they were
+    // found in the rendered deck instead: one grille graphic, 14 instances across
+    // the whole ship, exactly one in each room the Skeld puts a vent in. Every one
+    // of them lands on walkable floor, which is what confirms they are floor vents
+    // rather than wall panels.
+    stationAt("skeld-vent-cafeteria", "maintenance", "cafeteria", 796, 175, "vent-cafeteria-admin"),
+    stationAt("skeld-vent-admin", "maintenance", "admin", 755, 427, "vent-cafeteria-admin"),
+    stationAt("skeld-vent-medbay", "maintenance", "medbay", 411, 282, "vent-electrical-security-medbay"),
+    stationAt("skeld-vent-electrical", "maintenance", "electrical", 436, 369, "vent-electrical-security-medbay"),
+    stationAt("skeld-vent-hallway", "maintenance", "shields", 938, 319, "vent-cafeteria-admin", "Hallway"),
+    stationAt("skeld-vent-security", "maintenance", "security", 363, 338, "vent-electrical-security-medbay"),
+    stationAt("skeld-vent-reactor-upper", "maintenance", "reactor", 114, 266, "vent-upper-engine"),
+    stationAt("skeld-vent-upper-engine", "maintenance", "upper-engine", 291, 90, "vent-upper-engine"),
+    stationAt("skeld-vent-reactor-lower", "maintenance", "reactor", 148, 350, "vent-lower-engine"),
+    stationAt("skeld-vent-lower-engine", "maintenance", "lower-engine", 290, 523, "vent-lower-engine"),
+    stationAt("skeld-vent-weapons", "maintenance", "weapons", 919, 72, "vent-weapons-navigation"),
+    stationAt("skeld-vent-navigation-a", "maintenance", "navigation", 1115, 240, "vent-weapons-navigation"),
+    stationAt("skeld-vent-navigation-b", "maintenance", "navigation", 1115, 335, "vent-navigation-shields"),
+    stationAt("skeld-vent-shields", "maintenance", "shields", 938, 541, "vent-navigation-shields"),
     stationAt("skeld-reactor-alpha", "repair", "reactor", 116, 281, "skeld-reactor-meltdown"),
     stationAt("skeld-reactor-beta", "repair", "reactor", 195, 291, "skeld-reactor-meltdown"),
     stationAt("skeld-o2-panel", "repair", "o2", 907, 233, "skeld-o2-depletion"),
