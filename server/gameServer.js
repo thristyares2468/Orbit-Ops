@@ -29,6 +29,47 @@ const INTERACTION_RANGE = 2.8;
 // A station may widen its own reach; the emergency button sits on the cafeteria
 // table, which nobody can stand on, so it is worked from the floor around it.
 const reachOf = (station) => station?.range ?? INTERACTION_RANGE;
+
+// Where the next leg of a multi-room assignment is, in words.
+function roomLabel(map, site) {
+  if (!site) return "another console";
+  return site.label
+    ?? map.rooms.find((room) => room.id === site.roomId)?.name
+    ?? String(site.roomId ?? "").replaceAll("-", " ");
+}
+
+// Whatever the minigame needs the server to decide rather than the client:
+// the Simon Says pattern for the reactor, which vial is the odd one out, which
+// wires pair with which. Display data, not a secret - the client has to draw it -
+// but generated here so every player at that console sees the same puzzle.
+function makeTaskChallenge(definition, site = 0) {
+  const pick = (n) => Math.floor(Math.random() * n);
+  const shuffled = (list) => {
+    const copy = [...list];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = pick(i + 1);
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  };
+  switch (definition.kind) {
+    case "reactor":
+      // Five rounds, each one square longer than the last.
+      return Array.from({ length: definition.steps }, (_, round) =>
+        Array.from({ length: round + 1 }, () => pick(4)));
+    case "wiring":
+      // Which right-hand terminal each left-hand wire belongs to.
+      return shuffled([0, 1, 2, 3]);
+    case "sample":
+      return [pick(6)];
+    case "shields":
+      return shuffled([0, 1, 2, 3, 4, 5]).slice(0, 3 + pick(3));
+    case "calibrate":
+      return Array.from({ length: definition.steps }, () => pick(4));
+    default:
+      return [site];
+  }
+}
 const ROLE_TARGET_RANGE = 3.2;
 
 function hashOpaque(value) {
@@ -767,7 +808,10 @@ export class GameServer {
       player.repairStationId = null;
       player.ventId = null;
       const assignments = shuffle(map.taskDefinitions).slice(0, room.settings.assignmentQuantity).map((task) => ({
-        id: task.id, name: task.name, roomId: task.roomId, fake: player.faction !== "crew"
+        id: task.id, name: task.name, roomId: task.roomId, fake: player.faction !== "crew",
+        // Which leg of a multi-room assignment is outstanding; the map marks that
+        // one rather than the whole chain.
+        site: 0, siteCount: (task.sites ?? []).length || 1
       }));
       player.tasks = assignments;
       if (player.faction === "crew") room.taskTotal += assignments.length;
@@ -858,9 +902,29 @@ export class GameServer {
     if (player.completedTasks.has(assignment.id)) throw new Error("That assignment is already complete.");
     if (distance2D(player.position, station) > INTERACTION_RANGE) throw new Error("Move closer to the task station.");
     const definition = map.taskDefinitions.find((task) => task.id === assignment.id);
-    const challenge = Array.from({ length: definition.steps }, () => Math.floor(Math.random() * 4));
-    player.activeTask = { taskId: assignment.id, stationId: station.id, startedAt: Date.now(), lastActionAt: 0, progress: 0, challenge };
-    const result = { ok: true, task: { ...assignment, kind: definition.kind, steps: definition.steps }, challenge };
+    // A task that spans the ship has to be worked in order. Turning up at the third
+    // wiring panel first is refused, and told where to go instead.
+    const sites = definition.sites ?? [];
+    const wantedSite = assignment.site ?? 0;
+    const siteIndex = station.siteIndex ?? 0;
+    if (sites.length > 1 && siteIndex !== wantedSite) {
+      const next = sites[wantedSite];
+      throw new Error(`Not this one yet — continue in ${roomLabel(map, next)}.`);
+    }
+    const challenge = makeTaskChallenge(definition, wantedSite);
+    player.activeTask = {
+      taskId: assignment.id, stationId: station.id, siteIndex: wantedSite,
+      startedAt: Date.now(), lastActionAt: 0, progress: 0, challenge
+    };
+    const result = {
+      ok: true,
+      task: {
+        ...assignment, kind: definition.kind, steps: definition.steps,
+        site: wantedSite, siteCount: sites.length,
+        siteLabel: roomLabel(map, sites[wantedSite])
+      },
+      challenge
+    };
     if (player.socketId) this.io.to(player.socketId).emit("taskStarted", result);
     return result;
   }
@@ -875,20 +939,39 @@ export class GameServer {
       throw new Error("Task cancelled because the station is no longer reachable.");
     }
     const now = Date.now();
-    if (now - active.lastActionAt < 280) throw new Error("Input arrived too quickly.");
+    if (now - active.lastActionAt < 250) throw new Error("Input arrived too quickly.");
     active.lastActionAt = now;
-    const expected = active.challenge[active.progress];
-    const correct = Math.round(Number(payload?.choice)) === expected;
-    if (correct) active.progress += 1;
-    else active.progress = Math.max(0, active.progress - 1);
+    // The minigames are drags, holds and timed clicks, so the server cannot judge
+    // the gesture itself. What it does hold is the shape of the work: steps are
+    // claimed one at a time and in order, a step out of sequence is refused, and
+    // the rate limit still floors how fast a task can possibly be finished.
     const definition = map.taskDefinitions.find((task) => task.id === active.taskId);
-    // The per-action rate limit already enforces the authoritative minimum solve
-    // time. Keeping a second, slower timer here left a fully correct challenge at
-    // 100% without ever emitting taskCompleted.
-    if (active.progress >= definition.steps && now - active.startedAt >= definition.steps * 280) {
+    const claimed = Math.round(Number(payload?.step));
+    if (!Number.isFinite(claimed) || claimed !== active.progress) {
+      throw new Error("Task step out of sequence.");
+    }
+    active.progress += 1;
+
+    if (active.progress >= definition.steps) {
+      const sites = definition.sites ?? [];
+      const assignment = player.tasks.find((task) => task.id === active.taskId);
+      // Another leg to walk before the whole assignment is done.
+      if (sites.length > 1 && (active.siteIndex + 1) < sites.length) {
+        assignment.site = active.siteIndex + 1;
+        player.activeTask = null;
+        const next = sites[assignment.site];
+        const result = {
+          ok: true, siteComplete: true, taskId: active.taskId,
+          site: assignment.site, siteCount: sites.length,
+          nextLabel: roomLabel(map, next)
+        };
+        if (player.socketId) this.io.to(player.socketId).emit("taskSiteAdvanced", result);
+        this.sendPrivateState(room, player);
+        return result;
+      }
       return this.completeTaskInternal(room, player, active.taskId);
     }
-    const result = { ok: true, correct, progress: active.progress, total: definition.steps };
+    const result = { ok: true, correct: true, progress: active.progress, total: definition.steps };
     if (player.socketId) this.io.to(player.socketId).emit("taskProgress", result);
     return result;
   }

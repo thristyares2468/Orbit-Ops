@@ -919,16 +919,20 @@ export class GameUI {
     for (const assignment of tasks.filter((task) => !complete.has(task.id))) {
       const definition = map.taskDefinitions.find((task) => task.id === assignment.id);
       if (!definition) continue;
+      // Mark the leg that is actually outstanding, not the start of the chain.
+      const site = definition.sites?.[assignment.site ?? 0] ?? definition;
       context.fillStyle = "#ffd63e";
       context.strokeStyle = "#ffffff";
       context.lineWidth = 2;
       context.beginPath();
-      context.arc(sx(definition.x), sy(definition.z), 9 * markerScale, 0, Math.PI * 2);
+      context.arc(sx(site.x), sy(site.z), 9 * markerScale, 0, Math.PI * 2);
       context.fill();
       context.stroke();
       context.fillStyle = "#17213d";
       context.font = "900 13px Inter, sans-serif";
-      context.fillText("!", sx(definition.x), sy(definition.z) + 1);
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText("!", sx(site.x), sy(site.z) + 1);
     }
     if (sabotage) {
       const definition = map.sabotageDefinitions.find((item) => item.id === sabotage.id);

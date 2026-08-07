@@ -154,6 +154,13 @@ export class OrbitOpsGame {
     this.network.on("taskProgress", (progress) => {
       if (progress.total !== undefined && progress.completed !== undefined) this.ui.updateTaskProgress(progress);
     });
+    // One leg of a multi-room assignment finished; the rest of it is elsewhere.
+    this.network.on("taskSiteAdvanced", (payload) => {
+      const assignment = this.privateState?.tasks?.find((task) => task.id === payload.taskId);
+      if (assignment) assignment.site = payload.site;
+      if (this.privateState) this.ui.renderTasks(this.privateState.tasks, this.privateState.completedTaskIds);
+      this.ui.toast(`${payload.nextLabel} next.`);
+    });
     this.network.on("sabotageStarted", (sabotage) => {
       this.activeSabotage = sabotage;
       this.ui.updateSabotage(sabotage);

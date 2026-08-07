@@ -76,12 +76,18 @@ function route(id, from, to, points = []) {
   });
 }
 
-function taskAt(id, name, roomId, x, y, kind, steps = 4, assetKey = null) {
+function taskAt(id, name, roomId, x, y, kind, steps = 4, assetKey = null, sites = null) {
   const point = referencePoint(x, y);
   return {
-    ...task(id, name, roomId, point.x, point.z, kind, steps, assetKey),
+    ...task(id, name, roomId, point.x, point.z, kind, steps, assetKey, sites),
     referencePosition: Object.freeze({ x, y })
   };
+}
+
+// One leg of an assignment that spans rooms, in reference pixels.
+function siteAt(roomId, x, y, label = null) {
+  const point = referencePoint(x, y);
+  return { roomId, x: point.x, z: point.z, ...(label ? { label } : {}) };
 }
 
 function stationAt(id, type, roomId, x, y, refId = null, label = null, range = null) {
@@ -331,17 +337,48 @@ export const THE_SKELD = createMapDefinition({
   corridors: SKELD_CORRIDORS,
   connections: SKELD_ROUTES.map(({ from, to }) => [from, to]),
   corridorRoutes: SKELD_ROUTES,
-  // The reference clone's nine assignments, on the rooms it puts them in.
+  // The Skeld's assignments, each running the minigame the real task runs. Tasks
+  // that genuinely span the ship list every leg in `sites` and are worked in order.
   tasks: [
-    taskAt("skeld-turn-on-lights", "Turn On The Lights", "electrical", 454, 395, "wiring", 4, "taskLights"),
-    taskAt("skeld-fix-wiring", "Fix The Electricity Wires", "electrical", 492, 439, "wiring", 4, "taskWiring"),
-    taskAt("skeld-stabilize-nav", "Stabilize The Ship's Navigation", "navigation", 1127, 286, "route", 4, "taskNavigation"),
-    taskAt("skeld-reboot-wifi", "Reboot The Wifi", "communications", 827, 580, "sequence", 4, "taskWifi"),
-    taskAt("skeld-empty-garbage", "Empty The Garbage", "storage", 698, 589, "garbage", 4, "taskGarbage"),
-    taskAt("skeld-divert-power", "Divert Power To Reactor", "reactor", 233, 295, "power", 4, "taskDivertPower"),
-    taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 233, 198, "balance", 4, "taskEngineAlign"),
-    taskAt("skeld-fuel-engine", "Fuel Lower Engine", "lower-engine", 286, 507, "fuel", 4, "taskFuel"),
-    taskAt("skeld-clear-asteroids", "Clear The Asteroids", "weapons", 948, 201, "asteroids", 4, "taskAsteroids", 10)
+    // --- common, multi-room ---
+    taskAt("skeld-fix-wiring", "Fix Wiring", "electrical", 492, 439, "wiring", 1, "taskWiring", [
+      siteAt("electrical", 492, 439),
+      siteAt("admin", 800, 350),
+      siteAt("navigation", 1100, 300)
+    ]),
+    taskAt("skeld-swipe-card", "Swipe Card", "admin", 790, 420, "card", 1, "taskCard"),
+    taskAt("skeld-upload-data", "Download Data", "communications", 827, 580, "upload", 1, "taskUpload", [
+      siteAt("communications", 827, 580, "Communications (download)"),
+      siteAt("admin", 771, 342, "Admin (upload)")
+    ]),
+    taskAt("skeld-empty-garbage", "Empty Garbage", "cafeteria", 706, 262, "garbage", 1, "taskGarbage", [
+      siteAt("cafeteria", 706, 262),
+      siteAt("storage", 698, 589)
+    ]),
+    taskAt("skeld-fuel-engines", "Fuel Engines", "storage", 600, 500, "fuel", 1, "taskFuel", [
+      siteAt("storage", 600, 500, "Storage (fill can)"),
+      siteAt("upper-engine", 233, 198, "Upper Engine (pump)"),
+      siteAt("storage", 600, 500, "Storage (refill)"),
+      siteAt("lower-engine", 286, 507, "Lower Engine (pump)")
+    ]),
+    taskAt("skeld-divert-power", "Divert Power", "electrical", 543, 386, "power", 1, "taskDivertPower", [
+      siteAt("electrical", 543, 386, "Electrical (divert)"),
+      siteAt("weapons", 948, 201, "Weapons (accept)")
+    ]),
+    // --- reactor and engineering ---
+    taskAt("skeld-start-reactor", "Start Reactor", "reactor", 120, 300, "reactor", 5, "taskReactor"),
+    taskAt("skeld-unlock-manifolds", "Unlock Manifolds", "reactor", 195, 291, "manifolds", 1, "taskManifolds"),
+    taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 233, 198, "align", 1, "taskEngineAlign"),
+    // --- upper deck ---
+    taskAt("skeld-clear-asteroids", "Clear Asteroids", "weapons", 948, 201, "asteroids", 1, "taskAsteroids"),
+    taskAt("skeld-prime-shields", "Prime Shields", "shields", 940, 480, "shields", 1, "taskShields"),
+    taskAt("skeld-chart-course", "Chart Course", "navigation", 1127, 286, "course", 1, "taskCourse"),
+    taskAt("skeld-stabilize-steering", "Stabilize Steering", "navigation", 1150, 330, "steering", 1, "taskNavigation"),
+    // --- maintenance and medical ---
+    taskAt("skeld-submit-scan", "Submit Scan", "medbay", 470, 300, "scan", 1, "taskScan"),
+    taskAt("skeld-inspect-sample", "Inspect Sample", "medbay", 520, 200, "sample", 1, "taskSample"),
+    taskAt("skeld-clean-o2", "Clean O2 Filter", "o2", 860, 262, "o2filter", 1, "taskO2"),
+    taskAt("skeld-calibrate-distributor", "Calibrate Distributor", "electrical", 454, 395, "calibrate", 3, "taskCalibrate")
   ],
   sabotages: [
     { id: "skeld-reactor-meltdown", name: "Reactor Meltdown", critical: true, durationMs: 20000, repairStations: ["skeld-reactor-alpha", "skeld-reactor-beta"], roomId: "reactor" },

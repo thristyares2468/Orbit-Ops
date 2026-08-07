@@ -26,9 +26,22 @@ function freezeItems(values = []) {
   return Object.freeze(values.map((value) => Object.freeze(value)));
 }
 
-export function task(id, name, roomId, x, z, kind, steps = 4, assetKey = null) {
+export function task(id, name, roomId, x, z, kind, steps = 4, assetKey = null, sites = null) {
   // assetKey lets a task show its own console art instead of a generic one.
-  return { id, name, roomId, x, z, kind, steps, ...(assetKey ? { assetKey } : {}) };
+  //
+  // sites lists the places a task must be worked at, in order, for the assignments
+  // that genuinely span the ship: wiring is three panels, fuelling is fill-then-pump
+  // at each engine, diverting power is a switch here and a fuse there. A task
+  // without sites is a single console at (x, z). Each site runs the minigame in
+  // full; finishing one sends you to the next.
+  const places = sites?.length
+    ? sites.map((site, index) => ({ ...site, index }))
+    : [{ roomId, x, z, index: 0 }];
+  return {
+    id, name, roomId, x, z, kind, steps,
+    sites: places,
+    ...(assetKey ? { assetKey } : {})
+  };
 }
 
 export function station(id, type, roomId, x, z, refId = null, label = null, range = null) {
@@ -89,15 +102,19 @@ export function createMapDefinition({
   const frozenTasks = freezeItems(tasks);
   const frozenSabotages = freezeItems(sabotages);
   const allStations = freezeItems([
-    ...frozenTasks.map((definition) => ({
-      id: `task:${definition.id}`,
+    // One console per site, so a three-panel wiring job really is three consoles
+    // standing in three rooms rather than one console pretending to be three.
+    ...frozenTasks.flatMap((definition) => (definition.sites ?? []).map((site) => ({
+      id: site.index === 0 ? `task:${definition.id}` : `task:${definition.id}:${site.index}`,
       type: "task",
       refId: definition.id,
-      roomId: definition.roomId,
-      x: definition.x,
-      z: definition.z,
+      siteIndex: site.index,
+      roomId: site.roomId,
+      x: site.x,
+      z: site.z,
+      ...(site.label ? { label: site.label } : {}),
       ...(definition.assetKey ? { assetKey: definition.assetKey } : {})
-    })),
+    }))),
     ...stations
   ]);
   const frozenSpawns = Object.freeze(spawnPoints.map((spawn) => Object.freeze([...spawn])));
