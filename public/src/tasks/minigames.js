@@ -888,6 +888,52 @@ export const MINIGAMES = {
     }
   },
 
+  // Take the grille off and clear it out. The vents the model paints carry four
+  // corner bolts, so the cover comes off the way that picture says it should.
+  cleanvent: {
+    label: "Clean Vent",
+    instruction: "Undo the four bolts, then lift the cover away.",
+    build(ctx) {
+      const rig = el("div", "tg-vent");
+      const cover = el("div", "tg-vent-cover");
+      for (let i = 0; i < 5; i++) cover.append(el("i", "tg-vent-slat"));
+      const bolts = [];
+      for (let i = 0; i < 4; i++) {
+        const bolt = el("button", "tg-bolt");
+        bolt.type = "button";
+        bolt.dataset.index = String(i);
+        cover.append(bolt);
+        bolts.push(bolt);
+      }
+      const lift = el("button", "tg-button", "Lift cover");
+      lift.type = "button";
+      lift.disabled = true;
+      rig.append(cover, lift);
+      ctx.root.append(rig);
+
+      let undone = 0;
+      const turn = (event) => {
+        const bolt = event.target.closest(".tg-bolt");
+        if (!bolt || bolt.classList.contains("is-out")) return;
+        bolt.classList.add("is-out");
+        undone += 1;
+        ctx.status(`${undone} of 4 bolts out.`);
+        if (undone === 4) {
+          lift.disabled = false;
+          ctx.status("Cover is loose — lift it away.");
+        }
+      };
+      cover.addEventListener("click", turn);
+      lift.addEventListener("click", () => {
+        if (lift.disabled) return;
+        cover.classList.add("is-off");
+        ctx.complete();
+      });
+      ctx.status("Undo the bolts.");
+      return () => cover.removeEventListener("click", turn);
+    }
+  },
+
   // Stop the node as it crosses the target, three times.
   calibrate: {
     label: "Calibrate Distributor",

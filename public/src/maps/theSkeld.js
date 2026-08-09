@@ -346,22 +346,32 @@ export const THE_SKELD = createMapDefinition({
   // the engines themselves. They were previously placed on open floor.
   tasks: [
     // --- common, multi-room ---
-    // Three panels, as the task runs. Electrical, Admin and Storage are the three
-    // of its permitted rooms where the model actually paints a wall panel to work
-    // at; Navigation and Cafeteria have none.
+    // Three panels. The wiki gives the order Electrical, Storage, Admin,
+    // Navigation, Cafeteria, Security and says any three are worked in that
+    // order; these are the first three, which are also the three of them the
+    // model paints a wall panel in.
     taskAt("skeld-fix-wiring", "Fix Wiring", "electrical", 452, 438, "wiring", 1, "taskWiring", [
       siteAt("electrical", 452, 438),   // breaker panel, west cabinet run
-      siteAt("admin", 784, 326),        // the "monitor" wall screen
-      siteAt("storage", 715, 470)       // starboard wall unit
+      siteAt("storage", 715, 470),      // starboard wall unit
+      siteAt("admin", 784, 326)         // the "monitor" wall screen
     ]),
     taskAt("skeld-swipe-card", "Swipe Card", "admin", 855, 322, "card", 1, "taskCard"),
     taskAt("skeld-upload-data", "Download Data", "communications", 856, 572, "upload", 1, "taskUpload", [
       siteAt("communications", 856, 572, "Communications (download)"),  // the terminal desk
       siteAt("admin", 811, 326, "Admin (upload)")   // the "monito01" wall screen
     ]),
-    // One chute, not a chain: the Cafeteria has no chute painted anywhere on it,
-    // and the task is "Cafeteria or Storage" rather than both.
-    taskAt("skeld-empty-garbage", "Empty Garbage", "storage", 700, 600, "garbage", 1, "taskGarbage"),
+    // Cafeteria then Storage, both legs. The model paints no chute in the
+    // Cafeteria, so its leg goes in the recess in the east wall - which is where
+    // the Skeld puts the chute - rather than on a fixture.
+    taskAt("skeld-empty-garbage", "Empty Garbage", "cafeteria", 820, 138, "garbage", 1, "taskGarbage", [
+      siteAt("cafeteria", 820, 138, "Cafeteria (chute)"),
+      siteAt("storage", 700, 600, "Storage (chute)")   // hazard-striped chute, south wall
+    ]),
+    // A second chute run, O2 into the same Storage chute.
+    taskAt("skeld-empty-chute", "Empty Chute", "o2", 855, 232, "garbage", 1, "taskGarbage", [
+      siteAt("o2", 855, 232, "O2 (chute)"),
+      siteAt("storage", 700, 600, "Storage (chute)")
+    ]),
     taskAt("skeld-fuel-engines", "Fuel Engines", "storage", 568, 412, "fuel", 1, "taskFuel", [
       siteAt("storage", 568, 412, "Storage (fill can)"),        // the canister rack
       siteAt("upper-engine", 262, 168, "Upper Engine (pump)"),
@@ -375,9 +385,13 @@ export const THE_SKELD = createMapDefinition({
     // --- reactor and engineering ---
     taskAt("skeld-start-reactor", "Start Reactor", "reactor", 110, 302, "reactor", 5, "taskReactor"),
     taskAt("skeld-unlock-manifolds", "Unlock Manifolds", "reactor", 192, 282, "manifolds", 1, "taskManifolds"),
-    // On the engine's forward face: dead centre of the housing is on the fixture
-    // but boxed in, with no floor inside reach.
-    taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 215, 112, "align", 1, "taskEngineAlign"),
+    // Both engines, in order - it is one assignment, not one per engine. On each
+    // engine's forward face: dead centre of the housing is on the fixture but
+    // boxed in, with no floor inside reach.
+    taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 215, 112, "align", 1, "taskEngineAlign", [
+      siteAt("upper-engine", 215, 112, "Upper Engine"),
+      siteAt("lower-engine", 215, 425, "Lower Engine")
+    ]),
     // --- upper deck ---
     taskAt("skeld-clear-asteroids", "Clear Asteroids", "weapons", 920, 130, "asteroids", 1, "taskAsteroids"),
     taskAt("skeld-prime-shields", "Prime Shields", "shields", 940, 480, "shields", 1, "taskShields"),
@@ -386,8 +400,11 @@ export const THE_SKELD = createMapDefinition({
     // --- maintenance and medical ---
     taskAt("skeld-submit-scan", "Submit Scan", "medbay", 496, 295, "scan", 1, "taskScan"),
     taskAt("skeld-inspect-sample", "Inspect Sample", "medbay", 508, 258, "sample", 1, "taskSample"),
-    taskAt("skeld-clean-o2", "Clean O2 Filter", "o2", 840, 285, "o2filter", 1, "taskO2"),
-    taskAt("skeld-calibrate-distributor", "Calibrate Distributor", "electrical", 500, 352, "calibrate", 3, "taskCalibrate")
+    taskAt("skeld-clean-o2", "Clean O2 Filter", "o2", 848, 286, "o2filter", 1, "taskO2"),
+    taskAt("skeld-calibrate-distributor", "Calibrate Distributor", "electrical", 500, 352, "calibrate", 3, "taskCalibrate"),
+    // Worked at a vent. Offset south of the Cafeteria grille so walking up to it
+    // from the room finds the task rather than the vent entrance.
+    taskAt("skeld-clean-vent", "Clean Vent", "cafeteria", 796, 195, "cleanvent", 1, "taskCleanVent")
   ],
   sabotages: [
     { id: "skeld-reactor-meltdown", name: "Reactor Meltdown", critical: true, durationMs: 20000, repairStations: ["skeld-reactor-alpha", "skeld-reactor-beta"], roomId: "reactor" },

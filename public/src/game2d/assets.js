@@ -56,6 +56,7 @@ export const PHASER_ASSETS = Object.freeze({
   taskSample: "/assets/art/Tasks/MedSample-sharedassets0.assets-101.png",
   taskO2: "/assets/art/Tasks/MonitorOxy-sharedassets0.assets-182.png",
   taskCalibrate: "/assets/art/Tasks/Calibrator-sharedassets0.assets-207.png",
+  taskCleanVent: "/assets/art/Tasks/panel_doors_bg-sharedassets0.assets-71.png",
   // The game's own arrow sprite, reused for the Tracker's bearing to its mark.
   trackerArrow: "/assets/art/Gui/Arrow-sharedassets0.assets-197.png",
   adminConsole: "/assets/art/Tasks/CardSlide-sharedassets0.assets-169.png",

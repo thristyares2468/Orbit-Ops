@@ -535,6 +535,18 @@ kbd { display: inline-grid; place-items: center; min-width: 27px; min-height: 27
 .tg-leaf.is-held { cursor: grabbing; filter: brightness(1.25); z-index: 2; }
 .tg-chute-mouth { display: grid; place-items: center; height: 34px; border: 1px dashed rgba(116,229,255,.5); border-top: 0; color: var(--cyan-bright); font: 800 .72rem/1 monospace; letter-spacing: .22em; }
 
+/* --- clean vent --------------------------------------------------------- */
+.tg-vent { display: grid; gap: 18px; justify-items: center; }
+.tg-vent-cover { position: relative; display: grid; align-content: center; gap: 9px; width: 260px; height: 190px; padding: 26px; border: 3px solid #9fb4c0; border-radius: 6px; background: linear-gradient(160deg, #e6eef3, #b9cbd6); transition: transform .4s ease, opacity .4s ease; }
+.tg-vent-cover.is-off { transform: translateY(-34px) scale(.94); opacity: .25; }
+.tg-vent-slat { display: block; height: 11px; border-radius: 3px; background: #8aa0ad; }
+.tg-bolt { position: absolute; width: 20px; height: 20px; border: 2px solid #6d8290; border-radius: 50%; background: #d3dfe6; cursor: pointer; }
+.tg-bolt:nth-of-type(1) { left: 8px; top: 8px; }
+.tg-bolt:nth-of-type(2) { right: 8px; top: 8px; }
+.tg-bolt:nth-of-type(3) { left: 8px; bottom: 8px; }
+.tg-bolt:nth-of-type(4) { right: 8px; bottom: 8px; }
+.tg-bolt.is-out { background: transparent; border-style: dashed; border-color: rgba(109,130,144,.5); cursor: default; }
+
 /* --- calibrate distributor --------------------------------------------- */
 .tg-calibrate { display: grid; gap: 18px; justify-items: center; }
 .tg-ring { position: relative; width: 250px; height: 250px; border: 2px dashed rgba(116,229,255,.35); border-radius: 50%; }

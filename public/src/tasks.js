@@ -18,7 +18,8 @@ const TASK_ART = Object.freeze({
   scan: "/assets/art/Tasks/MedScan-sharedassets0.assets-61.png",
   sample: "/assets/art/Tasks/MedSample-sharedassets0.assets-101.png",
   o2filter: "/assets/art/Tasks/MonitorOxy-sharedassets0.assets-182.png",
-  calibrate: "/assets/art/Tasks/Calibrator-sharedassets0.assets-207.png"
+  calibrate: "/assets/art/Tasks/Calibrator-sharedassets0.assets-207.png",
+  cleanvent: "/assets/art/Tasks/panel_doors_bg-sharedassets0.assets-71.png"
 });
 
 const FALLBACK_ART = "/assets/art/Tasks/TaskAdder-sharedassets0.assets-192.png";
