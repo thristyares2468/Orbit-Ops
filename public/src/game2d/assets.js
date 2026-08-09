@@ -36,6 +36,11 @@ export const PHASER_ASSETS = Object.freeze({
   maintenanceConsole: "/assets/art/Tasks/panel_doors_bg-sharedassets0.assets-71.png",
   securityConsole: "/assets/art/Tasks/DoorLog-sharedassets0.assets-145.png",
   repairConsole: "/assets/art/Tasks/reactorMeltdown_handprintBase-sharedassets0.assets-124.png",
+  // One per sabotage: the handprint belongs to the reactor alone.
+  repairHandprint: "/assets/art/Tasks/reactorMeltdown_handprintBase-sharedassets0.assets-124.png",
+  repairKeypad: "/assets/art/Tasks/KeypadGame-sharedassets0.assets-148.png",
+  repairRadio: "/assets/art/Tasks/Radio-sharedassets0.assets-76.png",
+  repairSwitches: "/assets/art/Tasks/SwitchesPanel-sharedassets0.assets-100.png",
   incidentMarker: "/assets/art/Tasks/glow-sharedassets0.assets-191.png",
   taskLights: "/assets/art/Tasks/SwitchesPanel-sharedassets0.assets-100.png",
   taskWiring: "/assets/art/Tasks/WiresPanel-sharedassets0.assets-174.png",

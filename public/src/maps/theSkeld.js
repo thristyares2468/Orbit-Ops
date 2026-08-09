@@ -368,8 +368,8 @@ export const THE_SKELD = createMapDefinition({
       siteAt("storage", 700, 600, "Storage (chute)")   // hazard-striped chute, south wall
     ]),
     // A second chute run, O2 into the same Storage chute.
-    taskAt("skeld-empty-chute", "Empty Chute", "o2", 855, 232, "garbage", 1, "taskGarbage", [
-      siteAt("o2", 855, 232, "O2 (chute)"),
+    taskAt("skeld-empty-chute", "Empty Chute", "o2", 822, 240, "garbage", 1, "taskGarbage", [
+      siteAt("o2", 822, 240, "O2 (chute)"),
       siteAt("storage", 700, 600, "Storage (chute)")
     ]),
     taskAt("skeld-fuel-engines", "Fuel Engines", "storage", 568, 412, "fuel", 1, "taskFuel", [
@@ -406,11 +406,17 @@ export const THE_SKELD = createMapDefinition({
     // from the room finds the task rather than the vent entrance.
     taskAt("skeld-clean-vent", "Clean Vent", "cafeteria", 796, 195, "cleanvent", 1, "taskCleanVent")
   ],
+  // repairKind picks the panel each sabotage is fixed at. They are deliberately
+  // all different: the handprint scanners belong to the reactor alone.
   sabotages: [
-    { id: "skeld-reactor-meltdown", name: "Reactor Meltdown", critical: true, durationMs: 20000, repairStations: ["skeld-reactor-alpha", "skeld-reactor-beta"], roomId: "reactor" },
-    { id: "skeld-o2-depletion", name: "O2 Depletion", critical: true, durationMs: 50000, repairStations: ["skeld-o2-panel", "skeld-admin-o2"], roomId: "o2" },
-    { id: "skeld-comms-sabotage", name: "Communications Sabotage", critical: false, durationMs: 40000, repairStations: ["skeld-comms-panel"], roomId: "communications" },
-    { id: "skeld-lights-out", name: "Lights Out", critical: false, durationMs: 40000, repairStations: ["skeld-light-panel"], roomId: "electrical" }
+    // Two scanners held at the same moment, so it takes two people.
+    { id: "skeld-reactor-meltdown", name: "Reactor Meltdown", critical: true, durationMs: 20000, repairStations: ["skeld-reactor-alpha", "skeld-reactor-beta"], roomId: "reactor", repairKind: "handprint" },
+    // One randomised code, written on a sticky note at both keypads.
+    { id: "skeld-o2-depletion", name: "O2 Depletion", critical: true, durationMs: 50000, repairStations: ["skeld-o2-panel", "skeld-admin-o2"], roomId: "o2", repairKind: "keypad" },
+    // Turn the dial until the carrier wave comes back into phase.
+    { id: "skeld-comms-sabotage", name: "Communications Sabotage", critical: false, durationMs: 40000, repairStations: ["skeld-comms-panel"], roomId: "communications", repairKind: "radio" },
+    // One to five of the five breakers are thrown; put them all back up.
+    { id: "skeld-lights-out", name: "Lights Out", critical: false, durationMs: 40000, repairStations: ["skeld-light-panel"], roomId: "electrical", repairKind: "switches" }
   ],
   stations: [
     // Dead centre of the round cafeteria table, where the model paints the button.
@@ -451,12 +457,19 @@ export const THE_SKELD = createMapDefinition({
     stationAt("skeld-vent-navigation-a", "maintenance", "navigation", 1115, 240, "vent-weapons-navigation"),
     stationAt("skeld-vent-navigation-b", "maintenance", "navigation", 1115, 335, "vent-navigation-shields"),
     stationAt("skeld-vent-shields", "maintenance", "shields", 938, 541, "vent-navigation-shields"),
-    stationAt("skeld-reactor-alpha", "repair", "reactor", 116, 281, "skeld-reactor-meltdown"),
-    stationAt("skeld-reactor-beta", "repair", "reactor", 195, 291, "skeld-reactor-meltdown"),
-    stationAt("skeld-o2-panel", "repair", "o2", 907, 233, "skeld-o2-depletion"),
-    stationAt("skeld-admin-o2", "repair", "admin", 857, 336, "skeld-o2-depletion"),
-    stationAt("skeld-comms-panel", "repair", "communications", 757, 542, "skeld-comms-sabotage"),
-    stationAt("skeld-light-panel", "repair", "electrical", 543, 386, "skeld-lights-out")
+    // Each sabotage is repaired its own way, so each panel carries its own art
+    // instead of every one of them being the reactor's handprint.
+    // The two scanners flank the core on the port wall, as the Skeld places them.
+    // The model paints no scanner there, so these are positioned rather than
+    // snapped to a fixture - far enough apart that one player cannot reach both.
+    { ...stationAt("skeld-reactor-alpha", "repair", "reactor", 95, 252, "skeld-reactor-meltdown", "Reactor (upper scanner)", 3.6), assetKey: "repairHandprint" },
+    { ...stationAt("skeld-reactor-beta", "repair", "reactor", 95, 325, "skeld-reactor-meltdown", "Reactor (lower scanner)", 3.6), assetKey: "repairHandprint" },
+    // O2's two keypads: top-middle of O2 and top-right of Admin.
+    { ...stationAt("skeld-o2-panel", "repair", "o2", 860, 220, "skeld-o2-depletion", "O2 keypad", 3.6), assetKey: "repairKeypad" },
+    { ...stationAt("skeld-admin-o2", "repair", "admin", 862, 345, "skeld-o2-depletion", "Admin keypad", 3.6), assetKey: "repairKeypad" },
+    // On the radio itself, and on the fuse bank along Electrical's south wall.
+    { ...stationAt("skeld-comms-panel", "repair", "communications", 756, 529, "skeld-comms-sabotage", null, 3.6), assetKey: "repairRadio" },
+    { ...stationAt("skeld-light-panel", "repair", "electrical", 478, 507, "skeld-lights-out", null, 3.6), assetKey: "repairSwitches" }
   ],
   spawnPoints: [
     [worldX(677), worldZ(104)], [worldX(633), worldZ(151)], [worldX(713), worldZ(151)], [worldX(677), worldZ(187)],
