@@ -435,10 +435,20 @@ export class GameUI {
   renderTasks(tasks = [], completedIds = []) {
     this.updatePersonalProgress();
     const completed = new Set(completedIds);
+    const map = getMapDefinition(this.room?.mapId);
     const list = byId("task-list-items"); list.replaceChildren();
     for (const task of tasks) {
       const item = document.createElement("li");
-      item.textContent = `${completed.has(task.id) ? "✓ " : ""}${task.name} — ${titleCase(task.roomId)}${task.fake ? " [SIM]" : ""}`;
+      // An assignment that spans rooms must name the leg still outstanding, not
+      // where it started. Naming the first room forever sent players back to a
+      // console they had already finished, which then refused them.
+      const definition = map?.taskDefinitions.find((entry) => entry.id === task.id);
+      const sites = definition?.sites ?? [];
+      const index = Math.min(task.site ?? 0, Math.max(0, sites.length - 1));
+      const site = sites[index];
+      const where = titleCase(site?.roomId ?? task.roomId);
+      const leg = sites.length > 1 && !completed.has(task.id) ? ` (${index + 1}/${sites.length})` : "";
+      item.textContent = `${completed.has(task.id) ? "✓ " : ""}${task.name} — ${where}${leg}${task.fake ? " [SIM]" : ""}`;
       if (completed.has(task.id)) item.style.opacity = ".45";
       list.append(item);
     }

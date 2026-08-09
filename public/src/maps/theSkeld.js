@@ -351,13 +351,13 @@ export const THE_SKELD = createMapDefinition({
     // at; Navigation and Cafeteria have none.
     taskAt("skeld-fix-wiring", "Fix Wiring", "electrical", 452, 438, "wiring", 1, "taskWiring", [
       siteAt("electrical", 452, 438),   // breaker panel, west cabinet run
-      siteAt("admin", 768, 320),        // north wall panel
+      siteAt("admin", 784, 326),        // the "monitor" wall screen
       siteAt("storage", 715, 470)       // starboard wall unit
     ]),
     taskAt("skeld-swipe-card", "Swipe Card", "admin", 855, 322, "card", 1, "taskCard"),
     taskAt("skeld-upload-data", "Download Data", "communications", 856, 572, "upload", 1, "taskUpload", [
       siteAt("communications", 856, 572, "Communications (download)"),  // the terminal desk
-      siteAt("admin", 815, 320, "Admin (upload)")
+      siteAt("admin", 811, 326, "Admin (upload)")   // the "monito01" wall screen
     ]),
     // One chute, not a chain: the Cafeteria has no chute painted anywhere on it,
     // and the task is "Cafeteria or Storage" rather than both.
@@ -381,10 +381,10 @@ export const THE_SKELD = createMapDefinition({
     // --- upper deck ---
     taskAt("skeld-clear-asteroids", "Clear Asteroids", "weapons", 920, 130, "asteroids", 1, "taskAsteroids"),
     taskAt("skeld-prime-shields", "Prime Shields", "shields", 940, 480, "shields", 1, "taskShields"),
-    taskAt("skeld-chart-course", "Chart Course", "navigation", 1172, 268, "course", 1, "taskCourse"),
-    taskAt("skeld-stabilize-steering", "Stabilize Steering", "navigation", 1178, 305, "steering", 1, "taskNavigation"),
+    taskAt("skeld-chart-course", "Chart Course", "navigation", 1160, 270, "course", 1, "taskCourse"),
+    taskAt("skeld-stabilize-steering", "Stabilize Steering", "navigation", 1165, 300, "steering", 1, "taskNavigation"),
     // --- maintenance and medical ---
-    taskAt("skeld-submit-scan", "Submit Scan", "medbay", 490, 291, "scan", 1, "taskScan"),
+    taskAt("skeld-submit-scan", "Submit Scan", "medbay", 496, 295, "scan", 1, "taskScan"),
     taskAt("skeld-inspect-sample", "Inspect Sample", "medbay", 508, 258, "sample", 1, "taskSample"),
     taskAt("skeld-clean-o2", "Clean O2 Filter", "o2", 840, 285, "o2filter", 1, "taskO2"),
     taskAt("skeld-calibrate-distributor", "Calibrate Distributor", "electrical", 500, 352, "calibrate", 3, "taskCalibrate")
@@ -411,8 +411,8 @@ export const THE_SKELD = createMapDefinition({
       backingAlpha: 0
     },
     // On the camera desk and the hologram table the model paints, not beside them.
-    stationAt("skeld-cameras", "security", "security", 342, 228),
-    stationAt("skeld-admin-table", "admin", "admin", 795, 385),
+    stationAt("skeld-cameras", "security", "security", 342, 228, null, null, 3.6),
+    stationAt("skeld-admin-table", "admin", "admin", 806, 394),
     // Vent positions are the vents the model itself paints on the deck, not hand
     // placed. The model has no vent geometry to read - every mesh is named
     // Object_N and the vents are baked into the floor textures - so they were

@@ -900,7 +900,7 @@ export class GameServer {
     const assignment = player.tasks.find((task) => task.id === station.refId);
     if (!assignment) throw new Error("This station is not assigned to you.");
     if (player.completedTasks.has(assignment.id)) throw new Error("That assignment is already complete.");
-    if (distance2D(player.position, station) > INTERACTION_RANGE) throw new Error("Move closer to the task station.");
+    if (distance2D(player.position, station) > reachOf(station)) throw new Error("Move closer to the task station.");
     const definition = map.taskDefinitions.find((task) => task.id === assignment.id);
     // A task that spans the ship has to be worked in order. Turning up at the third
     // wiring panel first is refused, and told where to go instead.
@@ -934,7 +934,7 @@ export class GameServer {
     if (!active || active.taskId !== payload?.taskId) throw new Error("No matching task is active.");
     const map = getMapDefinition(room.mapId);
     const station = stationById(room.mapId, active.stationId);
-    if (room.phase !== PHASES.ACTIVE || !station || distance2D(player.position, station) > INTERACTION_RANGE + 0.7) {
+    if (room.phase !== PHASES.ACTIVE || !station || distance2D(player.position, station) > reachOf(station) + 0.7) {
       player.activeTask = null;
       throw new Error("Task cancelled because the station is no longer reachable.");
     }
@@ -1089,7 +1089,7 @@ export class GameServer {
     const station = stationById(room.mapId, stationId);
     const sabotage = room.activeSabotage;
     if (!station || station.type !== "repair" || station.refId !== sabotage.id || !sabotage.repairStations.includes(station.id)) throw new Error("Use the correct repair station.");
-    if (distance2D(player.position, station) > INTERACTION_RANGE) throw new Error("Move closer to the repair station.");
+    if (distance2D(player.position, station) > reachOf(station)) throw new Error("Move closer to the repair station.");
     sabotage.repairs.add(station.id);
     const completed = sabotage.repairStations.every((id) => sabotage.repairs.has(id));
     player.matchStats.sabotagesRepaired += completed ? 1 : 0;
@@ -1529,7 +1529,7 @@ export class GameServer {
     if (room.phase !== PHASES.ACTIVE || !player.alive) throw new Error("Admin systems are unavailable.");
     if (player.ventId) throw new Error("Climb out of the vent first.");
     const console_ = getMapDefinition(room.mapId).stations.find((station) => station.type === "admin");
-    if (!console_ || distance2D(player.position, console_) > INTERACTION_RANGE) {
+    if (!console_ || distance2D(player.position, console_) > reachOf(console_)) {
       throw new Error("Move to the admin table.");
     }
     if (this.lightsAreOut(room)) throw new Error("The admin table is dark.");
@@ -1549,7 +1549,7 @@ export class GameServer {
   requestSecurity(room, player) {
     if (room.phase !== PHASES.ACTIVE || !player.alive) throw new Error("Security systems are unavailable.");
     const consoles = getMapDefinition(room.mapId).stations.filter((station) => ["security", "doorLogs"].includes(station.type));
-    if (!consoles.some((station) => distance2D(player.position, station) <= INTERACTION_RANGE)) throw new Error("Move to a security console.");
+    if (!consoles.some((station) => distance2D(player.position, station) <= reachOf(station))) throw new Error("Move to a security console.");
     if (room.activeSabotage?.id.includes("comms") || room.activeSabotage?.id.includes("security")) throw new Error("Security telemetry is being jammed.");
     if (player.ventId) throw new Error("Climb out of the vent first.");
     return {

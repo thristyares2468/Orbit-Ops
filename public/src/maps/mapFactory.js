@@ -6,6 +6,11 @@ import {
   validateMapDefinition
 } from "../mapSchema.js";
 
+// How close you must be to work a task console. Wider than the plain interaction
+// distance because a console is embedded in the wall or machine it belongs to, so
+// its own point is unreachable and the floor is only on one side of it.
+const TASK_CONSOLE_REACH = 3.6;
+
 const DEFAULT_LAYERS = Object.freeze([
   Object.freeze({ id: "backgrounds", kind: "backgrounds", visible: true, order: 0, depth: -1000 }),
   Object.freeze({ id: "zones", kind: "zones", visible: true, order: 0.5, depth: -360 }),
@@ -112,6 +117,11 @@ export function createMapDefinition({
       roomId: site.roomId,
       x: site.x,
       z: site.z,
+      // Consoles are mounted on walls and machines, so the point they sit on is
+      // inside something solid and can only be approached from one side. The plain
+      // interaction distance left several of them workable from a narrow arc, which
+      // reads as the console being dead rather than as standing in the wrong place.
+      range: site.range ?? TASK_CONSOLE_REACH,
       ...(site.label ? { label: site.label } : {}),
       ...(definition.assetKey ? { assetKey: definition.assetKey } : {})
     }))),
