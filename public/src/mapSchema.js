@@ -263,7 +263,7 @@ export function validateMapDefinition(map) {
         errors.push(`Station ${station.id ?? "(missing)"} has invalid ${key}.`);
       }
     }
-    for (const key of ["artOffsetX", "artOffsetZ", "artAlpha"]) {
+    for (const key of ["artOffsetX", "artOffsetZ", "artAlpha", "backingAlpha"]) {
       if (key in station && !finite(station[key])) {
         errors.push(`Station ${station.id ?? "(missing)"} has invalid ${key}.`);
       }

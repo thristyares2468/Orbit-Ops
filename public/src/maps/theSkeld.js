@@ -339,46 +339,55 @@ export const THE_SKELD = createMapDefinition({
   corridorRoutes: SKELD_ROUTES,
   // The Skeld's assignments, each running the minigame the real task runs. Tasks
   // that genuinely span the ship list every leg in `sites` and are worked in order.
+  //
+  // Every console below sits on the fixture the model actually paints there - the
+  // breaker panel in Electrical, the hologram table in Admin, the scanner pad in
+  // MedBay, the gun turret in Weapons, the reactor keypad, the filter units in O2,
+  // the engines themselves. They were previously placed on open floor.
   tasks: [
     // --- common, multi-room ---
-    taskAt("skeld-fix-wiring", "Fix Wiring", "electrical", 492, 439, "wiring", 1, "taskWiring", [
-      siteAt("electrical", 492, 439),
-      siteAt("admin", 800, 350),
-      siteAt("navigation", 1100, 300)
+    // Three panels, as the task runs. Electrical, Admin and Storage are the three
+    // of its permitted rooms where the model actually paints a wall panel to work
+    // at; Navigation and Cafeteria have none.
+    taskAt("skeld-fix-wiring", "Fix Wiring", "electrical", 452, 438, "wiring", 1, "taskWiring", [
+      siteAt("electrical", 452, 438),   // breaker panel, west cabinet run
+      siteAt("admin", 768, 320),        // north wall panel
+      siteAt("storage", 715, 470)       // starboard wall unit
     ]),
-    taskAt("skeld-swipe-card", "Swipe Card", "admin", 790, 420, "card", 1, "taskCard"),
-    taskAt("skeld-upload-data", "Download Data", "communications", 827, 580, "upload", 1, "taskUpload", [
-      siteAt("communications", 827, 580, "Communications (download)"),
-      siteAt("admin", 771, 342, "Admin (upload)")
+    taskAt("skeld-swipe-card", "Swipe Card", "admin", 855, 322, "card", 1, "taskCard"),
+    taskAt("skeld-upload-data", "Download Data", "communications", 856, 572, "upload", 1, "taskUpload", [
+      siteAt("communications", 856, 572, "Communications (download)"),  // the terminal desk
+      siteAt("admin", 815, 320, "Admin (upload)")
     ]),
-    taskAt("skeld-empty-garbage", "Empty Garbage", "cafeteria", 706, 262, "garbage", 1, "taskGarbage", [
-      siteAt("cafeteria", 706, 262),
-      siteAt("storage", 698, 589)
+    // One chute, not a chain: the Cafeteria has no chute painted anywhere on it,
+    // and the task is "Cafeteria or Storage" rather than both.
+    taskAt("skeld-empty-garbage", "Empty Garbage", "storage", 700, 600, "garbage", 1, "taskGarbage"),
+    taskAt("skeld-fuel-engines", "Fuel Engines", "storage", 568, 412, "fuel", 1, "taskFuel", [
+      siteAt("storage", 568, 412, "Storage (fill can)"),        // the canister rack
+      siteAt("upper-engine", 262, 168, "Upper Engine (pump)"),
+      siteAt("storage", 568, 412, "Storage (refill)"),
+      siteAt("lower-engine", 262, 483, "Lower Engine (pump)")
     ]),
-    taskAt("skeld-fuel-engines", "Fuel Engines", "storage", 600, 500, "fuel", 1, "taskFuel", [
-      siteAt("storage", 600, 500, "Storage (fill can)"),
-      siteAt("upper-engine", 233, 198, "Upper Engine (pump)"),
-      siteAt("storage", 600, 500, "Storage (refill)"),
-      siteAt("lower-engine", 286, 507, "Lower Engine (pump)")
-    ]),
-    taskAt("skeld-divert-power", "Divert Power", "electrical", 543, 386, "power", 1, "taskDivertPower", [
-      siteAt("electrical", 543, 386, "Electrical (divert)"),
-      siteAt("weapons", 948, 201, "Weapons (accept)")
+    taskAt("skeld-divert-power", "Divert Power", "electrical", 541, 350, "power", 1, "taskDivertPower", [
+      siteAt("electrical", 541, 350, "Electrical (divert)"),    // hazard-marked cabinet
+      siteAt("weapons", 925, 205, "Weapons (accept)")   // fuse panel, south wall
     ]),
     // --- reactor and engineering ---
-    taskAt("skeld-start-reactor", "Start Reactor", "reactor", 120, 300, "reactor", 5, "taskReactor"),
-    taskAt("skeld-unlock-manifolds", "Unlock Manifolds", "reactor", 195, 291, "manifolds", 1, "taskManifolds"),
-    taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 233, 198, "align", 1, "taskEngineAlign"),
+    taskAt("skeld-start-reactor", "Start Reactor", "reactor", 110, 302, "reactor", 5, "taskReactor"),
+    taskAt("skeld-unlock-manifolds", "Unlock Manifolds", "reactor", 192, 282, "manifolds", 1, "taskManifolds"),
+    // On the engine's forward face: dead centre of the housing is on the fixture
+    // but boxed in, with no floor inside reach.
+    taskAt("skeld-align-engine", "Align Engine Output", "upper-engine", 215, 112, "align", 1, "taskEngineAlign"),
     // --- upper deck ---
-    taskAt("skeld-clear-asteroids", "Clear Asteroids", "weapons", 948, 201, "asteroids", 1, "taskAsteroids"),
+    taskAt("skeld-clear-asteroids", "Clear Asteroids", "weapons", 920, 130, "asteroids", 1, "taskAsteroids"),
     taskAt("skeld-prime-shields", "Prime Shields", "shields", 940, 480, "shields", 1, "taskShields"),
-    taskAt("skeld-chart-course", "Chart Course", "navigation", 1127, 286, "course", 1, "taskCourse"),
-    taskAt("skeld-stabilize-steering", "Stabilize Steering", "navigation", 1150, 330, "steering", 1, "taskNavigation"),
+    taskAt("skeld-chart-course", "Chart Course", "navigation", 1172, 268, "course", 1, "taskCourse"),
+    taskAt("skeld-stabilize-steering", "Stabilize Steering", "navigation", 1178, 305, "steering", 1, "taskNavigation"),
     // --- maintenance and medical ---
-    taskAt("skeld-submit-scan", "Submit Scan", "medbay", 470, 300, "scan", 1, "taskScan"),
-    taskAt("skeld-inspect-sample", "Inspect Sample", "medbay", 520, 200, "sample", 1, "taskSample"),
-    taskAt("skeld-clean-o2", "Clean O2 Filter", "o2", 860, 262, "o2filter", 1, "taskO2"),
-    taskAt("skeld-calibrate-distributor", "Calibrate Distributor", "electrical", 454, 395, "calibrate", 3, "taskCalibrate")
+    taskAt("skeld-submit-scan", "Submit Scan", "medbay", 490, 291, "scan", 1, "taskScan"),
+    taskAt("skeld-inspect-sample", "Inspect Sample", "medbay", 508, 258, "sample", 1, "taskSample"),
+    taskAt("skeld-clean-o2", "Clean O2 Filter", "o2", 840, 285, "o2filter", 1, "taskO2"),
+    taskAt("skeld-calibrate-distributor", "Calibrate Distributor", "electrical", 500, 352, "calibrate", 3, "taskCalibrate")
   ],
   sabotages: [
     { id: "skeld-reactor-meltdown", name: "Reactor Meltdown", critical: true, durationMs: 20000, repairStations: ["skeld-reactor-alpha", "skeld-reactor-beta"], roomId: "reactor" },
@@ -389,10 +398,21 @@ export const THE_SKELD = createMapDefinition({
   stations: [
     // Dead centre of the round cafeteria table, where the model paints the button.
     // The table is solid, so the reach is widened to 5.0: measured against the walk
-    // grid that is what covers the ring of floor all the way round it.
-    stationAt("meeting-console", "meeting", "cafeteria", 668, 134, null, null, 5),
-    stationAt("skeld-cameras", "security", "security", 371, 269),
-    stationAt("skeld-admin-table", "admin", "admin", 771, 342),
+    // grid that is what covers the ring of floor all the way round it. Sized and
+    // lifted so the striped base sits on the table top rather than floating, and
+    // the usual dark backing disc is off - the table is already a clean surface.
+    {
+      ...stationAt("meeting-console", "meeting", "cafeteria", 668, 134, null, null, 5),
+      artWidth: 4.2,
+      artDepth: 2.68,
+      artOffsetZ: -0.33,
+      ringWidth: 4.4,
+      ringDepth: 1.5,
+      backingAlpha: 0
+    },
+    // On the camera desk and the hologram table the model paints, not beside them.
+    stationAt("skeld-cameras", "security", "security", 342, 228),
+    stationAt("skeld-admin-table", "admin", "admin", 795, 385),
     // Vent positions are the vents the model itself paints on the deck, not hand
     // placed. The model has no vent geometry to read - every mesh is named
     // Object_N and the vents are baked into the floor textures - so they were

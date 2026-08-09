@@ -509,7 +509,11 @@ export class MapBuilder {
         : 30 * detail;
       // A dark disc behind the icon so markers stay readable over the detailed deck
       // art; without it a small console icon disappears into a busy floor.
-      const backing = this.scene.add.ellipse(0, 0, ringWidth * 1.06, ringDepth * 1.16, 0x02070d, 0.5);
+      // The dark disc keeps a small console readable over busy floor art; a station
+      // whose own art already reads clearly can turn it off.
+      const backing = this.scene.add.ellipse(
+        0, 0, ringWidth * 1.06, ringDepth * 1.16, 0x02070d, station.backingAlpha ?? 0.5
+      );
       const ring = this.scene.add.ellipse(0, 0, ringWidth, ringDepth)
         .setStrokeStyle(Math.max(2, 3 * detail), station.type === "repair" ? 0xffbd4a : 0x74e5ff, 0.95);
       const icon = this.scene.add.image(

@@ -28,7 +28,11 @@ export const PHASER_ASSETS = Object.freeze({
   stars: "/assets/art/Background/Stars-sharedassets0.assets-56.png",
   parallax1: "/assets/art/Background/Paralax1-sharedassets0.assets-115.png",
   taskConsole: "/assets/art/Tasks/Consolas_0-sharedassets0.assets-52.png",
-  meetingConsole: "/assets/art/Tasks/Emergency-sharedassets0.assets-181.png",
+  // Emergency-sharedassets0.assets-181.png is a packed sheet - task screen,
+  // mirrored lettering, a speech bubble and the button all on one image - so
+  // drawing it whole put a squashed collage on the cafeteria table. This is the
+  // button itself, lifted out of that sheet and stood on its hazard-striped base.
+  meetingConsole: "/assets/maps/emergency-button.png",
   maintenanceConsole: "/assets/art/Tasks/panel_doors_bg-sharedassets0.assets-71.png",
   securityConsole: "/assets/art/Tasks/DoorLog-sharedassets0.assets-145.png",
   repairConsole: "/assets/art/Tasks/reactorMeltdown_handprintBase-sharedassets0.assets-124.png",
