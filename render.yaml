@@ -22,3 +22,5 @@ services:
         sync: false
       - key: JIMS_DEVICE_SECRET
         sync: false
+      - key: JIMS_GITHUB_TOKEN
+        sync: false
