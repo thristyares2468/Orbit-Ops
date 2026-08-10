@@ -393,6 +393,27 @@ kbd { display: inline-grid; place-items: center; min-width: 27px; min-height: 27
 .modal h2 { margin: 0; font-size: 1.65rem; }
 .modal header > button { width: 38px; height: 38px; border: 1px solid var(--line); background: transparent; cursor: pointer; font-size: 1.4rem; }
 .compact-modal { width: min(620px, calc(100vw - 28px)); }
+.host-parameters-modal { width: min(880px, calc(100vw - 28px)); }
+.role-settings-editor { display: grid; gap: 10px; margin-top: 4px; padding-top: 16px; border-top: 1px solid var(--line); }
+.role-settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.role-settings-heading h3 { margin: 2px 0 0; }
+.role-settings-heading .button { min-height: 34px; padding: 6px 10px; font-size: .62rem; }
+.role-settings-note { margin: 0; color: var(--muted); font-size: .7rem; line-height: 1.4; }
+.role-settings-list { display: grid; gap: 8px; }
+.role-faction { overflow: hidden; border: 1px solid rgba(116,229,255,.2); border-radius: 8px; background: rgba(1,8,14,.46); }
+.role-faction summary { padding: 10px 12px; color: var(--cyan-bright); cursor: pointer; font-size: .72rem; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+.role-faction-rows { display: grid; max-height: 245px; overflow: auto; border-top: 1px solid rgba(116,229,255,.14); }
+.role-setting-row { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(145px, .9fr) minmax(180px, 1.15fr); gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.06); }
+.role-setting-row:last-child { border-bottom: 0; }
+.role-setting-name { display: flex; align-items: center; gap: 8px; min-width: 0; color: #f5fbff; font-size: .76rem; font-weight: 750; }
+.role-setting-swatch { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: var(--role-colour); box-shadow: 0 0 10px var(--role-colour); }
+.role-setting-control { display: grid !important; grid-template-columns: auto 1fr 34px !important; gap: 7px; align-items: center; margin: 0; color: var(--muted); font-size: .62rem; text-transform: uppercase; letter-spacing: .06em; }
+.role-setting-control input { min-width: 0; width: 100%; }
+.role-setting-control output { color: var(--cyan-bright); font-weight: 800; text-align: right; }
+@media (max-width: 680px) {
+  .role-setting-row { grid-template-columns: 1fr 1fr; }
+  .role-setting-name { grid-column: 1 / -1; }
+}
 .reading-modal { width: min(780px, calc(100vw - 28px)); }
 .reading-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .reading-grid article { padding: 16px; border: 1px solid var(--line); background: rgba(58,113,137,.06); }

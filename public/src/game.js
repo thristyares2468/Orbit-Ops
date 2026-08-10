@@ -2,8 +2,9 @@ import { AudioManager } from "./audio.js";
 import { VENT_DIRECTION_KEYS, ventExitForDirection } from "./ventNavigation.js";
 import { MeridianScene } from "./game2d/MeridianScene.js";
 import { InputController } from "./input.js";
+import { LocalMovementPredictor } from "./localMovementPredictor.js";
 import { getRoleDefinition } from "./roleData.js";
-import { LOBBY_MAP_ID, getMapDefinition, roomAt } from "./shipData.js";
+import { LOBBY_MAP_ID, getMapDefinition, isWalkable, roomAt } from "./shipData.js";
 import { TaskInterface } from "./tasks.js";
 import { applyDocumentSettings, saveSettings } from "./settings.js";
 
@@ -62,6 +63,7 @@ export class OrbitOpsGame {
     this.nearest = null;
     this.lastFrameAt = performance.now();
     this.lastInputSentAt = 0;
+    this.localMovement = new LocalMovementPredictor();
     this.frameSamples = [];
     this.sceneReady = false;
 
@@ -357,9 +359,11 @@ export class OrbitOpsGame {
 
   updateRoom(room) {
     if (!room) return;
+    const previousMapId = this.activeMapId();
     this.room = room;
     this.activeSabotage = room.activeSabotage;
     this.ui.updateRoom(room);
+    if (previousMapId && previousMapId !== this.activeMapId()) this.localMovement.clear();
     if (this.sceneReady) this.phaserScene.setMap(this.activeMapId());
     this.syncCharacterMetadata(room.players);
   }
@@ -399,12 +403,21 @@ export class OrbitOpsGame {
       lightsOut: Boolean(snapshot.lightsOut)
     });
     this.currentPhase = snapshot.phase;
-    for (const player of snapshot.players ?? []) this.latestSnapshots.set(player.id, player);
+    const localServer = (snapshot.players ?? []).find((player) => player.id === this.playerId);
+    let localDisplay = localServer;
+    if (localServer) {
+      const force = !["active", "lobby"].includes(snapshot.phase) || Boolean(this.vent);
+      this.localMovement.reconcile(localServer, { force });
+      localDisplay = this.localMovement.renderSnapshot(localServer);
+    }
+    const renderPlayers = (snapshot.players ?? []).map((player) =>
+      player.id === this.playerId && localDisplay ? localDisplay : player);
+    for (const player of renderPlayers) this.latestSnapshots.set(player.id, player);
     this.latestIncidents = snapshot.incidents ?? [];
     // The Tracker's mark rides outside the culled player list, so it survives the
     // target walking out of sight - which is exactly when the arrow matters.
     this.trackedTarget = snapshot.tracked ?? null;
-    if (this.sceneReady) this.phaserScene.applySnapshot(snapshot);
+    if (this.sceneReady) this.phaserScene.applySnapshot({ ...snapshot, players: renderPlayers });
     // The map is a live view while it is open, so a moving mark keeps moving on it.
     if (this.trackedTarget && !document.getElementById("minimap")?.classList.contains("is-hidden")) {
       this.drawMinimap();
@@ -440,6 +453,37 @@ export class OrbitOpsGame {
   clearCharacters() {
     if (this.sceneReady) this.phaserScene.clearCharacters();
     this.latestSnapshots.clear();
+    this.localMovement.clear();
+  }
+
+  predictLocalMovement(input, delta) {
+    const local = this.latestSnapshots.get(this.playerId);
+    if (!local || this.vent) return;
+    const map = getMapDefinition(this.activeMapId());
+    const position = this.localMovement.advance({
+      input,
+      delta,
+      faction: this.privateState?.faction,
+      settings: this.room?.settings,
+      alive: this.privateState?.alive !== false,
+      isPositionValid: (x, z) => isWalkable(map.id, x, z),
+      bounds: map.bounds
+    });
+    if (!position) return;
+    const predicted = this.localMovement.renderSnapshot(local, input);
+    this.latestSnapshots.set(this.playerId, predicted);
+    if (this.sceneReady) this.phaserScene.applyLocalPrediction(predicted);
+  }
+
+  sendPlayerInput(time) {
+    if (time - this.lastInputSentAt <= 50) return;
+    this.lastInputSentAt = time;
+    const movement = this.input.movement();
+    if (this.localMovement.position) {
+      movement.position = { ...this.localMovement.position };
+      this.localMovement.recordInput(movement.seq);
+    }
+    this.network.send("playerInput", movement);
   }
 
   async interact() {
@@ -704,8 +748,11 @@ export class OrbitOpsGame {
     const shouldEnableInput = (inLobby || gameplayActive) && !modalOpen && !typing;
     if (this.input.enabled !== shouldEnableInput) this.input.setEnabled(shouldEnableInput);
     if (shouldEnableInput) {
-      if (inLobby) this.handleLobbyInput(time);
-      else this.handleInput(time);
+      const movement = this.input.currentMovement();
+      this.predictLocalMovement(movement, delta);
+      this.sendPlayerInput(time);
+      if (inLobby) this.handleLobbyInput();
+      else this.handleInput();
     }
 
     const local = this.latestSnapshots.get(this.playerId);
@@ -726,21 +773,13 @@ export class OrbitOpsGame {
     this.ui.updateFps(fps, this.settings.showFps);
   }
 
-  handleLobbyInput(time) {
-    if (time - this.lastInputSentAt > 50) {
-      this.lastInputSentAt = time;
-      this.network.send("playerInput", this.input.movement());
-    }
+  handleLobbyInput() {
     if (this.input.consume("KeyE")) this.interact().catch((error) => this.ui.toast(error.message, true));
     if (this.input.consume("Enter")) document.getElementById("lobby-chat-input")?.focus();
     if (this.input.consume("Escape")) this.ui.openModal("pause");
   }
 
-  handleInput(time) {
-    if (time - this.lastInputSentAt > 50) {
-      this.lastInputSentAt = time;
-      this.network.send("playerInput", this.input.movement());
-    }
+  handleInput() {
     if (this.vent) {
       // Vented: WASD hops to whichever exit lies in the pressed direction, Alt
       // cycles through exits in order, and E always climbs out - never back in.

@@ -1,3 +1,6 @@
+export { PLAYER_SPEED } from "../public/src/movementPhysics.js";
+import { DEFAULT_ROLE_SETTINGS } from "../public/src/roleSettings.js";
+
 export const SERVER_VERSION = "1.0.0";
 export const SESSION_SECRET = process.env.SESSION_SECRET || "orbit-ops-local-development-secret-change-me";
 if (process.env.NODE_ENV === "production" && SESSION_SECRET.length < 32) {
@@ -11,10 +14,6 @@ export const MAX_NAME_LENGTH = 22;
 export const MIN_NAME_LENGTH = 2;
 export const MAX_ROOM_PLAYERS = 16;
 export const MIN_MATCH_PLAYERS = 4;
-// There is no sprint: everyone walks at what used to be the sprint speed, so the
-// pace of a chase is the same for both sides and never depends on a held key.
-export const PLAYER_SPEED = Object.freeze({ walk: 7.25, crouch: 2.6 });
-
 export const DEFAULT_SETTINGS = Object.freeze({
   mapId: "the-skeld",
   maxPlayers: 12,
@@ -34,7 +33,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   evidenceEnabled: true,
   emergencyMeetings: 1,
   finalExtractionEnabled: true,
-  allowSinglePlayer: false
+  allowSinglePlayer: false,
+  roleSettings: DEFAULT_ROLE_SETTINGS
 });
 
 // Sight is limited to a radius around each player, as in the reference clone: the deck

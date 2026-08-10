@@ -1,5 +1,6 @@
 import { DEFAULT_SETTINGS, MAX_CHAT_LENGTH, MAX_NAME_LENGTH, MIN_NAME_LENGTH } from "./constants.js";
 import { MAP_IDS } from "../public/src/shipData.js";
+import { normaliseRoleSettings } from "../public/src/roleSettings.js";
 
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
@@ -72,7 +73,8 @@ export function validateSettings(input = {}) {
     evidenceEnabled: input.evidenceEnabled !== false,
     emergencyMeetings: integer("emergencyMeetings", 0, 3),
     finalExtractionEnabled: input.finalExtractionEnabled !== false,
-    allowSinglePlayer: Boolean(input.allowSinglePlayer)
+    allowSinglePlayer: Boolean(input.allowSinglePlayer),
+    roleSettings: normaliseRoleSettings(input.roleSettings, DEFAULT_SETTINGS.roleSettings)
   };
 }
 

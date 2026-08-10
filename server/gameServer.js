@@ -7,14 +7,15 @@ import {
   DEFAULT_MAP_ID, LOBBY_MAP_ID, MAP_DEFINITIONS, distance2D, getMapDefinition, isWalkable, roomAt,
   stationById
 } from "../public/src/shipData.js";
-import { findWalkablePath } from "../public/src/mapPathfinding.js";
+import { findWalkablePath, segmentWalkable } from "../public/src/mapPathfinding.js";
+import { advancePlayerPosition, movementAnimation, playerMovementSpeed } from "../public/src/movementPhysics.js";
+import { rolePoolForFaction } from "../public/src/roleSettings.js";
 import {
-  CREW_ROLE_IDS, NEUTRAL_ROLE_IDS, OPERATIVE_ROLE_IDS, ROLE_DEFINITIONS,
-  getRoleDefinition, roleIdsForFaction
+  ROLE_DEFINITIONS, getRoleDefinition, roleIdsForFaction
 } from "../public/src/roleData.js";
 import {
   BOT_SABOTAGE, DEFAULT_SETTINGS, DISCONNECT_GRACE_MS, MAX_ROOM_PLAYERS, MEETING_PHASES,
-  MIN_MATCH_PLAYERS, PHASES, PLAYER_SPEED, SERVER_VERSION, SESSION_SECRET, SNAPSHOT_RATE,
+  MIN_MATCH_PLAYERS, PHASES, SERVER_VERSION, SESSION_SECRET, SNAPSHOT_RATE,
   TICK_RATE, VISION
 } from "./constants.js";
 import { RateLimiter } from "./rateLimits.js";
@@ -148,6 +149,13 @@ function normaliseInput(payload) {
     crouch: Boolean(payload?.crouch),
     seq: Math.max(0, Math.round(Number(payload?.seq) || 0))
   };
+}
+
+function resetClientMovementTrail(player) {
+  player.lastClientMoveAt = 0;
+  player.lastClientMoveSeq = -1;
+  player.lastClientPosition = null;
+  player.lastClientPredictionAt = 0;
 }
 
 function publicPlayer(player) {
@@ -377,7 +385,11 @@ export class GameServer {
     socket.on("hostSettings", (payload, ack) => this.withPlayer(socket, "hostSettings", 10, 10_000, ack, (room, player) => {
       this.requireHost(room, player);
       if (room.phase !== PHASES.LOBBY) throw new Error("Match settings are locked after countdown.");
-      room.settings = validateSettings({ ...room.settings, ...payload });
+      room.settings = validateSettings({
+        ...room.settings,
+        ...payload,
+        roleSettings: { ...room.settings.roleSettings, ...payload?.roleSettings }
+      });
       room.mapId = room.settings.mapId;
       if (room.settings.operativeCount >= room.settings.maxPlayers) room.settings.operativeCount = Math.max(1, room.settings.maxPlayers - 1);
       this.broadcastRoomState(room);
@@ -406,8 +418,11 @@ export class GameServer {
 
     socket.on("playerInput", (payload) => this.withPlayer(socket, "playerInput", 40, 1000, null, (room, player) => {
       if (![PHASES.ACTIVE, PHASES.LOBBY].includes(room.phase)) return { ok: true };
-      player.input = normaliseInput(payload);
-      player.lastInputAt = Date.now();
+      const now = Date.now();
+      const input = normaliseInput(payload);
+      this.acceptClientPrediction(room, player, payload?.position, input, now);
+      player.input = input;
+      player.lastInputAt = now;
       return { ok: true };
     }));
 
@@ -543,7 +558,9 @@ export class GameServer {
       connected: true, ready: bot, isHost: false, alive: true, role: null, faction: null,
       roleState: makeRoleState("operations-crew"),
       position: { x, z }, rotation: 0, currentRoom: roomAt(mapId, x, z)?.id ?? getMapDefinition(mapId).rooms[0].id,
-      input: normaliseInput({}), lastInputAt: 0, lastInputSeq: 0, animation: "idle",
+      input: normaliseInput({}), lastInputAt: 0, lastInputSeq: 0,
+      lastClientMoveAt: 0, lastClientMoveSeq: -1, lastClientPosition: null,
+      lastClientPredictionAt: 0, animation: "idle",
       jumpUntil: 0, activeTask: null, tasks: [], completedTasks: new Set(), vote: null,
       lastEliminationAt: 0, lastMaintenanceAt: 0, emergencyMeetings: 0,
       disconnectedAt: null, cleanupTimer: null, rejoinTokenHash: null,
@@ -611,6 +628,7 @@ export class GameServer {
       player.repairStationId = null;
       player.ventId = null;
       player.input = normaliseInput({});
+      resetClientMovementTrail(player);
     }
   }
 
@@ -739,25 +757,33 @@ export class GameServer {
       if (chosenOperatives.size >= desiredOperatives) break;
       chosenOperatives.add(candidate.id);
     }
+    const rolePools = {
+      crew: shuffle(rolePoolForFaction("crew", room.settings.roleSettings)),
+      operative: shuffle(rolePoolForFaction("operative", room.settings.roleSettings)),
+      neutral: shuffle(rolePoolForFaction("neutral", room.settings.roleSettings))
+    };
     const chosenNeutrals = new Set(
       activePlayers
         .filter((player) => !chosenOperatives.has(player.id) && requestedFactionFor(player) === "neutral")
-        .slice(0, 1)
+        .slice(0, Math.max(1, Math.min(2, Math.floor(activePlayers.length / 7))))
         .map((player) => player.id)
     );
-    if (room.mode !== "practice" && activePlayers.length >= 7 && chosenNeutrals.size === 0) {
-      const neutralCandidate = choose(activePlayers.filter((player) => !chosenOperatives.has(player.id)));
-      if (neutralCandidate) chosenNeutrals.add(neutralCandidate.id);
+    const neutralSlots = room.mode !== "practice"
+      ? Math.min(rolePools.neutral.length, 2, Math.floor(activePlayers.length / 7))
+      : chosenNeutrals.size;
+    for (const neutralCandidate of shuffle(activePlayers.filter((player) =>
+      !chosenOperatives.has(player.id) && !chosenNeutrals.has(player.id)
+    ))) {
+      if (chosenNeutrals.size >= neutralSlots) break;
+      chosenNeutrals.add(neutralCandidate.id);
     }
-    const rolePools = {
-      crew: shuffle(CREW_ROLE_IDS),
-      operative: shuffle(OPERATIVE_ROLE_IDS),
-      neutral: shuffle(NEUTRAL_ROLE_IDS)
-    };
     const rolePoolIndexes = { crew: 0, operative: 0, neutral: 0 };
     const nextRoleForFaction = (faction) => {
-      const pool = rolePools[faction] ?? roleIdsForFaction(faction);
-      const roleId = pool[rolePoolIndexes[faction] % pool.length];
+      const configuredPool = rolePools[faction] ?? [];
+      const pool = configuredPool.length ? configuredPool : roleIdsForFaction(faction);
+      const fallback = faction === "operative" ? "signal-operative"
+        : faction === "neutral" ? "jester" : "operations-crew";
+      const roleId = pool[rolePoolIndexes[faction]] ?? fallback;
       rolePoolIndexes[faction] += 1;
       return roleId;
     };
@@ -782,6 +808,7 @@ export class GameServer {
     for (const player of activePlayers) {
       const spawn = map.spawnPoints[spawnIndex++ % map.spawnPoints.length];
       player.position = { x: spawn[0], z: spawn[1] };
+      resetClientMovementTrail(player);
       player.currentRoom = roomAt(room.mapId, spawn[0], spawn[1])?.id ?? map.rooms[0].id;
       player.rotation = 0;
       player.alive = true;
@@ -858,6 +885,7 @@ export class GameServer {
     for (const player of room.players.values()) {
       const spawn = map.spawnPoints[spawnIndex++ % map.spawnPoints.length];
       player.position = { x: spawn[0], z: spawn[1] };
+      resetClientMovementTrail(player);
       player.currentRoom = roomAt(LOBBY_MAP_ID, spawn[0], spawn[1])?.id ?? map.rooms[0].id;
       player.ready = player.bot;
       player.alive = true;
@@ -1482,6 +1510,7 @@ export class GameServer {
     if (distance2D(player.position, vent) > INTERACTION_RANGE) throw new Error("Move closer to the vent.");
     player.ventId = vent.id;
     player.position = { x: vent.x, z: vent.z };
+    resetClientMovementTrail(player);
     player.currentRoom = vent.roomId;
     player.input = normaliseInput({});
     room.maintenanceLogs.push({ roomId: vent.roomId, at: Date.now() });
@@ -1501,6 +1530,7 @@ export class GameServer {
     if (to.id === from.id) throw new Error("You are already at that vent.");
     player.ventId = to.id;
     player.position = { x: to.x, z: to.z };
+    resetClientMovementTrail(player);
     player.currentRoom = to.roomId;
     room.maintenanceLogs.push({ roomId: to.roomId, at: Date.now() });
     room.maintenanceLogs = room.maintenanceLogs.slice(-20);
@@ -1752,29 +1782,24 @@ export class GameServer {
     if (player.ventId) return;
     const mapId = activeMapId(room);
     const input = now - player.lastInputAt < 500 ? player.input : normaliseInput({});
-    const baseSpeed = input.crouch ? PLAYER_SPEED.crouch : PLAYER_SPEED.walk;
-    const factionMultiplier = player.faction === "operative" ? room.settings.operativeSpeed : room.settings.crewSpeed;
-    const speed = baseSpeed * factionMultiplier;
     const ghost = !player.alive;
-    const ghostSpeed = ghost ? speed * 1.2 : speed;
-    const next = { x: player.position.x + input.x * ghostSpeed * delta, z: player.position.z + input.z * ghostSpeed * delta };
-    if (ghost) {
-      // Ghosts drift through walls; only the map bounds contain them.
-      const bounds = getMapDefinition(mapId).bounds;
-      player.position = {
-        x: Math.max(bounds.minX, Math.min(bounds.maxX, next.x)),
-        z: Math.max(bounds.minZ, Math.min(bounds.maxZ, next.z))
-      };
-    } else if (isWalkable(mapId, next.x, next.z)) player.position = next;
-    else {
-      const slideX = { x: next.x, z: player.position.z };
-      const slideZ = { x: player.position.x, z: next.z };
-      if (isWalkable(mapId, slideX.x, slideX.z)) player.position = slideX;
-      else if (isWalkable(mapId, slideZ.x, slideZ.z)) player.position = slideZ;
+    // A fresh, validated client position already includes this interval's
+    // movement. Resume server simulation only when prediction packets stop.
+    if (!player.lastClientPredictionAt || now - player.lastClientPredictionAt > 75) {
+      player.position = advancePlayerPosition({
+        position: player.position,
+        input,
+        delta,
+        faction: player.faction,
+        settings: room.settings,
+        alive: !ghost,
+        isPositionValid: (x, z) => isWalkable(mapId, x, z),
+        bounds: getMapDefinition(mapId).bounds
+      });
     }
     player.rotation = input.yaw;
     player.lastInputSeq = input.seq;
-    player.animation = input.crouch ? "crouch" : Math.hypot(input.x, input.z) < 0.05 ? "idle" : "walk";
+    player.animation = movementAnimation(input);
     const nextRoom = roomAt(mapId, player.position.x, player.position.z)?.id ?? player.currentRoom;
     if (nextRoom !== player.currentRoom) {
       if (!ghost) {
@@ -1783,6 +1808,43 @@ export class GameServer {
       }
       player.currentRoom = nextRoom;
     }
+  }
+
+  acceptClientPrediction(room, player, proposed, input, now) {
+    if (player.ventId || !proposed || ![proposed.x, proposed.z].every(Number.isFinite)) return false;
+    const mapId = activeMapId(room);
+    if (input.seq <= (player.lastClientMoveSeq ?? -1)) return false;
+    let anchor = player.lastClientPosition ?? player.position;
+    // Server-owned relocations (spawn, meeting table, vent exit) intentionally
+    // invalidate the old client trail instead of letting it drag the player back.
+    if (Math.hypot(anchor.x - player.position.x, anchor.z - player.position.z) > 3) {
+      anchor = player.position;
+      player.lastClientPosition = { ...player.position };
+      player.lastClientMoveAt = 0;
+    }
+    const elapsed = player.lastClientMoveAt
+      ? Math.max(0, Math.min(0.15, (now - player.lastClientMoveAt) / 1000))
+      : 0.05;
+    const speed = playerMovementSpeed(input, player.faction, room.settings, player.alive);
+    const serverDistance = Math.hypot(proposed.x - player.position.x, proposed.z - player.position.z);
+    const clientDistance = Math.hypot(proposed.x - anchor.x, proposed.z - anchor.z);
+    // The allowance covers one input interval plus a small jitter margin. It is
+    // checked against both trails: the server may be a tick apart, while the
+    // accepted client trail strictly caps distance travelled over time.
+    if (serverDistance > speed * elapsed + 0.65 || clientDistance > speed * elapsed + 0.08) return false;
+    if (!player.alive) {
+      const bounds = getMapDefinition(mapId).bounds;
+      if (proposed.x < bounds.minX || proposed.x > bounds.maxX || proposed.z < bounds.minZ || proposed.z > bounds.maxZ) return false;
+    } else if (!isWalkable(mapId, proposed.x, proposed.z)
+      || !segmentWalkable(mapId, player.position, proposed, 0.55, 0.2)) {
+      return false;
+    }
+    player.position = { x: proposed.x, z: proposed.z };
+    player.lastClientPosition = { ...player.position };
+    player.lastClientMoveAt = now;
+    player.lastClientMoveSeq = input.seq;
+    player.lastClientPredictionAt = now;
+    return true;
   }
 
   // Give each outstanding repair station its own crew bot. Assignment is deterministic

@@ -2,6 +2,7 @@ import { ART_CATALOG } from "./artCatalog.js";
 import { PLAYER_COLOUR_PALETTES } from "./game2d/assets.js";
 import { mapShapePolygon, pointInMapShape } from "./mapSchema.js";
 import { CREW_ROLE_IDS, NEUTRAL_ROLE_IDS, OPERATIVE_ROLE_IDS, getRoleDefinition } from "./roleData.js";
+import { DEFAULT_ROLE_SETTINGS, enabledRoleCount, normaliseRoleSettings } from "./roleSettings.js";
 import { getMapDefinition } from "./shipData.js";
 import { pauseCopy, progressLabels, roleAbilityStatus } from "./hudState.js";
 
@@ -77,6 +78,7 @@ export class GameUI {
     };
     this.lastMinimapRequest = null;
     this.buildPracticeRoleOptions();
+    this.buildRoleSettingsEditor();
     paintMenuCrew().catch(() => {});
     this.bindStaticEvents();
     // Re-fit the open map overview when the viewport changes so it is never cropped.
@@ -104,6 +106,67 @@ export class GameUI {
       }
       select.append(group);
     }
+  }
+
+  buildRoleSettingsEditor() {
+    const list = byId("role-settings-list");
+    if (!list) return;
+    list.replaceChildren();
+    for (const [faction, label, ids] of [
+      ["crew", "Crew roles", CREW_ROLE_IDS],
+      ["operative", "Operative roles", OPERATIVE_ROLE_IDS],
+      ["neutral", "Neutral roles", NEUTRAL_ROLE_IDS]
+    ]) {
+      const group = document.createElement("details");
+      group.className = "role-faction";
+      group.dataset.faction = faction;
+      group.open = faction === "crew";
+      const summary = document.createElement("summary");
+      summary.textContent = `${label} · ${ids.length}`;
+      const rows = document.createElement("div");
+      rows.className = "role-faction-rows";
+      for (const roleId of ids) {
+        const definition = getRoleDefinition(roleId);
+        const row = document.createElement("div");
+        row.className = "role-setting-row";
+        row.dataset.roleId = roleId;
+        const name = document.createElement("span");
+        name.className = "role-setting-name";
+        const swatch = document.createElement("span");
+        swatch.className = "role-setting-swatch";
+        swatch.style.setProperty("--role-colour", definition.colour);
+        const nameText = document.createElement("span");
+        nameText.textContent = definition.name;
+        name.append(swatch, nameText);
+        row.append(
+          name,
+          this.makeRoleSettingControl(roleId, "count", "Amount", 0, 4, 1),
+          this.makeRoleSettingControl(roleId, "chance", "Odds", 0, 100, 5)
+        );
+        rows.append(row);
+      }
+      group.append(summary, rows);
+      list.append(group);
+    }
+  }
+
+  makeRoleSettingControl(roleId, setting, label, minimum, maximum, step) {
+    const control = document.createElement("label");
+    control.className = "role-setting-control";
+    control.append(document.createTextNode(label));
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = String(minimum);
+    input.max = String(maximum);
+    input.step = String(step);
+    input.value = String(DEFAULT_ROLE_SETTINGS[roleId][setting]);
+    input.dataset.roleId = roleId;
+    input.dataset.roleSetting = setting;
+    input.setAttribute("aria-label", `${getRoleDefinition(roleId).name} ${label.toLowerCase()}`);
+    const output = document.createElement("output");
+    output.dataset.roleOutput = `${roleId}:${setting}`;
+    control.append(input, output);
+    return control;
   }
 
   setActions(actions) { this.actions = actions; }
@@ -151,6 +214,16 @@ export class GameUI {
     }
     byId("setting-anonymous").addEventListener("change", () => this.sendHostSettings());
     byId("setting-map").addEventListener("change", () => this.sendHostSettings());
+    byId("role-settings-list").addEventListener("input", (event) => {
+      if (event.target.matches("[data-role-setting]")) this.updateRoleSettingOutputs();
+    });
+    byId("role-settings-list").addEventListener("change", (event) => {
+      if (event.target.matches("[data-role-setting]")) this.sendHostSettings();
+    });
+    byId("reset-role-settings").addEventListener("click", () => {
+      this.fillRoleSettings(DEFAULT_ROLE_SETTINGS);
+      this.sendHostSettings();
+    });
     this.buildSabotageOptions();
   }
 
@@ -268,6 +341,7 @@ export class GameUI {
       ["Voting", `${room.settings.votingSeconds}s`],
       ["Anonymous votes", room.settings.anonymousVoting ? "On" : "Off"]
     ];
+    rows.push(["Enabled roles", `${enabledRoleCount(room.settings.roleSettings)} / ${Object.keys(DEFAULT_ROLE_SETTINGS).length}`]);
     for (const [label, value] of rows) {
       const term = document.createElement("dt"); term.textContent = label;
       const detail = document.createElement("dd"); detail.textContent = String(value);
@@ -313,6 +387,7 @@ export class GameUI {
       byId("setting-voting").value = settings.votingSeconds;
       byId("setting-anonymous").checked = settings.anonymousVoting;
       byId("setting-map").value = this.room?.mapId ?? settings.mapId ?? "the-skeld";
+      this.fillRoleSettings(settings.roleSettings);
       this.updateSettingOutputs();
     }
   }
@@ -323,6 +398,33 @@ export class GameUI {
     byId("setting-tasks-value").textContent = byId("setting-tasks").value;
     byId("setting-discussion-value").textContent = `${byId("setting-discussion").value}s`;
     byId("setting-voting-value").textContent = `${byId("setting-voting").value}s`;
+    this.updateRoleSettingOutputs();
+  }
+
+  fillRoleSettings(settings) {
+    const roleSettings = normaliseRoleSettings(settings);
+    byId("role-settings-list").querySelectorAll("[data-role-setting]").forEach((input) => {
+      input.value = roleSettings[input.dataset.roleId][input.dataset.roleSetting];
+    });
+    this.updateRoleSettingOutputs();
+  }
+
+  updateRoleSettingOutputs() {
+    byId("role-settings-list").querySelectorAll("[data-role-setting]").forEach((input) => {
+      const output = byId("role-settings-list").querySelector(
+        `[data-role-output="${input.dataset.roleId}:${input.dataset.roleSetting}"]`
+      );
+      output.textContent = input.dataset.roleSetting === "chance" ? `${input.value}%` : input.value;
+    });
+  }
+
+  readRoleSettings() {
+    const settings = {};
+    byId("role-settings-list").querySelectorAll("[data-role-setting]").forEach((input) => {
+      settings[input.dataset.roleId] ??= {};
+      settings[input.dataset.roleId][input.dataset.roleSetting] = Number(input.value);
+    });
+    return settings;
   }
 
   sendHostSettings() {
@@ -330,7 +432,8 @@ export class GameUI {
       maxPlayers: Number(byId("setting-max-players").value), operativeCount: Number(byId("setting-operatives").value),
       assignmentQuantity: Number(byId("setting-tasks").value), discussionSeconds: Number(byId("setting-discussion").value),
       votingSeconds: Number(byId("setting-voting").value), anonymousVoting: byId("setting-anonymous").checked,
-      mapId: byId("setting-map").value
+      mapId: byId("setting-map").value,
+      roleSettings: this.readRoleSettings()
     });
   }
 

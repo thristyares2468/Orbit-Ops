@@ -37,9 +37,9 @@ export class InputController {
     return had;
   }
 
-  movement() {
+  currentMovement() {
     if (!this.enabled) {
-      return { x: 0, z: 0, yaw: this.lastYaw, crouch: false, seq: ++this.lastSeq };
+      return { x: 0, z: 0, yaw: this.lastYaw, crouch: false };
     }
 
     let x = (this.keys.has("KeyD") || this.keys.has("ArrowRight") ? 1 : 0)
@@ -57,8 +57,11 @@ export class InputController {
       x,
       z,
       yaw: this.lastYaw,
-      crouch: this.keys.has("KeyC") || this.keys.has("ControlLeft"),
-      seq: ++this.lastSeq
+      crouch: this.keys.has("KeyC") || this.keys.has("ControlLeft")
     };
+  }
+
+  movement() {
+    return { ...this.currentMovement(), seq: ++this.lastSeq };
   }
 }

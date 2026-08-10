@@ -153,7 +153,7 @@
       </footer>
     </div>
 
-    <section id="lobby-settings-modal" class="modal compact-modal is-hidden">
+    <section id="lobby-settings-modal" class="modal host-parameters-modal is-hidden">
       <header><div><p class="eyebrow">HOST CONSOLE</p><h2>Mission parameters</h2></div><button data-close-modal="lobbySettings" type="button" aria-label="Close parameters">×</button></header>
       <div id="host-settings" class="settings-compact">
         <label class="map-setting">Map
@@ -167,6 +167,14 @@
         <label>Discussion<input id="setting-discussion" type="range" min="10" max="120" step="5" value="35"><output id="setting-discussion-value">35s</output></label>
         <label>Voting<input id="setting-voting" type="range" min="10" max="120" step="5" value="30"><output id="setting-voting-value">30s</output></label>
         <label class="toggle-label"><input id="setting-anonymous" type="checkbox"><span>Anonymous voting</span></label>
+        <section class="role-settings-editor" aria-labelledby="role-settings-heading">
+          <div class="role-settings-heading">
+            <div><p class="eyebrow">ROLE DRAFT</p><h3 id="role-settings-heading">Role amount &amp; odds</h3></div>
+            <button id="reset-role-settings" class="button button-ghost" type="button">Reset roles</button>
+          </div>
+          <p class="role-settings-note">Amount is the maximum copies in the draft. Odds are rolled separately for every copy; base Crew and Operative roles fill required slots if a faction runs out.</p>
+          <div id="role-settings-list" class="role-settings-list"></div>
+        </section>
       </div>
       <label id="practice-role-wrap" class="is-hidden">Practice role
         <select id="practice-role"></select>

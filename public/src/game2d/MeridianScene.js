@@ -141,6 +141,10 @@ export class MeridianScene extends Phaser.Scene {
     this.syncIncidents(snapshot.incidents ?? []);
   }
 
+  applyLocalPrediction(snapshot) {
+    this.characters.get(this.bridge.playerId)?.applySnapshot(snapshot, true);
+  }
+
   applyPrivateRoleState(privateState) {
     this.privateState = privateState;
     const trackedTargetId = privateState?.roleState?.activeUntil > Date.now()
