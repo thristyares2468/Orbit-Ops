@@ -16,3 +16,9 @@ test("Jim's embedded CSP permits GLB blob texture decoding", async () => {
   const source = await readFile(new URL("../server.js", import.meta.url), "utf8");
   assert.match(source, /connect-src 'self' blob: https:\/\/cdn\.jsdelivr\.net ws: wss:/);
 });
+
+test("Orbit Ops ships its own embedded-game favicon", async () => {
+  const icon = await readFile(new URL("../public/orbit-ops-favicon.svg", import.meta.url), "utf8");
+  assert.match(icon, /aria-label="Orbit Ops"/);
+  assert.match(icon, /<svg/);
+});
