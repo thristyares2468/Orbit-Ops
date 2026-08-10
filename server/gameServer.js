@@ -1947,7 +1947,12 @@ export class GameServer {
     }
     const elapsed = player.lastClientMoveAt
       ? Math.max(0, Math.min(0.15, (now - player.lastClientMoveAt) / 1000))
-      : 0.05;
+      // A browser rendering at 60 FPS normally emits after four frames because
+      // the client sends at a 50 ms cadence. That first packet is therefore
+      // about 67 ms of legitimate movement, not the 50 ms a server tick uses.
+      // Start with a conservative 100 ms window so ordinary input does not get
+      // rejected and reconciled as a teleport before the server has an anchor.
+      : 0.1;
     const speed = playerMovementSpeed(input, player.faction, room.settings, player.alive);
     const serverDistance = Math.hypot(proposed.x - player.position.x, proposed.z - player.position.z);
     const clientDistance = Math.hypot(proposed.x - anchor.x, proposed.z - anchor.z);

@@ -130,3 +130,26 @@ test("the server accepts a plausible prediction and rejects a teleport", () => {
   ), false);
   assert.deepEqual(member.position, nearby);
 });
+
+test("the first predicted movement packet accepts normal 60 FPS send cadence", () => {
+  gameServer = new GameServer(new SilentIo());
+  const room = gameServer.createRoom("practice", {});
+  const map = getMapDefinition(LOBBY_MAP_ID);
+  const [x, z] = map.spawnPoints[0];
+  const member = gameServer.makePlayer({
+    id: "first-packet", socketId: "socket-first-packet", displayName: "First packet", appearance: {},
+    x, z, mapId: LOBBY_MAP_ID
+  });
+  member.faction = "crew";
+  room.players.set(member.id, member);
+
+  const proposed = { x: x + PLAYER_SPEED.walk / 15, z };
+  assert.equal(isWalkable(LOBBY_MAP_ID, proposed.x, proposed.z), true);
+  assert.equal(gameServer.acceptClientPrediction(
+    room,
+    member,
+    proposed,
+    { x: 1, z: 0, yaw: 0, crouch: false, seq: 1 },
+    1_000
+  ), true, "a first packet containing four 60 FPS frames is legitimate");
+});
