@@ -6,6 +6,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { checkDatabaseHealth, closeDatabase, isDatabaseConfigured } from "./database/database.js";
 import { SERVER_VERSION } from "./server/constants.js";
 import { GameServer } from "./server/gameServer.js";
+import { createJimsGateway } from "./server/jimsGateway.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -19,17 +20,29 @@ const io = new SocketIOServer(server, {
 
 app.disable("x-powered-by");
 app.use((request, response, next) => {
+  const jimsRequest = request.path === "/jims-mowing" || request.path.startsWith("/jims-mowing/");
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("Referrer-Policy", "same-origin");
   response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   response.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    jimsRequest
+      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://cdn.jsdelivr.net ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
   );
   next();
 });
 app.use(express.json({ limit: "32kb" }));
+
+const jimsGateway = createJimsGateway({
+  server,
+  secret: process.env.SESSION_SECRET,
+  orbitRoot: here
+});
+
+app.get("/easter-egg/jims-launch", jimsGateway.launch);
+app.use(jimsGateway.publicPath, jimsGateway.middleware);
 
 app.use("/vendor/phaser", express.static(join(here, "node_modules", "phaser"), {
   maxAge: process.env.NODE_ENV === "production" ? "30d" : 0,
@@ -58,6 +71,8 @@ app.get("/health", async (_request, response) => {
     activeRooms: gameServer.activeRooms,
     uptime: Math.round(process.uptime()),
     serverVersion: SERVER_VERSION,
+    jimsGameAvailable: jimsGateway.available,
+    jimsGameRunning: jimsGateway.running,
     timestamp: new Date().toISOString()
   });
 });
@@ -77,9 +92,12 @@ server.listen(PORT, "0.0.0.0", () => {
   if (!isDatabaseConfigured()) console.warn("DATABASE_URL is not configured; guest multiplayer remains available.");
 });
 
+jimsGateway.start();
+
 async function shutdown(signal) {
   console.log(`Received ${signal}; shutting down Orbit Ops.`);
   gameServer.stop();
+  jimsGateway.stop();
   io.close();
   server.close(async () => {
     await closeDatabase();

@@ -194,18 +194,19 @@ DATABASE_URL='postgresql://...' SESSION_SECRET='your-long-random-secret' npm run
 
 ## Render deployment
 
-The included `render.yaml` creates one free-plan Web Service; no separate static site or hardcoded host is needed.
+The included `render.yaml` creates one free-plan Web Service; no separate static site or hardcoded host is needed. Its build also downloads the Jim's Mowing game into a private build directory and installs that game's production dependencies. Orbit Ops starts it on an internal-only port and exposes it solely through the signed `/jims-mowing/` gateway. The URL is not listed in the UI: the intended entrance is the **Ghosts** card on **How to Play**.
 
 1. Review the changes, then push this repository to GitHub when ready.
 2. Create a Render Web Service or apply the repository Blueprint.
-3. Use build command `npm install` and start command `npm start`.
+3. Use build command `npm install && npm run jims:sync` and start command `npm start`.
 4. Add the Neon connection string as `DATABASE_URL`.
 5. Add a strong `SESSION_SECRET`; the Blueprint can generate one.
 6. Set `DATABASE_SSL=true` and `NODE_ENV=production`.
 7. Run `npm run db:migrate` once against the Neon database. Run `npm run db:seed` if starter cosmetics are wanted.
-8. Set the health-check path to `/health` and deploy.
-9. Open the public Render URL, then confirm the client loads, Socket.IO connects on the same origin, and `/health` reports `"databaseConnected": true`.
-10. Test guest mode, registration/login, two-browser room joining, and one complete match.
+8. Add the three required private Jim's Mowing variables listed below. They use its existing Railway database and are deliberately separate from Orbit Ops account data.
+9. Set the health-check path to `/health` and deploy.
+10. Open the public Render URL, then confirm the client loads, Socket.IO connects on the same origin, and `/health` reports `"databaseConnected": true` and `"jimsGameRunning": true`.
+11. Test guest mode, registration/login, two-browser room joining, and one complete match in each game. In Jim's Mowing, the fixed **Return to Orbit Ops** control and room code `ORBIT OPS` both return to the Orbit Ops menu.
 
 Required production variables:
 
@@ -215,6 +216,13 @@ Required production variables:
 | `SESSION_SECRET` | HMAC secret, minimum 32 characters in production |
 | `DATABASE_SSL=true` | Enables Neon TLS configuration |
 | `NODE_ENV=production` | Production caching and secret validation |
+| `JIMS_DATABASE_URL` | Jim's Mowing Railway PostgreSQL URL; never expose it to the client or reuse Orbit's database |
+| `JIMS_ADMIN_TOKEN` | A new strong admin token used only by Jim's Mowing |
+| `JIMS_DEVICE_SECRET` | A new strong device/session secret used only by Jim's Mowing |
+
+Optional Jim's Mowing mail variables are `JIMS_MAIL_PROVIDER`, `JIMS_BREVO_API_KEY`, `JIMS_BREVO_FROM`, and `JIMS_EMAIL_REPLY_TO`. Existing Jim's Mowing accounts continue to work when `JIMS_DATABASE_URL` points to the same Railway database and the database schema is already current. Rotate any connection string that has ever been pasted into chat or committed, then enter only the replacement in Render's secret environment-variable UI.
+
+`npm run jims:sync` fetches the latest `main` branch of the Jim's Mowing repository whenever Orbit Ops is built. A Jim-only commit does not by itself trigger Render to rebuild Orbit Ops: use **Manual Deploy → Deploy latest commit**, or add a Jim-repository workflow that calls a private Render deploy hook. `JIMS_GAME_REPOSITORY` and `JIMS_GAME_REF` may override the source repository and branch during a build.
 
 Render supplies `PORT`; the server binds `0.0.0.0` and defaults to port 3000 locally.
 
