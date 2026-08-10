@@ -353,12 +353,12 @@ export const THE_SKELD = createMapDefinition({
     taskAt("skeld-fix-wiring", "Fix Wiring", "electrical", 452, 438, "wiring", 1, "taskWiring", [
       siteAt("electrical", 452, 438),   // breaker panel, west cabinet run
       siteAt("storage", 715, 470),      // starboard wall unit
-      siteAt("admin", 784, 326)         // the "monitor" wall screen
+      siteAt("admin", 784, 323)         // the "monitor" wall screen
     ]),
-    taskAt("skeld-swipe-card", "Swipe Card", "admin", 855, 322, "card", 1, "taskCard"),
+    taskAt("skeld-swipe-card", "Swipe Card", "admin", 830, 323, "card", 1, "taskCard"),
     taskAt("skeld-upload-data", "Download Data", "communications", 856, 572, "upload", 1, "taskUpload", [
       siteAt("communications", 856, 572, "Communications (download)"),  // the terminal desk
-      siteAt("admin", 811, 326, "Admin (upload)")   // the "monito01" wall screen
+      siteAt("admin", 811, 323, "Admin (upload)")   // the "monito01" wall screen
     ]),
     // Cafeteria then Storage, both legs. The model paints no chute in the
     // Cafeteria, so its leg goes in the recess in the east wall - which is where
@@ -395,12 +395,12 @@ export const THE_SKELD = createMapDefinition({
     // --- upper deck ---
     taskAt("skeld-clear-asteroids", "Clear Asteroids", "weapons", 920, 130, "asteroids", 1, "taskAsteroids"),
     taskAt("skeld-prime-shields", "Prime Shields", "shields", 940, 480, "shields", 1, "taskShields"),
-    taskAt("skeld-chart-course", "Chart Course", "navigation", 1160, 270, "course", 1, "taskCourse"),
-    taskAt("skeld-stabilize-steering", "Stabilize Steering", "navigation", 1165, 300, "steering", 1, "taskNavigation"),
+    taskAt("skeld-chart-course", "Chart Course", "navigation", 1172, 268, "course", 1, "taskCourse"),
+    taskAt("skeld-stabilize-steering", "Stabilize Steering", "navigation", 1174, 292, "steering", 1, "taskNavigation"),
     // --- maintenance and medical ---
     taskAt("skeld-submit-scan", "Submit Scan", "medbay", 496, 295, "scan", 1, "taskScan"),
-    taskAt("skeld-inspect-sample", "Inspect Sample", "medbay", 508, 258, "sample", 1, "taskSample"),
-    taskAt("skeld-clean-o2", "Clean O2 Filter", "o2", 848, 286, "o2filter", 1, "taskO2"),
+    taskAt("skeld-inspect-sample", "Inspect Sample", "medbay", 505, 268, "sample", 1, "taskSample"),
+    taskAt("skeld-clean-o2", "Clean O2 Filter", "o2", 838, 285, "o2filter", 1, "taskO2"),
     taskAt("skeld-calibrate-distributor", "Calibrate Distributor", "electrical", 500, 352, "calibrate", 3, "taskCalibrate"),
     // Worked at a vent. Offset south of the Cafeteria grille so walking up to it
     // from the room finds the task rather than the vent entrance.
@@ -466,7 +466,7 @@ export const THE_SKELD = createMapDefinition({
     { ...stationAt("skeld-reactor-beta", "repair", "reactor", 95, 325, "skeld-reactor-meltdown", "Reactor (lower scanner)", 3.6), assetKey: "repairHandprint" },
     // O2's two keypads: top-middle of O2 and top-right of Admin.
     { ...stationAt("skeld-o2-panel", "repair", "o2", 860, 220, "skeld-o2-depletion", "O2 keypad", 3.6), assetKey: "repairKeypad" },
-    { ...stationAt("skeld-admin-o2", "repair", "admin", 862, 345, "skeld-o2-depletion", "Admin keypad", 3.6), assetKey: "repairKeypad" },
+    { ...stationAt("skeld-admin-o2", "repair", "admin", 862, 335, "skeld-o2-depletion", "Admin keypad", 3.6), assetKey: "repairKeypad" },
     // On the radio itself, and on the fuse bank along Electrical's south wall.
     { ...stationAt("skeld-comms-panel", "repair", "communications", 756, 529, "skeld-comms-sabotage", null, 3.6), assetKey: "repairRadio" },
     { ...stationAt("skeld-light-panel", "repair", "electrical", 478, 507, "skeld-lights-out", null, 3.6), assetKey: "repairSwitches" }
