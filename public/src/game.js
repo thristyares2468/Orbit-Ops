@@ -6,6 +6,7 @@ import { LocalMovementPredictor } from "./localMovementPredictor.js";
 import { getRoleDefinition } from "./roleData.js";
 import { LOBBY_MAP_ID, getMapDefinition, isWalkable, roomAt } from "./shipData.js";
 import { TaskInterface } from "./tasks.js";
+import { RepairInterface } from "./repairInterface.js";
 import { applyDocumentSettings, saveSettings } from "./settings.js";
 
 const SESSION_KEY = "orbitOps.accountSession.v1";
@@ -70,6 +71,7 @@ export class OrbitOpsGame {
     this.input = new InputController();
     this.audio = new AudioManager(() => this.settings);
     this.taskInterface = new TaskInterface(network, this.audio);
+    this.repairInterface = new RepairInterface(network, this.audio);
     this.phaserScene = new MeridianScene(this);
     this.phaserGame = new window.Phaser.Game({
       type: window.Phaser.WEBGL,
@@ -178,7 +180,11 @@ export class OrbitOpsGame {
       this.ui.clearSabotage();
       this.audio.setEmergency(false);
       this.ui.toast("Sabotage resolved.");
+      // Somebody else finished it, or a meeting cleared it: shut the panel.
+      this.repairInterface.sabotageEnded();
     });
+    // Repair panels are shared, so a breaker thrown by anyone repaints them all.
+    this.network.on("sabotagePanel", (payload) => this.repairInterface.applyPanel(payload));
     this.network.on("playerEliminated", ({ playerId }) => {
       this.audio.playCue("eliminate");
       const snapshot = this.latestSnapshots.get(playerId);
@@ -494,7 +500,11 @@ export class OrbitOpsGame {
     }
     if (station.type === "launch") await this.network.request("startMatch");
     else if (station.type === "task") await this.network.request("beginTask", { stationId: station.id });
-    else if (station.type === "repair") await this.network.request("repairSabotage", { stationId: station.id });
+    else if (station.type === "repair") {
+      // Opens that sabotage's own panel; the repair happens inside it.
+      const opened = await this.network.request("repairSabotage", { stationId: station.id });
+      if (this.repairInterface.open(opened)) this.input.setEnabled(false);
+    }
     else if (station.type === "meeting") await this.network.request("callMeeting");
     else if (station.type === "maintenance") await this.enterVent(station.id);
     else if (station.type === "admin") {

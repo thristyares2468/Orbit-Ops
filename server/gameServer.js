@@ -39,6 +39,55 @@ function roomLabel(map, site) {
     ?? String(site.roomId ?? "").replaceAll("-", " ");
 }
 
+// Each sabotage is repaired at its own kind of panel, and the state that has to be
+// shared between everyone working on it lives here rather than on any one client:
+// the breakers are a single set of switches all players toggle, the reactor needs
+// two scanners held in the same moment, and O2's code is one code for both keypads.
+function makeRepairPanel(definition) {
+  const pick = (n) => Math.floor(Math.random() * n);
+  switch (definition.repairKind) {
+    case "switches": {
+      // One to five of the five are thrown, as the real panel does.
+      const switches = [true, true, true, true, true];
+      const down = 1 + pick(5);
+      const order = [0, 1, 2, 3, 4].sort(() => Math.random() - 0.5).slice(0, down);
+      for (const index of order) switches[index] = false;
+      return { kind: "switches", switches };
+    }
+    case "keypad":
+      // Six digits, the same at every keypad, written on the sticky note beside it.
+      return { kind: "keypad", code: Array.from({ length: 6 }, () => pick(10)).join("") };
+    case "radio":
+      // Where on the dial the carrier sits. Not a secret - the waveform shows it -
+      // so the client gets it and the server re-checks whatever it is handed.
+      return { kind: "radio", target: 0.12 + Math.random() * 0.76, tolerance: 0.045 };
+    case "handprint":
+      return { kind: "handprint", holds: {} };
+    default:
+      return { kind: "none" };
+  }
+}
+
+// What a client is allowed to see of the panel. Everything here is on the wall in
+// front of the player anyway; the server keeps it only so every player sees one
+// shared puzzle rather than each inventing their own.
+function publicRepairPanel(sabotage) {
+  const panel = sabotage.panel ?? { kind: "none" };
+  const now = Date.now();
+  const base = { kind: panel.kind, repaired: [...sabotage.repairs] };
+  if (panel.kind === "switches") return { ...base, switches: [...panel.switches] };
+  if (panel.kind === "keypad") return { ...base, code: panel.code };
+  if (panel.kind === "radio") return { ...base, target: panel.target, tolerance: panel.tolerance };
+  if (panel.kind === "handprint") {
+    return {
+      ...base,
+      held: Object.entries(panel.holds).filter(([, until]) => until > now).map(([id]) => id),
+      required: sabotage.repairStations.length
+    };
+  }
+  return base;
+}
+
 // Whatever the minigame needs the server to decide rather than the client:
 // the Simon Says pattern for the reactor, which vial is the odd one out, which
 // wires pair with which. Display data, not a secret - the client has to draw it -
@@ -436,6 +485,9 @@ export class GameServer {
     socket.on("taskAction", (payload, ack) => this.withPlayer(socket, "taskAction", 12, 5000, ack, (room, player) => this.taskAction(room, player, payload)));
     socket.on("sabotageRequest", (payload, ack) => this.withPlayer(socket, "sabotageRequest", 4, 10_000, ack, (room, player) => this.startSabotage(room, player, payload?.sabotageId)));
     socket.on("repairSabotage", (payload, ack) => this.withPlayer(socket, "repairSabotage", 8, 10_000, ack, (room, player) => this.repairSabotage(room, player, payload?.stationId)));
+    // The reactor's scanners have to be re-pinged while held, so this one needs a
+    // far higher allowance than opening a panel does.
+    socket.on("repairAction", (payload, ack) => this.withPlayer(socket, "repairAction", 90, 10_000, ack, (room, player) => this.repairAction(room, player, payload ?? {})));
     socket.on("eliminationAttempt", (payload, ack) => this.withPlayer(socket, "eliminationAttempt", 6, 10_000, ack, (room, player) => this.eliminationAttempt(room, player, payload?.targetId)));
     socket.on("roleAction", (payload, ack) => this.withPlayer(socket, "roleAction", 8, 10_000, ack, (room, player) => this.roleAction(room, player, payload)));
     socket.on("reportIncident", (payload, ack) => this.withPlayer(socket, "reportIncident", 5, 10_000, ack, (room, player) => this.reportIncident(room, player, payload?.incidentId)));
@@ -1031,7 +1083,11 @@ export class GameServer {
     room.activeSabotage = {
       id: definition.id, name: definition.name, critical: definition.critical,
       startedAt: Date.now(), endsAt: Date.now() + definition.durationMs,
-      repairStations: definition.repairStations, repairs: new Set(), activatedBy: player.id
+      repairStations: definition.repairStations, repairs: new Set(), activatedBy: player.id,
+      // The shared puzzle for this outage: the breaker positions, the O2 code, the
+      // dial's carrier, or the pair of scanners. Rolled once, so everyone working
+      // on it is working on the same one.
+      panel: makeRepairPanel(definition)
     };
     player.matchStats.sabotagesStarted += 1;
     this.io.to(room.code).emit("sabotageStarted", this.publicSabotage(room.activeSabotage));
@@ -1112,24 +1168,91 @@ export class GameServer {
     };
   }
 
+  // Standing at a repair station no longer fixes the outage by itself: it opens
+  // that sabotage's panel. The work happens in repairAction.
   repairSabotage(room, player, stationId) {
+    const { sabotage, station } = this.repairContext(room, player, stationId);
+    return {
+      ok: true,
+      sabotage: this.publicSabotage(sabotage),
+      stationId: station.id,
+      stationLabel: station.label ?? roomLabel(getMapDefinition(room.mapId), station),
+      panel: publicRepairPanel(sabotage)
+    };
+  }
+
+  repairContext(room, player, stationId) {
     if (room.phase !== PHASES.ACTIVE || !player.alive || !room.activeSabotage) throw new Error("No sabotage can be repaired now.");
     const station = stationById(room.mapId, stationId);
     const sabotage = room.activeSabotage;
     if (!station || station.type !== "repair" || station.refId !== sabotage.id || !sabotage.repairStations.includes(station.id)) throw new Error("Use the correct repair station.");
     if (distance2D(player.position, station) > reachOf(station)) throw new Error("Move closer to the repair station.");
-    sabotage.repairs.add(station.id);
-    const completed = sabotage.repairStations.every((id) => sabotage.repairs.has(id));
-    player.matchStats.sabotagesRepaired += completed ? 1 : 0;
-    if (completed) {
+    return { sabotage, station };
+  }
+
+  // One interaction with an open panel. Returns the panel as it now stands, so
+  // every player working the same outage sees the same thing.
+  repairAction(room, player, payload = {}) {
+    const { sabotage, station } = this.repairContext(room, player, payload.stationId);
+    const panel = sabotage.panel ?? {};
+    const now = Date.now();
+    let solved = false;
+
+    switch (panel.kind) {
+      case "switches": {
+        // Shared breakers: a toggle is a toggle, and an Operative may throw one
+        // back down to slow the repair, exactly as they can in the real panel.
+        const index = Math.round(Number(payload.value));
+        if (!Number.isInteger(index) || index < 0 || index >= panel.switches.length) {
+          throw new Error("That breaker does not exist.");
+        }
+        panel.switches[index] = !panel.switches[index];
+        solved = panel.switches.every(Boolean);
+        break;
+      }
+      case "keypad": {
+        // Each keypad is signed off separately, both with the same code.
+        if (String(payload.value ?? "") !== panel.code) {
+          return { ok: true, solved: false, rejected: true, panel: publicRepairPanel(sabotage) };
+        }
+        sabotage.repairs.add(station.id);
+        solved = sabotage.repairStations.every((id) => sabotage.repairs.has(id));
+        break;
+      }
+      case "radio": {
+        const dial = Number(payload.value);
+        if (!Number.isFinite(dial) || dial < 0 || dial > 1) throw new Error("Dial is out of range.");
+        if (Math.abs(dial - panel.target) > panel.tolerance) {
+          return { ok: true, solved: false, rejected: true, panel: publicRepairPanel(sabotage) };
+        }
+        sabotage.repairs.add(station.id);
+        solved = true;
+        break;
+      }
+      case "handprint": {
+        // A hold only counts for a moment, so both scanners have to be held at
+        // once - which means two people.
+        if (payload.value === "release") delete panel.holds[station.id];
+        else panel.holds[station.id] = now + 900;
+        solved = sabotage.repairStations.every((id) => (panel.holds[id] ?? 0) > now);
+        break;
+      }
+      default:
+        throw new Error("This panel has no repair procedure.");
+    }
+
+    if (solved) {
+      player.matchStats.sabotagesRepaired += 1;
       const ended = this.publicSabotage(sabotage);
       this.clearActiveSabotage(room);
       this.io.to(room.code).emit("sabotageEnded", { ...ended, repairedBy: player.id });
-    } else {
-      this.io.to(room.code).emit("sabotageUpdated", this.publicSabotage(sabotage));
+      this.broadcastRoomState(room);
+      return { ok: true, solved: true, panel: null };
     }
-    this.broadcastRoomState(room);
-    return { ok: true, completed };
+    const view = publicRepairPanel(sabotage);
+    this.io.to(room.code).emit("sabotagePanel", { sabotageId: sabotage.id, panel: view });
+    this.io.to(room.code).emit("sabotageUpdated", this.publicSabotage(sabotage));
+    return { ok: true, solved: false, panel: view };
   }
 
   roleTarget(room, player, targetId) {
@@ -1847,6 +1970,31 @@ export class GameServer {
     return true;
   }
 
+  // A bot working a repair panel goes through exactly the same actions a player
+  // does, so it is bound by the same rules - including needing a second body on
+  // the other hand scanner. Returns whether the outage is now over.
+  botSolveRepair(room, bot, stationId) {
+    const panel = room.activeSabotage?.panel;
+    if (!panel) return false;
+    switch (panel.kind) {
+      case "switches": {
+        for (let index = 0; index < panel.switches.length; index++) {
+          if (panel.switches[index]) continue;
+          if (this.repairAction(room, bot, { stationId, value: index })?.solved) return true;
+        }
+        return false;
+      }
+      case "keypad":
+        return Boolean(this.repairAction(room, bot, { stationId, value: panel.code })?.solved);
+      case "radio":
+        return Boolean(this.repairAction(room, bot, { stationId, value: panel.target })?.solved);
+      case "handprint":
+        return Boolean(this.repairAction(room, bot, { stationId, value: "hold" })?.solved);
+      default:
+        return false;
+    }
+  }
+
   // Give each outstanding repair station its own crew bot. Assignment is deterministic
   // (nearest bot, ties broken by id) and one station never draws two bots, so a
   // two-station sabotage is actually resolvable.
@@ -1943,13 +2091,20 @@ export class GameServer {
     if (!bot.botPath?.length && distance <= INTERACTION_RANGE) {
       bot.animation = "interact";
       if (bot.botTarget.repairSabotageId) {
+        let solved = false;
+        const kind = room.activeSabotage?.panel?.kind;
         try {
-          this.repairSabotage(room, bot, bot.botTarget.stationId);
+          solved = this.botSolveRepair(room, bot, bot.botTarget.stationId);
         } catch {
           /* the sabotage ended or another responder finished it first */
         }
-        bot.repairStationId = null;
-        bot.botTarget = null;
+        // A hand scanner only counts while it is held, so a bot at one stays put
+        // until the other is manned; otherwise it would press once and wander off
+        // and the meltdown could never be stopped.
+        if (solved || kind !== "handprint" || !room.activeSabotage) {
+          bot.repairStationId = null;
+          bot.botTarget = null;
+        }
         return;
       }
       if (bot.faction === "crew" && bot.botTarget.taskId && !bot.completedTasks.has(bot.botTarget.taskId) && now - bot.botActionAt > 3_000) {

@@ -675,3 +675,43 @@ kbd { display: inline-grid; place-items: center; min-width: 27px; min-height: 27
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+/* --- sabotage repair panels --------------------------------------------- */
+/* Four different jobs, so four different panels. The handprint is the reactor's
+   alone; the others are breakers, a code keypad and a radio dial. */
+.rp-switches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; padding: 18px; border: 1px solid var(--line); background: rgba(5,18,27,.9); }
+.rp-breaker { display: grid; justify-items: center; gap: 10px; }
+.rp-breaker-track { position: relative; width: 44px; height: 96px; border: 1px solid var(--line); border-radius: 5px; background: rgba(4,14,22,.9); cursor: pointer; }
+.rp-breaker-track i { position: absolute; left: 5px; right: 5px; bottom: 5px; height: 40px; border-radius: 4px; background: linear-gradient(#7f909c, #47555f); transition: bottom .12s ease, background .12s ease; }
+.rp-breaker-track.is-on i { bottom: calc(100% - 45px); background: linear-gradient(#5ae2a4, #2a9e6f); }
+.rp-breaker-lamp { width: 14px; height: 14px; border-radius: 50%; background: #3a2126; box-shadow: inset 0 0 6px rgba(0,0,0,.6); }
+.rp-breaker-lamp.is-on { background: var(--green); box-shadow: 0 0 12px var(--green); }
+
+.rp-keypad { display: grid; grid-template-columns: minmax(150px, .8fr) 1fr; gap: 20px; align-items: start; }
+.rp-note { display: grid; gap: 6px; padding: 18px 14px; background: #f3e79a; color: #3a3212; transform: rotate(-2.5deg); box-shadow: 0 8px 18px rgba(0,0,0,.45); }
+.rp-note small { font: 700 .62rem/1 monospace; letter-spacing: .18em; opacity: .75; }
+.rp-note b { font: 900 1.7rem/1 monospace; letter-spacing: .18em; }
+.rp-keypad-side { display: grid; gap: 12px; }
+.rp-readout { padding: 10px; border: 1px solid var(--line); background: #05161f; color: var(--green); font: 900 1.6rem/1 monospace; letter-spacing: .3em; text-align: center; }
+.rp-readout.is-bad { color: var(--red); border-color: var(--red); }
+.rp-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.rp-key { padding: 14px 0; border: 1px solid rgba(116,229,255,.3); background: rgba(10,38,54,.9); color: var(--ink); font: 800 1.1rem/1 monospace; cursor: pointer; }
+.rp-key:hover { background: rgba(48,153,186,.3); }
+
+.rp-radio { display: grid; gap: 14px; justify-items: center; }
+.rp-scope { padding: 8px; border: 1px solid var(--line); background: #04121a; }
+.rp-scope canvas { display: block; max-width: 100%; }
+.rp-lamps { display: flex; gap: 16px; }
+.rp-lamp { width: 16px; height: 16px; border-radius: 50%; background: #241a1d; }
+.rp-lamp.is-bad.is-lit { background: var(--red); box-shadow: 0 0 14px var(--red); }
+.rp-lamp.is-good.is-lit { background: var(--green); box-shadow: 0 0 14px var(--green); }
+.rp-dial-wrap { display: grid; place-items: center; }
+.rp-dial { position: relative; width: 132px; height: 132px; border: 3px solid rgba(116,229,255,.4); border-radius: 50%; background: radial-gradient(circle at 40% 32%, #35505f, #16242e); cursor: grab; touch-action: none; }
+.rp-dial i { position: absolute; left: 50%; top: 10px; width: 5px; height: 46px; border-radius: 3px; background: var(--cyan-bright); transform-origin: 50% calc(100% + 10px); transform: translateX(-50%) rotate(var(--turn, 0deg)); }
+
+.rp-hand { display: grid; gap: 16px; justify-items: center; }
+.rp-handpad { display: grid; place-items: center; width: 190px; height: 240px; border: 3px solid rgba(255,95,111,.55); border-radius: 12px; background: rgba(60,18,26,.55); cursor: pointer; touch-action: none; }
+.rp-handpad.is-held { border-color: var(--cyan); background: rgba(20,70,92,.6); }
+.rp-hand.is-paired .rp-handpad { border-color: var(--green); background: rgba(20,86,66,.6); box-shadow: 0 0 28px rgba(52,229,154,.3); }
+.rp-handmark { font-size: 5rem; filter: grayscale(1) brightness(1.7); }
+.rp-hand-readout { margin: 0; font: 800 .95rem/1 monospace; letter-spacing: .16em; color: var(--cyan-bright); }
