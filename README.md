@@ -194,7 +194,7 @@ DATABASE_URL='postgresql://...' SESSION_SECRET='your-long-random-secret' npm run
 
 ## Render deployment
 
-The included `render.yaml` creates one free-plan Web Service; no separate static site or hardcoded host is needed. Its build also downloads the Jim's Mowing game into a private build directory and installs that game's production dependencies. Orbit Ops starts it on an internal-only port and exposes it solely through the signed `/jims-mowing/` gateway. The URL is not listed in the UI: the intended entrance is the **Ghosts** card on **How to Play**.
+The included `render.yaml` creates one free-plan Web Service; no separate static site or hardcoded host is needed. Its build also downloads the Jim's Mowing game into a private build directory and installs that game's production dependencies. Orbit Ops starts it on an internal-only port and exposes it solely through the signed `/tips/` gateway. The URL is not listed in the UI: the intended entrance is the **Ghosts** card on **How to Play**.
 
 1. Review the changes, then push this repository to GitHub when ready.
 2. Create a Render Web Service or apply the repository Blueprint.

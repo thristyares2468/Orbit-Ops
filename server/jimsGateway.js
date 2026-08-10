@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import httpProxy from "http-proxy";
 
-export const JIMS_PUBLIC_PATH = "/jims-mowing";
+export const JIMS_PUBLIC_PATH = "/tips";
 export const JIMS_ACCESS_COOKIE = "orbitOps.jimsAccess";
 const ACCESS_LIFETIME_SECONDS = 6 * 60 * 60;
 

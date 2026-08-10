@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { createJimsAccessToken, verifyJimsAccessToken } from "../server/jimsGateway.js";
+import { JIMS_PUBLIC_PATH, createJimsAccessToken, verifyJimsAccessToken } from "../server/jimsGateway.js";
+
+test("the hidden game uses the concise tips gateway path", () => {
+  assert.equal(JIMS_PUBLIC_PATH, "/tips");
+});
 
 test("Jim's gateway access tokens expire and reject tampering", () => {
   const now = Date.UTC(2026, 7, 10, 5, 0, 0);

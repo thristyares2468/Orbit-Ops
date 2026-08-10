@@ -20,7 +20,7 @@ const io = new SocketIOServer(server, {
 
 app.disable("x-powered-by");
 app.use((request, response, next) => {
-  const jimsRequest = request.path === "/jims-mowing" || request.path.startsWith("/jims-mowing/");
+  const jimsRequest = request.path === "/tips" || request.path.startsWith("/tips/");
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("Referrer-Policy", "same-origin");
   response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
