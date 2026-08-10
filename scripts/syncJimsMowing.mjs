@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const orbitRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const target = join(orbitRoot, ".render", "jims-mowing");
-const repository = process.env.JIMS_GAME_REPOSITORY || "https://github.com/leot46627-spec/fpsshooterserver.git";
+const repository = process.env.JIMS_GAME_REPOSITORY || "https://github.com/thristyares2468/James-Garden-Care.git";
 const branch = process.env.JIMS_GAME_REF || "main";
 const githubToken = String(process.env.JIMS_GITHUB_TOKEN || "").trim();
 

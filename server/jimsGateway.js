@@ -40,6 +40,7 @@ export function resolveJimsGameRoot(orbitRoot, configuredRoot = process.env.JIMS
   const candidates = [
     configuredRoot,
     join(orbitRoot, ".render", "jims-mowing"),
+    join(dirname(orbitRoot), "James-Garden-Care"),
     join(dirname(orbitRoot), "fpsshooterserver", "fpsshooterserver")
   ].filter(Boolean).map((candidate) => resolve(candidate));
   return candidates.find((candidate) => existsSync(join(candidate, "server.js"))) ?? candidates[0];

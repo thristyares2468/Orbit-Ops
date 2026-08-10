@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { gitEnvironment, validateSyncConfiguration } from "../scripts/syncJimsMowing.mjs";
 
+test("the default source is the owner's James Garden Care repository", async () => {
+  const source = await import("node:fs/promises");
+  const script = await source.readFile(new URL("../scripts/syncJimsMowing.mjs", import.meta.url), "utf8");
+  assert.match(script, /thristyares2468\/James-Garden-Care\.git/);
+});
+
 test("Jim's private repository token is supplied through an in-memory Git header", () => {
   const token = "test-token-never-log-this";
   const environment = gitEnvironment({ SAFE_VALUE: "kept" }, token);
