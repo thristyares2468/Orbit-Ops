@@ -28,3 +28,9 @@ test("Orbit Ops declares its own favicon for both the game and embedded-game rou
   assert.match(icon, /<svg/);
   assert.match(index, /rel="icon" type="image\/svg\+xml" href="\/orbit-ops-favicon\.svg"/);
 });
+
+test("the Ghosts easter egg stays visually neutral on pointer hover", async () => {
+  const styles = await readFile(new URL("../public/style.css", import.meta.url), "utf8");
+  assert.doesNotMatch(styles, /\.manual-card-link:hover article/);
+  assert.match(styles, /\.manual-card-link:focus-visible/);
+});

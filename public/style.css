@@ -419,8 +419,7 @@ kbd { display: inline-grid; place-items: center; min-width: 27px; min-height: 27
 .reading-grid article { padding: 16px; border: 1px solid var(--line); background: rgba(58,113,137,.06); }
 .reading-grid p { color: #b7cad5; line-height: 1.6; }
 .manual-card-link { display: block; color: inherit; text-decoration: none; }
-.manual-card-link article { height: 100%; box-sizing: border-box; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
-.manual-card-link:hover article, .manual-card-link:focus-visible article { border-color: rgba(119,224,255,.62); background: rgba(58,113,137,.14); box-shadow: inset 0 0 24px rgba(84,202,232,.08); }
+.manual-card-link article { height: 100%; box-sizing: border-box; }
 .manual-card-link:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
 .minimap-modal { width: min(1148px, calc(100vw - 28px)); padding: 18px; background: linear-gradient(145deg, rgba(8,18,39,.98), rgba(3,8,18,.98)); }
 #minimap-canvas { display: block; width: 100%; max-width: 100%; border: 2px solid rgba(197,224,255,.62); border-radius: 12px; background: #040b12; box-shadow: inset 0 0 60px rgba(26,74,145,.25), 0 16px 50px rgba(0,0,0,.4); }
