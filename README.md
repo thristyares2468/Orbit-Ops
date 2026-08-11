@@ -225,7 +225,7 @@ Optional Jim's Mowing mail variables are `JIMS_MAIL_PROVIDER`, `JIMS_BREVO_API_K
 
 `npm run jims:sync` fetches the latest `main` branch of the Jim's Mowing repository whenever Orbit Ops is built. A Jim-only commit does not by itself trigger Render to rebuild Orbit Ops: use **Manual Deploy → Deploy latest commit**, or add a Jim-repository workflow that calls a private Render deploy hook. `JIMS_GAME_REPOSITORY` and `JIMS_GAME_REF` may override the source repository and branch during a build.
 
-For `JIMS_GITHUB_TOKEN`, create a fine-grained personal access token restricted to the `James-Garden-Care` repository with **Contents: Read-only** permission. Add it only through Render's secret environment-variable UI. The sync script passes it to Git through an in-memory authorization header, so the token is not written into the clone URL, `.git/config`, build output, or repository files.
+For `JIMS_GITHUB_TOKEN`, create a fine-grained personal access token restricted to the `Orbit-Ops-Subdivision` repository with **Contents: Read-only** permission. Add it only through Render's secret environment-variable UI. The sync script passes it to Git through an in-memory authorization header, so the token is not written into the clone URL, `.git/config`, build output, or repository files.
 
 Render supplies `PORT`; the server binds `0.0.0.0` and defaults to port 3000 locally.
 
