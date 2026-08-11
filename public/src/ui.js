@@ -5,6 +5,7 @@ import { CREW_ROLE_IDS, NEUTRAL_ROLE_IDS, OPERATIVE_ROLE_IDS, getRoleDefinition 
 import { DEFAULT_ROLE_SETTINGS, enabledRoleCount, normaliseRoleSettings } from "./roleSettings.js";
 import { getMapDefinition } from "./shipData.js";
 import { pauseCopy, progressLabels, roleAbilityStatus } from "./hudState.js";
+import { randomCallsign } from "./callsign.js";
 
 const FIRST_RUN_KEY = "orbitOps.firstRunHint.v1";
 const COLOURS = Object.freeze({ cyan: "#27bad8", amber: "#e2a238", violet: "#805bd0", lime: "#54b86a", coral: "#d9575f", white: "#c8d8dd", blue: "#3f67c9", rose: "#c74f87" });
@@ -79,6 +80,7 @@ export class GameUI {
     this.lastMinimapRequest = null;
     this.buildPracticeRoleOptions();
     this.buildRoleSettingsEditor();
+    this.seedGuestCallsign();
     paintMenuCrew().catch(() => {});
     this.bindStaticEvents();
     // Re-fit the open map overview when the viewport changes so it is never cropped.
@@ -86,6 +88,13 @@ export class GameUI {
       if (this.elements.minimap?.classList.contains("is-hidden")) return;
       if (this.lastMinimapRequest) this.drawMinimap(this.lastMinimapRequest);
     });
+  }
+
+  // A fresh callsign per visit, so a lobby of guests is not eight Explorer-071s.
+  // Still just a starting value - the field stays editable.
+  seedGuestCallsign() {
+    const field = byId("guest-name");
+    if (field) field.value = randomCallsign();
   }
 
   // Built from the role registry so a growing roster never leaves the picker stale.

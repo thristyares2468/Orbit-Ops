@@ -65,7 +65,8 @@
           <button class="tab" data-auth-tab="register" type="button">Register</button>
         </div>
         <form id="guest-form" class="auth-form">
-          <label>Callsign<input id="guest-name" maxlength="22" autocomplete="nickname" value="Explorer-071" required></label>
+          <!-- Filled with a fresh callsign by GameUI.seedGuestCallsign on load. -->
+          <label>Callsign<input id="guest-name" maxlength="22" autocomplete="nickname" placeholder="Explorer-071" required></label>
           <button class="button button-primary" type="submit">Continue as Guest</button>
           <small>Guest progress is temporary. Multiplayer and practice remain fully available.</small>
         </form>
