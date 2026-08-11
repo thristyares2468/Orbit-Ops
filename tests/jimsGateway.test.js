@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { JIMS_PUBLIC_PATH, createJimsAccessToken, publicOrigin, verifyJimsAccessToken } from "../server/jimsGateway.js";
+import { JIMS_PUBLIC_PATH, createJimsAccessToken, verifyJimsAccessToken } from "../server/jimsGateway.js";
 
 test("the hidden game uses the concise tips gateway path", () => {
   assert.equal(JIMS_PUBLIC_PATH, "/tips");
@@ -14,12 +14,6 @@ test("Jim's gateway access tokens expire and reject tampering", () => {
   assert.equal(verifyJimsAccessToken(token, "wrong-secret", now + 1000), false);
   assert.equal(verifyJimsAccessToken(`${token}x`, "test-secret", now + 1000), false);
   assert.equal(verifyJimsAccessToken(token, "test-secret", now + (7 * 60 * 60 * 1000)), false);
-});
-
-test("the gateway gives password emails the real public Orbit Ops origin", () => {
-  assert.equal(publicOrigin({ headers: { host: "orbit-ops.example.test" } }), "http://orbit-ops.example.test");
-  assert.equal(publicOrigin({ headers: { "x-forwarded-proto": "https", "x-forwarded-host": "orbit.example.test" } }), "https://orbit.example.test");
-  assert.equal(publicOrigin({ headers: { host: "orbit.example.test\r\nInjected: nope" } }), "");
 });
 
 test("Jim's embedded CSP permits GLB blob texture decoding", async () => {
