@@ -221,7 +221,7 @@ Required production variables:
 | `JIMS_DEVICE_SECRET` | A new strong device/session secret used only by Jim's Mowing |
 | `JIMS_GITHUB_TOKEN` | Fine-grained GitHub token with read-only Contents access to the private Jim's Mowing repository |
 
-Optional Jim's Mowing mail variables are `JIMS_MAIL_PROVIDER`, `JIMS_BREVO_API_KEY`, `JIMS_BREVO_FROM`, and `JIMS_EMAIL_REPLY_TO`. Existing Jim's Mowing accounts continue to work when `JIMS_DATABASE_URL` points to the same Railway database and the database schema is already current. Rotate any connection string that has ever been pasted into chat or committed, then enter only the replacement in Render's secret environment-variable UI.
+Optional Jim's Mowing mail variables are `JIMS_MAIL_PROVIDER`, `JIMS_BREVO_API_KEY`, `JIMS_BREVO_FROM`, and `JIMS_EMAIL_REPLY_TO`. `JIMS_PUBLIC_APP_ORIGIN` is only needed if you want to override the public origin used in password-reset links; normally the `/tips/` gateway supplies the current same-origin URL automatically. Existing Jim's Mowing accounts continue to work when `JIMS_DATABASE_URL` points to the same Railway database and the database schema is already current. Rotate any connection string that has ever been pasted into chat or committed, then enter only the replacement in Render's secret environment-variable UI.
 
 `npm run jims:sync` fetches the latest `main` branch of the Jim's Mowing repository whenever Orbit Ops is built. A Jim-only commit does not by itself trigger Render to rebuild Orbit Ops: use **Manual Deploy → Deploy latest commit**, or add a Jim-repository workflow that calls a private Render deploy hook. `JIMS_GAME_REPOSITORY` and `JIMS_GAME_REF` may override the source repository and branch during a build.
 

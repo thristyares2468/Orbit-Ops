@@ -36,6 +36,17 @@ function cookieValue(request, name) {
   return item ? decodeURIComponent(item.slice(name.length + 1)) : "";
 }
 
+export function publicOrigin(request) {
+  const protocol = String(request.headers["x-forwarded-proto"] || "http").split(",")[0].trim().toLowerCase() === "https"
+    ? "https"
+    : "http";
+  const host = String(request.headers["x-forwarded-host"] || request.headers.host || "").split(",")[0].trim();
+  // This header is sent only to the child process over loopback. Reject header
+  // injection and malformed Host values before it can ever enter an email.
+  if (!/^[a-z0-9.-]+(?::\d{1,5})?$/i.test(host)) return "";
+  return `${protocol}://${host}`;
+}
+
 export function resolveJimsGameRoot(orbitRoot, configuredRoot = process.env.JIMS_GAME_ROOT) {
   const candidates = [
     configuredRoot,
@@ -53,6 +64,11 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
   const proxy = httpProxy.createProxyServer({ target, ws: true, xfwd: true });
   let child = null;
   let running = false;
+
+  proxy.on("proxyReq", (proxyRequest, request) => {
+    const origin = publicOrigin(request);
+    if (origin) proxyRequest.setHeader("X-Orbit-Ops-Public-Origin", origin);
+  });
 
   const authorized = (request) => verifyJimsAccessToken(cookieValue(request, JIMS_ACCESS_COOKIE), secret);
   const unavailable = (response) => response.status(503).json({ error: "The hidden transmission is currently offline." });
@@ -121,6 +137,7 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
         BREVO_API_KEY: process.env.JIMS_BREVO_API_KEY || "",
         BREVO_FROM: process.env.JIMS_BREVO_FROM || "",
         EMAIL_REPLY_TO: process.env.JIMS_EMAIL_REPLY_TO || "",
+        PUBLIC_APP_ORIGIN: process.env.JIMS_PUBLIC_APP_ORIGIN || "",
         NODE_ENV: process.env.NODE_ENV === "production" ? "production" : "development"
       },
       stdio: ["ignore", "pipe", "pipe"]
