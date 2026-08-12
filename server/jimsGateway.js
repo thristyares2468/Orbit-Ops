@@ -54,6 +54,13 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
   let child = null;
   let running = false;
 
+  const readiness = () => ({
+    available: Boolean(gameRoot && existsSync(join(gameRoot, "server.js"))),
+    running,
+    productionSecretsReady: Boolean(process.env.JIMS_DATABASE_URL && process.env.JIMS_ADMIN_TOKEN && process.env.JIMS_DEVICE_SECRET),
+    requiredVariables: ["JIMS_DATABASE_URL", "JIMS_ADMIN_TOKEN", "JIMS_DEVICE_SECRET"].filter((name) => !process.env[name])
+  });
+
   const authorized = (request) => verifyJimsAccessToken(cookieValue(request, JIMS_ACCESS_COOKIE), secret);
   const unavailable = (response) => response.status(503).json({ error: "The hidden transmission is currently offline." });
 
@@ -80,6 +87,12 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
     if (!authorized(request)) return response.status(404).send("Not found");
     if (!running) return unavailable(response);
     proxy.web(request, response);
+  };
+
+  const health = (_request, response) => {
+    // Configuration state only: no connection string or secret is exposed.
+    response.setHeader("Cache-Control", "no-store");
+    response.status(running ? 200 : 503).json(readiness());
   };
 
   const handleUpgrade = (request, socket, head) => {
@@ -150,6 +163,7 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
     publicPath,
     launch,
     middleware,
+    health,
     start,
     stop,
     get available() { return Boolean(gameRoot && existsSync(join(gameRoot, "server.js"))); },

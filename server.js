@@ -42,6 +42,7 @@ const jimsGateway = createJimsGateway({
 });
 
 app.get("/easter-egg/jims-launch", jimsGateway.launch);
+app.get("/easter-egg/jims-health", jimsGateway.health);
 app.use(jimsGateway.publicPath, jimsGateway.middleware);
 
 app.use("/vendor/phaser", express.static(join(here, "node_modules", "phaser"), {
