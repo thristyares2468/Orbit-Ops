@@ -11,6 +11,12 @@ export class CharacterSprite {
     this.isLocal = isLocal;
     this.target = { x: 0, y: 0 };
     this.lastTargetX = 0;
+    // Timestamped positions on the server's timeline. update() plays other crew
+    // back from this slightly in the past and slides between two real samples,
+    // rather than chasing whatever arrived last - which is what made everyone
+    // else move in 10-per-second steps. The local player is excluded: it is
+    // predicted, so it must stay on the newest position.
+    this.samples = [];
     this.animation = "idle";
     this.phase = Math.random() * Math.PI * 2;
     this.deathStartedAt = player.alive === false ? Number.NEGATIVE_INFINITY : null;
@@ -74,13 +80,22 @@ export class CharacterSprite {
     this.bodyBaseScale = { x: this.body.scaleX, y: this.body.scaleY };
   }
 
-  applySnapshot(snapshot, immediate = false) {
+  applySnapshot(snapshot, immediate = false, serverTime = null) {
     // A fresh snapshot always re-shows the sprite: vanished (ejected) players stay
     // hidden for the living only because the living stop receiving their updates.
     this.container.setVisible(true);
     const next = this.scene.mapPoint(snapshot.x, snapshot.z);
     this.lastTargetX = this.target.x;
     this.target = next;
+    if (!this.isLocal && Number.isFinite(serverTime)) {
+      const previous = this.samples[this.samples.length - 1];
+      // A long gap means a vent hop, a respawn or a stall - slide across the map
+      // in those cases and the sprite skates. Drop the history and snap instead.
+      if (previous && serverTime - previous.t > 1500) this.samples.length = 0;
+      this.samples.push({ t: serverTime, x: next.x, y: next.y });
+      if (this.samples.length > 12) this.samples.shift();
+    }
+    if (immediate) this.samples.length = 0;
     this.animation = snapshot.animation ?? "idle";
     const wasAlive = this.player.alive !== false;
     this.player.alive = snapshot.alive !== false;
@@ -118,10 +133,67 @@ export class CharacterSprite {
     if (vanish) this.container.setVisible(false);
   }
 
-  update(deltaSeconds, reducedMotion = false, ghostView = false) {
-    const interpolation = 1 - Math.exp(-14 * deltaSeconds);
-    this.container.x += (this.target.x - this.container.x) * interpolation;
-    this.container.y += (this.target.y - this.container.y) * interpolation;
+  // Where this sprite should be drawn on the server's timeline. Returns null for
+  // the local player and whenever there is not enough history to interpolate,
+  // and the caller falls back to easing toward the newest position.
+  sampleAt(renderTime) {
+    const buffer = this.samples;
+    if (this.isLocal || !buffer.length || !Number.isFinite(renderTime)) return null;
+    let before = null;
+    let after = null;
+    for (let index = 0; index < buffer.length; index++) {
+      if (buffer[index].t <= renderTime) {
+        before = buffer[index];
+        after = buffer[index + 1] ?? null;
+      }
+    }
+    // Render time can sit before everything we hold, just after joining or after
+    // the buffer was cleared. Hold the oldest sample; jumping to the newest would
+    // pop the sprite forward and then drag it back as the buffer fills.
+    if (!before) {
+      before = buffer[0];
+      after = buffer[1] ?? null;
+    }
+    if (before && after && after.t > before.t) {
+      const ratio = Math.min(1, Math.max(0, (renderTime - before.t) / (after.t - before.t)));
+      return {
+        x: before.x + (after.x - before.x) * ratio,
+        y: before.y + (after.y - before.y) * ratio
+      };
+    }
+    // Render time has run past the newest sample - the next one is late. Carry
+    // the last known velocity for a short way so the sprite keeps moving instead
+    // of freezing, but cap it: when samples bunch up under lag the implied speed
+    // can be enormous and would fling the sprite across the deck.
+    const last = buffer[buffer.length - 1];
+    const previous = buffer[buffer.length - 2];
+    if (last && previous && renderTime > last.t) {
+      const span = last.t - previous.t;
+      const ahead = Math.min(120, renderTime - last.t);
+      const factor = span > 0 ? ahead / span : 0;
+      let dx = (last.x - previous.x) * factor;
+      let dy = (last.y - previous.y) * factor;
+      const distance = Math.hypot(dx, dy);
+      const cap = 60;
+      if (distance > cap) {
+        dx *= cap / distance;
+        dy *= cap / distance;
+      }
+      return { x: last.x + dx, y: last.y + dy };
+    }
+    return last ? { x: last.x, y: last.y } : null;
+  }
+
+  update(deltaSeconds, reducedMotion = false, ghostView = false, renderTime = null) {
+    const sampled = this.sampleAt(renderTime);
+    if (sampled) {
+      this.container.x = sampled.x;
+      this.container.y = sampled.y;
+    } else {
+      const interpolation = 1 - Math.exp(-14 * deltaSeconds);
+      this.container.x += (this.target.x - this.container.x) * interpolation;
+      this.container.y += (this.target.y - this.container.y) * interpolation;
+    }
     this.container.setDepth(500 + Math.round(this.container.y));
 
     const moving = ["walk", "crouch"].includes(this.animation);

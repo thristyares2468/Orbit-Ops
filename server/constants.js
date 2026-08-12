@@ -7,7 +7,12 @@ if (process.env.NODE_ENV === "production" && SESSION_SECRET.length < 32) {
   throw new Error("SESSION_SECRET must contain at least 32 characters in production.");
 }
 export const TICK_RATE = 20;
-export const SNAPSHOT_RATE = 10;
+// Snapshots go out at the simulation rate. The client renders other players
+// slightly in the past and slides between two real samples, and the delay it
+// needs is ~1.5 snapshot intervals - so doubling this from 10 halves how far
+// behind live everyone else is drawn. Payloads are already vision-culled and
+// rounded, so the extra cost is small.
+export const SNAPSHOT_RATE = 20;
 export const DISCONNECT_GRACE_MS = 45_000;
 export const MAX_CHAT_LENGTH = 280;
 export const MAX_NAME_LENGTH = 22;

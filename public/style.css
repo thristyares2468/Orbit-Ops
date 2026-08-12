@@ -385,7 +385,13 @@ kbd { display: inline-grid; place-items: center; min-width: 27px; min-height: 27
 .critical-alert { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 16px; padding: 10px 18px; background: rgba(86,8,18,.88); border: 1px solid var(--red); box-shadow: 0 0 40px rgba(255,40,60,.28); animation: emergency-pulse .8s infinite alternate; }
 .critical-alert strong { font-size: .72rem; letter-spacing: .12em; }
 .critical-alert span { font: 800 1.25rem/1 monospace; }
-.telemetry { position: absolute; right: 18px; top: 60px; padding: 4px 7px; background: rgba(0,0,0,.55); color: var(--green); font: .65rem monospace; }
+.telemetry { position: absolute; right: 18px; top: 60px; display: flex; gap: 10px; padding: 4px 8px; background: rgba(0,0,0,.55); color: var(--green); font: .65rem monospace; }
+/* Fixed-width digits so the numbers do not jiggle the panel as they change. */
+.telemetry-stat { font-variant-numeric: tabular-nums; }
+.telemetry-stat b { font-weight: 800; }
+.telemetry-stat.is-good { color: var(--green); }
+.telemetry-stat.is-fair { color: var(--amber); }
+.telemetry-stat.is-bad { color: var(--red); }
 
 .modal { position: fixed; z-index: 20; left: 50%; top: 50%; width: min(900px, calc(100vw - 28px)); max-height: calc(100vh - 28px); overflow: auto; transform: translate(-50%, -50%); padding: 22px; border: 1px solid rgba(116,229,255,.36); border-radius: var(--radius); background: linear-gradient(150deg, var(--panel-strong), rgba(5,12,22,.98)); box-shadow: 0 35px 100px rgba(0,0,0,.65), 0 0 60px rgba(60,181,221,.08); backdrop-filter: blur(16px); }
 .modal::before { content: ""; position: fixed; inset: -100vh -100vw; z-index: -1; background: rgba(1,4,8,.55); }

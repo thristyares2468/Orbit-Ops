@@ -65,7 +65,17 @@ export class OrbitOpsGame {
     this.lastFrameAt = performance.now();
     this.lastInputSentAt = 0;
     this.localMovement = new LocalMovementPredictor();
-    this.frameSamples = [];
+    // Frames counted over a window, not a mean of per-frame 1/delta: delta is
+    // clamped to a 1ms floor, so one very short frame used to report 1000fps and
+    // drag the average up. Frames longer than a second are background-tab pauses
+    // and are dropped rather than averaged into the live rate.
+    this.fpsFrames = 0;
+    this.fpsElapsedMs = 0;
+    this.fps = 0;
+    // HUD text is rewritten a few times a second, not every frame.
+    this.hudTextAt = 0;
+    this.uiStateAt = 0;
+    this.uiState = { modalOpen: false, typing: false };
     this.sceneReady = false;
 
     this.input = new InputController();
@@ -748,11 +758,25 @@ export class OrbitOpsGame {
   onRenderFrame(time, deltaMs) {
     const delta = Math.min(0.1, Math.max(0.001, deltaMs / 1000));
     this.lastFrameAt = time;
-    this.frameSamples.push(1 / delta);
-    if (this.frameSamples.length > 30) this.frameSamples.shift();
+    if (deltaMs > 0 && deltaMs < 1000) {
+      this.fpsFrames += 1;
+      this.fpsElapsedMs += deltaMs;
+    }
+    if (this.fpsElapsedMs >= 500) {
+      this.fps = (this.fpsFrames * 1000) / this.fpsElapsedMs;
+      this.fpsFrames = 0;
+      this.fpsElapsedMs = 0;
+    }
 
-    const modalOpen = Boolean(document.querySelector(".modal:not(.is-hidden)"));
-    const typing = Boolean(document.activeElement?.closest?.("input, textarea, select"));
+    // Both of these walk the DOM, and at 60fps that is 120 document queries a
+    // second for state that changes when a menu opens. A tenth of a second of
+    // staleness on input gating is imperceptible.
+    if (time - this.uiStateAt > 100) {
+      this.uiStateAt = time;
+      this.uiState.modalOpen = Boolean(document.querySelector(".modal:not(.is-hidden)"));
+      this.uiState.typing = Boolean(document.activeElement?.closest?.("input, textarea, select"));
+    }
+    const { modalOpen, typing } = this.uiState;
     const inLobby = this.currentPhase === "lobby" && Boolean(this.room);
     const gameplayActive = this.currentPhase === "active" && Boolean(this.room);
     const shouldEnableInput = (inLobby || gameplayActive) && !modalOpen && !typing;
@@ -776,11 +800,25 @@ export class OrbitOpsGame {
             : nearestInteractable(map, local, [], (station) => station.type === "task");
       this.ui.updateInteraction(this.nearest, inLobby);
       if (!inLobby) this.ui.updateRoleAbility(Date.now());
-      const room = roomAt(map.id, local.x, local.z);
-      this.ui.updatePlayerHud(local, room?.name, this.network.pingMs);
     }
-    const fps = this.frameSamples.reduce((sum, value) => sum + value, 0) / Math.max(1, this.frameSamples.length);
-    this.ui.updateFps(fps, this.settings.showFps);
+    // Writing HUD text every frame means a layout pass every frame for numbers
+    // nobody can read that fast. Eight times a second still looks live.
+    if (time - this.hudTextAt > 125) {
+      this.hudTextAt = time;
+      if (local) {
+        const map = getMapDefinition(this.activeMapId());
+        this.ui.updatePlayerHud(local, roomAt(map.id, local.x, local.z)?.name, this.network.pingMs);
+      }
+      // Outside a match there is no local snapshot, so this sits apart from the
+      // block above - otherwise the readout freezes on the last match's numbers.
+      this.ui.updateTelemetry({
+        fps: this.fps,
+        pingMs: this.network.pingMs,
+        jitterMs: this.network.jitterMs,
+        showFps: this.settings.showFps,
+        showPing: this.settings.showPing
+      });
+    }
   }
 
   handleLobbyInput() {

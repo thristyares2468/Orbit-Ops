@@ -891,7 +891,7 @@ export class GameUI {
   fillSettings(settings) {
     byId("pref-master").value = settings.masterVolume; byId("pref-music").value = settings.musicVolume; byId("pref-sfx").value = settings.sfxVolume;
     byId("pref-camera").value = settings.cameraDistance; byId("pref-quality").value = settings.graphicsQuality;
-    byId("pref-fps").checked = settings.showFps; byId("pref-reduced-motion").checked = settings.reducedMotion;
+    byId("pref-fps").checked = settings.showFps; byId("pref-ping").checked = settings.showPing; byId("pref-reduced-motion").checked = settings.reducedMotion;
     byId("pref-screen-shake").checked = settings.screenShake; byId("pref-text-size").value = settings.textSize;
   }
 
@@ -899,7 +899,7 @@ export class GameUI {
     return {
       masterVolume: Number(byId("pref-master").value), musicVolume: Number(byId("pref-music").value), sfxVolume: Number(byId("pref-sfx").value),
       cameraDistance: Number(byId("pref-camera").value), graphicsQuality: byId("pref-quality").value,
-      showFps: byId("pref-fps").checked, reducedMotion: byId("pref-reduced-motion").checked,
+      showFps: byId("pref-fps").checked, showPing: byId("pref-ping").checked, reducedMotion: byId("pref-reduced-motion").checked,
       screenShake: byId("pref-screen-shake").checked, textSize: Number(byId("pref-text-size").value)
     };
   }
@@ -1111,7 +1111,21 @@ export class GameUI {
   }
 
   setConnection(connected) { setVisible(this.elements.disconnect, !connected); }
-  updateFps(fps, visible) { setVisible(byId("telemetry"), visible); byId("fps-value").textContent = String(Math.round(fps)); }
+  // One readout for both counters. Each half can be turned off on its own, and
+  // the panel hides entirely when neither is wanted.
+  updateTelemetry({ fps = 0, pingMs = null, jitterMs = 0, showFps = true, showPing = true } = {}) {
+    setVisible(byId("telemetry"), showFps || showPing);
+    setVisible(byId("telemetry-fps"), showFps);
+    setVisible(byId("telemetry-ping"), showPing);
+    if (showFps) byId("fps-value").textContent = String(Math.round(fps));
+    if (!showPing) return;
+    byId("ping-value").textContent = pingMs == null ? "—" : String(pingMs);
+    // Jitter is the honest signal for "feels laggy", so the readout is graded on
+    // it as well as on the raw round trip.
+    const grade = pingMs == null ? "" : pingMs > 220 || jitterMs > 60 ? " is-bad"
+      : pingMs > 120 || jitterMs > 30 ? " is-fair" : " is-good";
+    byId("telemetry-ping").className = `telemetry-stat${grade}`;
+  }
 
   toast(message, error = false) {
     const toast = document.createElement("div"); toast.className = `toast${error ? " is-error" : ""}`; toast.textContent = message;

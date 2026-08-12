@@ -217,7 +217,10 @@
         <kbd>G</kbd><span id="role-ability-label">Role</span><small id="role-ability-status">Ready</small>
       </button>
       <div id="critical-alert" class="critical-alert is-hidden"><strong id="critical-name">CORE OVERLOAD</strong><span id="critical-timer">45</span></div>
-      <div id="telemetry" class="telemetry is-hidden">FPS <span id="fps-value">60</span></div>
+      <div id="telemetry" class="telemetry is-hidden">
+        <span id="telemetry-fps" class="telemetry-stat"><b id="fps-value">60</b> fps</span>
+        <span id="telemetry-ping" class="telemetry-stat"><b id="ping-value">—</b> ms</span>
+      </div>
     </div>
 
     <div id="interaction-prompt" class="interaction-prompt is-hidden"><kbd>E</kbd><span>Interact</span></div>
@@ -291,6 +294,7 @@
       <label>View distance<input id="pref-camera" type="range" min="4" max="14" step="0.5"></label>
       <label>Graphics quality<select id="pref-quality"><option>low</option><option>medium</option><option>high</option></select></label>
       <label class="toggle-label"><input id="pref-fps" type="checkbox"><span>Show FPS</span></label>
+      <label class="toggle-label"><input id="pref-ping" type="checkbox"><span>Show ping</span></label>
       <label class="toggle-label"><input id="pref-reduced-motion" type="checkbox"><span>Reduced motion</span></label>
       <label class="toggle-label"><input id="pref-screen-shake" type="checkbox"><span>Screen shake</span></label>
       <label>Text size<input id="pref-text-size" type="range" min="0.8" max="1.5" step="0.1"></label>

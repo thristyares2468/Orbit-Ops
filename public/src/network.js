@@ -4,6 +4,8 @@ export class NetworkClient {
     this.listeners = new Map();
     this.connected = false;
     this.pingMs = null;
+    this.jitterMs = 0;
+    this.lastPingSample = null;
     this.serverInfo = null;
     this.pingTimer = null;
 
@@ -24,8 +26,17 @@ export class NetworkClient {
       this.emitLocal("server:ready", payload);
     });
     this.socket.on("pong", (payload) => {
-      this.pingMs = Math.max(0, Date.now() - Number(payload.clientTime));
-      this.emitLocal("network:ping", { pingMs: this.pingMs, serverTime: payload.serverTime });
+      const sample = Math.max(0, Date.now() - Number(payload.clientTime));
+      // Smooth the reading so the number is stable enough to read, and track how
+      // much consecutive samples disagree - jitter is what makes a connection
+      // feel bad, and a steady 90ms plays better than one swinging 40-140ms.
+      if (this.lastPingSample !== null) {
+        const swing = Math.abs(sample - this.lastPingSample);
+        this.jitterMs = Math.round(this.jitterMs * 0.7 + swing * 0.3);
+      }
+      this.lastPingSample = sample;
+      this.pingMs = this.pingMs === null ? sample : Math.round(this.pingMs * 0.6 + sample * 0.4);
+      this.emitLocal("network:ping", { pingMs: this.pingMs, jitterMs: this.jitterMs, serverTime: payload.serverTime });
     });
   }
 
@@ -66,6 +77,8 @@ export class NetworkClient {
     clearInterval(this.pingTimer);
     const ping = () => this.send("ping", { clientTime: Date.now() });
     ping();
-    this.pingTimer = setInterval(ping, 3000);
+    // Every second rather than every three: the readout should react while you
+    // are watching it, and one tiny packet a second costs nothing.
+    this.pingTimer = setInterval(ping, 1000);
   }
 }

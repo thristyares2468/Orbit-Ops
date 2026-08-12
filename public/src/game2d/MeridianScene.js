@@ -3,6 +3,7 @@ import { MapBuilder } from "./MapBuilder.js";
 import { VisionOverlay } from "./VisionOverlay.js";
 import { VentArrows } from "./VentArrows.js";
 import { TrackerArrow } from "./TrackerArrow.js";
+import { NetClock } from "../netClock.js";
 import { DEFAULT_MAP_ID, getMapDefinition } from "../shipData.js";
 import {
   PHASER_ASSETS,
@@ -27,6 +28,9 @@ export class MeridianScene extends Phaser.Scene {
     this.mapId = null;
     this.map = null;
     this.metrics = null;
+    // Snapshots are 20/s; the clock decides how far behind them to draw others.
+    this.netClock = new NetClock(1000 / 20);
+    this.renderTime = null;
   }
 
   preload() {
@@ -128,6 +132,9 @@ export class MeridianScene extends Phaser.Scene {
 
   applySnapshot(snapshot) {
     this.applyVisionState(snapshot);
+    // Every snapshot carries the server's clock; feed it so remote crew can be
+    // played back on that timeline rather than on ours.
+    this.netClock.observe(Number(snapshot.serverTime));
     // Sent only to a Tracker with a live track; null for everyone else.
     this.tracked = snapshot.tracked ?? null;
     const visible = new Set((snapshot.players ?? []).map((player) => player.id));
@@ -136,7 +143,7 @@ export class MeridianScene extends Phaser.Scene {
       character.setSeen(visible.has(id));
     }
     for (const player of snapshot.players ?? []) {
-      this.characters.get(player.id)?.applySnapshot(player, false);
+      this.characters.get(player.id)?.applySnapshot(player, false, Number(snapshot.serverTime));
     }
     this.syncIncidents(snapshot.incidents ?? []);
   }
@@ -263,8 +270,10 @@ export class MeridianScene extends Phaser.Scene {
 
   update(time, deltaMs) {
     const deltaSeconds = Math.min(0.1, Math.max(0.001, deltaMs / 1000));
+    this.netClock.tick(deltaSeconds);
+    this.renderTime = this.netClock.renderServerTime();
     for (const character of this.characters.values()) {
-      character.update(deltaSeconds, this.bridge.settings.reducedMotion, this.ghostView);
+      character.update(deltaSeconds, this.bridge.settings.reducedMotion, this.ghostView, this.renderTime);
     }
     for (const marker of this.stationMarkers) {
       marker.seed += deltaSeconds * 2.5;
