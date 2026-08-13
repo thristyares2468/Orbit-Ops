@@ -28,8 +28,9 @@ services:
       # their live room codes to the SHARED database and route a join to whichever
       # one hosts the room, so these must be set on both sides or the directory
       # stays empty and every remote code reads as "room not found".
-      # PUBLIC_URL must be the launch route, not /tips: the embedded game is behind
-      # the access cookie and that route is what mints it.
+      # PUBLIC_URL may be either the launch route or /tips itself: an arriving
+      # invite carries a one-time room handoff, and the gateway mints the access
+      # cookie for it at whichever of the two doors it knocks on.
       - key: CROSS_SERVER_INSTANCE_ID
         value: orbit-embedded
       - key: CROSS_SERVER_PUBLIC_URL

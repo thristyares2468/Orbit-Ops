@@ -79,12 +79,25 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
     }
   });
 
-  const launch = (request, response) => {
-    if (!gameRoot || !existsSync(join(gameRoot, "server.js"))) return unavailable(response);
+  // The room handoff a cross-server invite arrives with. Shape only: the token is
+  // validated and consumed by the game itself against the shared database, which
+  // this gateway has no business duplicating.
+  const handoffToken = (request) => {
+    const value = String(request.query?.handoff ?? "");
+    return /^[A-Za-z0-9_-]{32,128}$/.test(value) ? value : "";
+  };
+
+  // One place mints the access cookie, so the two doors cannot drift apart.
+  const grantAccess = (response) => {
     const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
     const token = encodeURIComponent(createJimsAccessToken(secret));
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Set-Cookie", `${JIMS_ACCESS_COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=${publicPath}; Max-Age=${ACCESS_LIFETIME_SECONDS}${secure}`);
+  };
+
+  const launch = (request, response) => {
+    if (!gameRoot || !existsSync(join(gameRoot, "server.js"))) return unavailable(response);
+    grantAccess(response);
     // Carry a cross-server room handoff through the door. The embedded game is
     // reachable only with the access cookie, so a player sent here from the
     // standalone deployment has to pass this route to get one - and the redirect
@@ -94,15 +107,24 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
     // Only this one parameter is forwarded, and only in the shape the game will
     // accept, so the route cannot be used to smuggle arbitrary query into the
     // embedded client.
-    const handoff = String(request.query?.handoff ?? "");
-    const carried = /^[A-Za-z0-9_-]{32,128}$/.test(handoff)
-      ? `?handoff=${encodeURIComponent(handoff)}`
-      : "";
-    response.redirect(302, `${publicPath}/${carried}`);
+    const handoff = handoffToken(request);
+    response.redirect(302, `${publicPath}/${handoff ? `?handoff=${encodeURIComponent(handoff)}` : ""}`);
   };
 
   const middleware = (request, response) => {
-    if (!authorized(request)) return response.status(404).send("Not found");
+    if (!authorized(request)) {
+      // A player handed off from the standalone deployment has never been through
+      // the front door, so carries no cookie - and 404ing them made /tips unusable
+      // as an arrival address, which is the obvious thing to advertise. An invite
+      // carries a one-time room handoff, so admit that and mint the cookie here.
+      //
+      // This is no weaker than the door already is: the launch route is itself
+      // unauthenticated, so anyone who knows either URL gets in. What stops a
+      // stranger reaching somebody's room is the token, which the game checks
+      // against the shared database and can only spend once.
+      if (!handoffToken(request)) return response.status(404).send("Not found");
+      grantAccess(response);
+    }
     if (!running) return unavailable(response);
     proxy.web(request, response);
   };
