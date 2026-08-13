@@ -79,13 +79,26 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
     }
   });
 
-  const launch = (_request, response) => {
+  const launch = (request, response) => {
     if (!gameRoot || !existsSync(join(gameRoot, "server.js"))) return unavailable(response);
     const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
     const token = encodeURIComponent(createJimsAccessToken(secret));
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Set-Cookie", `${JIMS_ACCESS_COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=${publicPath}; Max-Age=${ACCESS_LIFETIME_SECONDS}${secure}`);
-    response.redirect(302, `${publicPath}/`);
+    // Carry a cross-server room handoff through the door. The embedded game is
+    // reachable only with the access cookie, so a player sent here from the
+    // standalone deployment has to pass this route to get one - and the redirect
+    // used to drop the query, which turned an invite into "you are logged in,
+    // now find the room yourself".
+    //
+    // Only this one parameter is forwarded, and only in the shape the game will
+    // accept, so the route cannot be used to smuggle arbitrary query into the
+    // embedded client.
+    const handoff = String(request.query?.handoff ?? "");
+    const carried = /^[A-Za-z0-9_-]{32,128}$/.test(handoff)
+      ? `?handoff=${encodeURIComponent(handoff)}`
+      : "";
+    response.redirect(302, `${publicPath}/${carried}`);
   };
 
   const middleware = (request, response) => {
