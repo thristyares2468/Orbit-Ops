@@ -7,6 +7,8 @@ import httpProxy from "http-proxy";
 export const JIMS_PUBLIC_PATH = "/tips";
 export const JIMS_ACCESS_COOKIE = "orbitOps.jimsAccess";
 const ACCESS_LIFETIME_SECONDS = 6 * 60 * 60;
+const RESTART_MIN_MS = 1000;
+const RESTART_MAX_MS = 30000;
 
 function digest(value, secret) {
   return createHmac("sha256", String(secret || "orbit-ops-local-jims-gateway"))
@@ -53,6 +55,9 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
   const proxy = httpProxy.createProxyServer({ target, ws: true, xfwd: true });
   let child = null;
   let running = false;
+  let restartTimer = null;
+  let restartAttempt = 0;
+  let stopping = false;
 
   const readiness = () => ({
     available: Boolean(gameRoot && existsSync(join(gameRoot, "server.js"))),
@@ -108,6 +113,18 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
   };
   server.prependListener("upgrade", handleUpgrade);
 
+  const scheduleRestart = () => {
+    if (stopping || restartTimer || process.env.NODE_ENV === "test" || process.env.DISABLE_JIMS_GAME === "1") return;
+    const delay = Math.min(RESTART_MAX_MS, RESTART_MIN_MS * (2 ** restartAttempt));
+    restartAttempt += 1;
+    console.warn(`[jims-gateway] restarting child in ${delay}ms.`);
+    restartTimer = setTimeout(() => {
+      restartTimer = null;
+      start();
+    }, delay);
+    restartTimer.unref();
+  };
+
   const start = () => {
     if (process.env.NODE_ENV === "test" || process.env.DISABLE_JIMS_GAME === "1") return;
     if (child || !gameRoot || !existsSync(join(gameRoot, "server.js"))) {
@@ -121,13 +138,20 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
       console.warn("[jims-gateway] Jim's game is disabled until its three JIMS_* secrets are configured.");
       return;
     }
-    child = spawn(process.execPath, ["server.js"], {
+    stopping = false;
+    const spawnedChild = spawn(process.execPath, ["server.js"], {
       cwd: gameRoot,
       env: {
         ...process.env,
         PORT: String(childPort),
         PUBLIC_BASE_PATH: publicPath,
         DATABASE_URL: process.env.JIMS_DATABASE_URL || "",
+        DATABASE_POOL_MAX: process.env.JIMS_DATABASE_POOL_MAX || "6",
+        DATABASE_CONNECT_TIMEOUT_MS: process.env.JIMS_DATABASE_CONNECT_TIMEOUT_MS || "15000",
+        DATABASE_IDLE_TIMEOUT_MS: process.env.JIMS_DATABASE_IDLE_TIMEOUT_MS || "60000",
+        DATABASE_QUERY_TIMEOUT_MS: process.env.JIMS_DATABASE_QUERY_TIMEOUT_MS || "12000",
+        DATABASE_MAX_LIFETIME_SECONDS: process.env.JIMS_DATABASE_MAX_LIFETIME_SECONDS || "900",
+        DATABASE_APPLICATION_NAME: "orbit-ops-embedded",
         ADMIN_TOKEN: process.env.JIMS_ADMIN_TOKEN || "local-jims-admin-token",
         DEVICE_SECRET: process.env.JIMS_DEVICE_SECRET || "local-jims-device-secret",
         MAIL_PROVIDER: process.env.JIMS_MAIL_PROVIDER || "",
@@ -138,20 +162,33 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
       },
       stdio: ["ignore", "pipe", "pipe"]
     });
-    child.stdout.on("data", (chunk) => {
+    child = spawnedChild;
+    let settled = false;
+    spawnedChild.stdout.on("data", (chunk) => {
       const output = String(chunk);
-      if (output.includes("Server running at")) running = true;
+      if (output.includes("Server running at")) {
+        running = true;
+        restartAttempt = 0;
+      }
       process.stdout.write(`[jims] ${chunk}`);
     });
-    child.stderr.on("data", (chunk) => process.stderr.write(`[jims] ${chunk}`));
-    child.once("exit", (code, signal) => {
+    spawnedChild.stderr.on("data", (chunk) => process.stderr.write(`[jims] ${chunk}`));
+    const childStopped = (reason) => {
+      if (settled) return;
+      settled = true;
       running = false;
-      child = null;
-      console.warn(`[jims-gateway] child stopped (${signal || code || 0}).`);
-    });
+      if (child === spawnedChild) child = null;
+      console.warn(`[jims-gateway] child stopped (${reason}).`);
+      scheduleRestart();
+    };
+    spawnedChild.once("error", (error) => childStopped(error.message));
+    spawnedChild.once("exit", (code, signal) => childStopped(signal || code || 0));
   };
 
   const stop = () => {
+    stopping = true;
+    if (restartTimer) clearTimeout(restartTimer);
+    restartTimer = null;
     server.removeListener("upgrade", handleUpgrade);
     proxy.close();
     if (child && !child.killed) child.kill("SIGTERM");
