@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   password_hash text NOT NULL,
   display_name varchar(22) NOT NULL,
   account_status varchar(20) NOT NULL DEFAULT 'active' CHECK (account_status IN ('active', 'suspended', 'banned', 'deleted')),
-  role varchar(20) NOT NULL DEFAULT 'player' CHECK (role IN ('player', 'moderator', 'admin')),
+  role varchar(20) NOT NULL DEFAULT 'player' CHECK (role IN ('player', 'moderator', 'admin', 'owner')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   last_login_at timestamptz

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 import { checkDatabaseHealth, closeDatabase, isDatabaseConfigured } from "./database/database.js";
+import { provisionConfiguredOwner } from "./database/ownerProvisioning.js";
 import { SERVER_VERSION } from "./server/constants.js";
 import { GameServer } from "./server/gameServer.js";
 import { createJimsGateway } from "./server/jimsGateway.js";
@@ -91,6 +92,12 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Orbit Ops server listening on port ${PORT}`);
   if (!isDatabaseConfigured()) console.warn("DATABASE_URL is not configured; guest multiplayer remains available.");
+  provisionConfiguredOwner()
+    .then((result) => {
+      if (result?.found && result.updated) console.log("Configured Orbit Ops owner account.");
+      else if (result?.configured && !result.found) console.warn("Configured Orbit Ops owner account was not found; provisioning will retry on restart.");
+    })
+    .catch((error) => console.error("Configured Orbit Ops owner provisioning failed:", error.message));
 });
 
 jimsGateway.start();
