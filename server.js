@@ -75,6 +75,10 @@ app.get("/health", async (_request, response) => {
     serverVersion: SERVER_VERSION,
     jimsGameAvailable: jimsGateway.available,
     jimsGameRunning: jimsGateway.running,
+    // The hidden game's own health route answers 503 while it is down, and a 503
+    // body is the thing most clients throw away - so when it is down the reason
+    // rides along here, on the route that always answers 200.
+    ...(jimsGateway.running ? {} : { jimsGame: jimsGateway.readiness() }),
     timestamp: new Date().toISOString()
   });
 });

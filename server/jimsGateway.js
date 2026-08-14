@@ -58,12 +58,24 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
   let restartTimer = null;
   let restartAttempt = 0;
   let stopping = false;
+  // Why the child is not up. A boot failure here is deterministic - a missing
+  // secret, a migration that will not apply - so the gateway retries forever and
+  // every attempt fails the same way. Reporting only `running: false` meant the
+  // reason existed solely in the platform's log stream, which is the one place
+  // you cannot reach from a browser when the game is down.
+  let lastExit = null;
+  let lastStderr = "";
 
   const readiness = () => ({
     available: Boolean(gameRoot && existsSync(join(gameRoot, "server.js"))),
     running,
     productionSecretsReady: Boolean(process.env.JIMS_DATABASE_URL && process.env.JIMS_ADMIN_TOKEN && process.env.JIMS_DEVICE_SECRET),
-    requiredVariables: ["JIMS_DATABASE_URL", "JIMS_ADMIN_TOKEN", "JIMS_DEVICE_SECRET"].filter((name) => !process.env[name])
+    requiredVariables: ["JIMS_DATABASE_URL", "JIMS_ADMIN_TOKEN", "JIMS_DEVICE_SECRET"].filter((name) => !process.env[name]),
+    restartAttempt,
+    // Diagnostics only: the child's own last words and how it died. No secret is
+    // echoed here - the child prints connection errors, not connection strings.
+    lastExit,
+    lastError: lastStderr
   });
 
   const authorized = (request) => verifyJimsAccessToken(cookieValue(request, JIMS_ACCESS_COOKIE), secret);
@@ -163,13 +175,19 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
   const start = () => {
     if (process.env.NODE_ENV === "test" || process.env.DISABLE_JIMS_GAME === "1") return;
     if (child || !gameRoot || !existsSync(join(gameRoot, "server.js"))) {
-      if (!gameRoot || !existsSync(join(gameRoot, "server.js"))) console.warn("[jims-gateway] Jim's game source is unavailable; run npm run jims:sync.");
+      if (!gameRoot || !existsSync(join(gameRoot, "server.js"))) {
+        // A refusal to spawn leaves no child to report its own death, so the
+        // reason has to be recorded here or readiness() says nothing at all.
+        lastExit = "not-started: game source is unavailable; run npm run jims:sync";
+        console.warn("[jims-gateway] Jim's game source is unavailable; run npm run jims:sync.");
+      }
       return;
     }
     const productionSecretsReady = Boolean(
       process.env.JIMS_DATABASE_URL && process.env.JIMS_ADMIN_TOKEN && process.env.JIMS_DEVICE_SECRET
     );
     if (process.env.NODE_ENV === "production" && !productionSecretsReady) {
+      lastExit = "not-started: missing JIMS_* secrets";
       console.warn("[jims-gateway] Jim's game is disabled until its three JIMS_* secrets are configured.");
       return;
     }
@@ -204,14 +222,22 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
       if (output.includes("Server running at")) {
         running = true;
         restartAttempt = 0;
+        lastExit = null;
+        lastStderr = "";
       }
       process.stdout.write(`[jims] ${chunk}`);
     });
-    spawnedChild.stderr.on("data", (chunk) => process.stderr.write(`[jims] ${chunk}`));
+    spawnedChild.stderr.on("data", (chunk) => {
+      // Keep the tail rather than the whole stream: the useful line is the last
+      // one, and an unbounded buffer on a crash loop is its own problem.
+      lastStderr = `${lastStderr}${chunk}`.slice(-600);
+      process.stderr.write(`[jims] ${chunk}`);
+    });
     const childStopped = (reason) => {
       if (settled) return;
       settled = true;
       running = false;
+      lastExit = String(reason);
       if (child === spawnedChild) child = null;
       console.warn(`[jims-gateway] child stopped (${reason}).`);
       scheduleRestart();
@@ -236,6 +262,7 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
     launch,
     middleware,
     health,
+    readiness,
     start,
     stop,
     get available() { return Boolean(gameRoot && existsSync(join(gameRoot, "server.js"))); },
