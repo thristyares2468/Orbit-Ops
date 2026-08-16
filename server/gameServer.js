@@ -38,6 +38,7 @@ import {
   TICK_RATE, VISION
 } from "./constants.js";
 import { RateLimiter } from "./rateLimits.js";
+import { ConnectionFloodGuard } from "./connectionFlood.js";
 import { checkSoloWin, fireHook, performRoleAbility, survivorWinnerIds } from "./roleEngine.js";
 import {
   cleanText, isPlainObject, validateAppearance, validateChat, validateDisplayName, validateUuid,
@@ -309,6 +310,9 @@ export class GameServer {
     this.rooms = new Map();
     this.socketPlayers = new Map();
     this.rateLimiter = new RateLimiter();
+    // Sheds connection floods before a socket is paid for. The per-action
+    // limiter below only runs once a connection already exists.
+    this.floodGuard = new ConnectionFloodGuard();
     this.parties = new PartyRegistry();
     // Identifies this process in the shared room-code directory. A random id per
     // boot is right: a restarted instance has no rooms, so its old claims should
@@ -320,7 +324,7 @@ export class GameServer {
     this.startedAt = Date.now();
     this.lastTickAt = Date.now();
     this.loop = setInterval(() => this.tick(), 1000 / TICK_RATE);
-    this.rateCleanup = setInterval(() => this.rateLimiter.cleanup(), 60_000);
+    this.rateCleanup = setInterval(() => { this.rateLimiter.cleanup(); this.floodGuard.sweep(); }, 60_000);
     this.io.on("connection", (socket) => this.registerSocket(socket));
   }
 
@@ -335,6 +339,17 @@ export class GameServer {
   }
 
   registerSocket(socket) {
+    const clientIp = socket.data?.clientIp ?? "unknown";
+    const refusal = this.floodGuard.admit(clientIp);
+    if (refusal) {
+      // The client is told nothing useful: a flood must not learn the limits.
+      console.warn(`[flood] refused ${clientIp} (${refusal})`);
+      socket.emit("errorMessage", { action: "connect", message: "Too many connections. Try again shortly." });
+      socket.disconnect(true);
+      return;
+    }
+    socket.data.floodAddress = clientIp;
+    socket.data.floodAuthenticated = false;
     socket.data.auth = null;
     socket.emit("connected", {
       socketId: socket.id,
@@ -345,6 +360,7 @@ export class GameServer {
 
     socket.on("guestLogin", (payload, ack) => this.guard(socket, "guestLogin", 5, 60_000, ack, async () => {
       const displayName = validateDisplayName(payload?.displayName ?? `Explorer-${Math.floor(Math.random() * 900 + 100)}`);
+      this.promoteConnection(socket);
       socket.data.auth = {
         accountId: null, displayName, guest: true,
         role: "player",
@@ -356,6 +372,7 @@ export class GameServer {
 
     socket.on("register", (payload, ack) => this.guard(socket, "register", 3, 5 * 60_000, ack, async () => {
       const result = await register(payload);
+      this.promoteConnection(socket);
       socket.data.auth = {
         accountId: result.account.id, displayName: result.account.displayName,
         guest: false, role: result.account.role ?? "player", appearance: validateAppearance(payload?.appearance)
@@ -366,6 +383,7 @@ export class GameServer {
 
     socket.on("login", (payload, ack) => this.guard(socket, "login", 5, 5 * 60_000, ack, async () => {
       const result = await login(payload);
+      this.promoteConnection(socket);
       socket.data.auth = {
         accountId: result.account.id, displayName: result.account.displayName,
         guest: false, role: result.account.role ?? "player", appearance: validateAppearance(payload?.appearance)
@@ -377,6 +395,7 @@ export class GameServer {
     socket.on("resumeSession", (payload, ack) => this.guard(socket, "resumeSession", 8, 60_000, ack, async () => {
       const result = await resume(payload?.token);
       if (!result) throw new Error("Your saved account session has expired.");
+      this.promoteConnection(socket);
       socket.data.auth = {
         accountId: result.account.id, displayName: result.account.displayName,
         guest: false, role: result.account.role ?? "player", appearance: validateAppearance(payload?.appearance)
@@ -717,7 +736,12 @@ export class GameServer {
     }));
     socket.on("ping", (payload) => socket.emit("pong", { clientTime: Number(payload?.clientTime) || Date.now(), serverTime: Date.now() }));
 
-    socket.on("disconnect", () => this.leaveCurrentRoom(socket, true));
+    socket.on("disconnect", () => {
+      this.floodGuard.released(socket.data.floodAddress, {
+        wasAuthenticated: Boolean(socket.data.floodAuthenticated)
+      });
+      this.leaveCurrentRoom(socket, true);
+    });
   }
 
   async guard(socket, action, limit, windowMs, ack, callback) {
@@ -741,6 +765,14 @@ export class GameServer {
       if (!room || !player || !player.connected) throw new Error("Player state is unavailable.");
       return callback(room, player);
     });
+  }
+
+  // A connection that has identified itself stops counting against the
+  // unauthenticated pool, so a household behind one address is not penalised.
+  promoteConnection(socket) {
+    if (socket.data.floodAuthenticated) return;
+    socket.data.floodAuthenticated = true;
+    this.floodGuard.authenticated(socket.data.floodAddress);
   }
 
   requireAuth(socket) {
