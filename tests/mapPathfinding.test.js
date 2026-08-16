@@ -79,6 +79,6 @@ test("the emergency button has a collision-safe use position at the table rim", 
   const button = stationById(map.id, "meeting-console");
   const path = findWalkablePath(map.id, cafeteria, button, { step: 0.5 });
   assert.ok(path.length > 0, "the emergency table is reachable from Cafeteria floor");
-  assert.ok(Math.hypot(path.at(-1).x - button.x, path.at(-1).z - button.z) <= 2.75,
-    "the table pedestal leaves the button inside the player's use radius");
+  assert.ok(Math.hypot(path.at(-1).x - button.x, path.at(-1).z - button.z) <= button.range,
+    "the table pedestal leaves the button inside its authored use radius");
 });

@@ -46,6 +46,17 @@ test("removed map ids fall back to The Skeld and their assets are not preloaded"
   assert.ok(Object.keys(PHASER_ASSETS).every((key) => !key.startsWith("mira-") && !key.startsWith("polus-")));
 });
 
+test("station lookup uses each immutable map definition's private index", () => {
+  const skeld = getMapDefinition("the-skeld");
+  const lobby = getMapDefinition(LOBBY_MAP_ID);
+  assert.equal(stationById("the-skeld", "meeting-console"),
+    skeld.stations.find(({ id }) => id === "meeting-console"));
+  assert.equal(stationById(LOBBY_MAP_ID, "lobby-launch"), lobby.stations[0]);
+  assert.equal(stationById("the-skeld", "missing-station"), null);
+  assert.equal(Object.hasOwn(skeld, "stationIndex"), false,
+    "the mutable lookup table must not leak into serialisable map data");
+});
+
 test("the dropship lobby is a valid map that is never selectable as a match map", () => {
   const lobby = getMapDefinition(LOBBY_MAP_ID);
   assert.equal(lobby.id, "lobby-dropship");
@@ -148,17 +159,17 @@ test("Skeld physical corridors are the sixteen traced deck sections", () => {
   assert.deepEqual(skeld.corridors.map(({ id, referenceRect }) => [id, referenceRect]), [
     ["port-engine-spine", { left: 210, top: 205, right: 342, bottom: 408 }],
     ["upper-engine-cafeteria-hall", { left: 315, top: 110, right: 560, bottom: 171 }],
-    ["medbay-neck", { left: 432, top: 155, right: 550, bottom: 203 }],
+    ["medbay-neck", { left: 432, top: 167, right: 524, bottom: 203 }],
     ["lower-engine-electrical-hall", { left: 315, top: 427, right: 454, bottom: 491 }],
     ["lower-engine-storage-bypass", { left: 315, top: 500, right: 568, bottom: 568 }],
-    ["electrical-south-neck", { left: 426, top: 478, right: 550, bottom: 532 }],
+    ["electrical-south-neck", { left: 426, top: 490, right: 550, bottom: 544 }],
     ["cafeteria-storage-spine", { left: 642, top: 275, right: 717, bottom: 416 }],
     ["admin-branch", { left: 697, top: 305, right: 780, bottom: 390 }],
     ["storage-shields-hall", { left: 710, top: 440, right: 893, bottom: 503 }],
-    ["communications-neck", { left: 779, top: 484, right: 829, bottom: 527 }],
+    ["communications-neck", { left: 779, top: 483, right: 829, bottom: 525 }],
     ["cafeteria-weapons-hall", { left: 811, top: 107, right: 875, bottom: 173 }],
     ["weapons-south-neck", { left: 911, top: 176, right: 981, bottom: 263 }],
-    ["o2-navigation-junction", { left: 908, top: 231, right: 1007, bottom: 318 }],
+    ["o2-navigation-junction", { left: 908, top: 225, right: 1007, bottom: 312 }],
     ["navigation-hall", { left: 978, top: 245, right: 1103, bottom: 316 }],
     ["starboard-spine", { left: 919, top: 291, right: 987, bottom: 455 }],
     ["shields-north-neck", { left: 909, top: 406, right: 992, bottom: 458 }]

@@ -214,6 +214,40 @@ test("every map emergency button starts a meeting and consumes the caller allowa
   }
 });
 
+test("a critical sabotage does not consume an emergency meeting attempt", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  room.activeSabotage = { id: "critical-test", critical: true };
+  const station = stationById("the-skeld", "meeting-console");
+  const reporter = player("meeting-reporter", "crew", { x: station.x, z: station.z });
+  room.players.set(reporter.id, reporter);
+
+  assert.throws(() => server.callMeeting(room, reporter), /critical sabotage/u);
+  assert.equal(reporter.emergencyMeetings, 0);
+  assert.equal(room.meeting, null);
+});
+
+test("a critical sabotage does not mark an incident reported or award evidence", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  room.activeSabotage = { id: "critical-test", critical: true };
+  const reporter = player("incident-reporter", "crew", { x: 1, z: 2 });
+  const incident = {
+    id: "blocked-incident", x: 1, z: 2, roomId: "cafeteria", reported: false,
+    evidence: [{ type: "time-window", detail: "Recent." }]
+  };
+  room.players.set(reporter.id, reporter);
+  room.incidents.set(incident.id, incident);
+
+  assert.throws(() => server.reportIncident(room, reporter, incident.id), /critical sabotage/u);
+  assert.equal(incident.reported, false);
+  assert.equal(reporter.matchStats.incidentsReported, 0);
+  assert.equal(reporter.matchStats.evidenceFound, 0);
+  assert.equal(room.meeting, null);
+});
+
 test("the first fallen crew member becomes a Guardian Angel ghost who can shield the living", () => {
   const io = new RecordingIo();
   server = new GameServer(io);
@@ -235,7 +269,7 @@ test("the first fallen crew member becomes a Guardian Angel ghost who can shield
   assert.equal(room.guardianAngelId, first.id);
 
   const protect = server.roleAction(room, first, { targetId: second.id });
-  assert.equal(protect.effect, "protect");
+  assert.equal(protect.effect, "guardian-shield");
   assert.ok(second.roleState.protectedUntil > Date.now());
 
   operative.lastEliminationAt = Date.now() - 11_000;
@@ -464,11 +498,12 @@ test("crew bots use embedded repair panels from their collision-safe edge", () =
   responder.botPath = [];
 
   const clearDistance = Math.hypot(responder.position.x - panel.x, responder.position.z - panel.z);
-  assert.ok(clearDistance > 1.6 && clearDistance <= 2.8,
-    "the wall panel is only reachable within the shared interaction radius");
+  assert.ok(isWalkable(map.id, responder.position.x, responder.position.z, 0.2));
+  assert.ok(clearDistance <= panel.range,
+    "the wall panel is reachable from a collision-safe interaction point");
   server.tickBot(room, responder, Date.now(), 0.05);
-  assert.equal(room.activeSabotage.repairs.has(panel.id), true,
-    "the responder activates the panel without crossing its collision");
+  assert.ok(room.activeSabotage.panel.holds[panel.id] > Date.now(),
+    "the responder holds the scanner without crossing its collision");
 });
 
 test("crew bots follow tight Skeld corners and clear a two-panel meltdown", () => {
@@ -531,7 +566,7 @@ test("sight is limited to a radius and collapses when the lights go out", () => 
   assert.ok(litCrew > 0);
   assert.ok(litOperative > litCrew, "operatives see further than crew");
 
-  room.activeSabotage = { id: "skeld-lights-out", repairStations: [], repairs: new Set() };
+  room.activeSabotage = { id: "renamed-darkness", blindsPlayers: true, repairStations: [], repairs: new Set() };
   assert.equal(server.lightsAreOut(room), true);
   const darkCrew = server.visionRadiusFor(room, crew);
   const darkOperative = server.visionRadiusFor(room, operative);
@@ -539,7 +574,7 @@ test("sight is limited to a radius and collapses when the lights go out", () => 
   assert.ok(darkOperative > darkCrew, "the operative keeps the advantage in the dark");
 
   // A non-lighting sabotage must not darken anything.
-  room.activeSabotage = { id: "skeld-reactor-meltdown", repairStations: [], repairs: new Set() };
+  room.activeSabotage = { id: "skeld-lights-out", blindsPlayers: false, repairStations: [], repairs: new Set() };
   assert.equal(server.lightsAreOut(room), false);
   assert.equal(server.visionRadiusFor(room, crew), litCrew);
 });
@@ -715,7 +750,7 @@ test("the admin table reports live occupancy without naming anyone", () => {
 
   // Vented players are off the table entirely, and darkness kills the feed.
   assert.equal(view.rooms.reduce((total, item) => total + item.count, 0), 2);
-  room.activeSabotage = { id: "skeld-lights-out", repairStations: [], repairs: new Set() };
+  room.activeSabotage = { id: "renamed-darkness", blindsPlayers: true, repairStations: [], repairs: new Set() };
   assert.throws(() => server.requestAdmin(room, reader), /dark/u);
 });
 
@@ -739,15 +774,17 @@ test("cameras show a live feed and exclude vented players", () => {
   assert.ok(walkerFeed.at >= Date.now() - 1000, "and is current, not delayed");
 });
 
-test("the nine reference assignments all resolve to real stations", () => {
+test("all eighteen Skeld assignments resolve to real stations", () => {
   server = new GameServer(new RecordingIo());
   const map = getMapDefinition("the-skeld");
-  assert.equal(map.taskDefinitions.length, 9);
+  assert.equal(map.taskDefinitions.length, 18);
   const names = map.taskDefinitions.map((task) => task.name);
   for (const expected of [
-    "Turn On The Lights", "Fix The Electricity Wires", "Stabilize The Ship's Navigation",
-    "Reboot The Wifi", "Empty The Garbage", "Divert Power To Reactor",
-    "Align Engine Output", "Fuel Lower Engine", "Clear The Asteroids"
+    "Fix Wiring", "Swipe Card", "Download Data", "Empty Garbage", "Empty Chute",
+    "Fuel Engines", "Divert Power", "Start Reactor", "Unlock Manifolds",
+    "Align Engine Output", "Clear Asteroids", "Prime Shields", "Chart Course",
+    "Stabilize Steering", "Submit Scan", "Inspect Sample", "Clean O2 Filter",
+    "Calibrate Distributor"
   ]) {
     assert.ok(names.includes(expected), `${expected} is assignable`);
   }
@@ -787,7 +824,7 @@ test("retaliation does not recurse when two guarded roles meet", () => {
   werewolf.roleState.rampageUntil = Date.now() + 10_000;
 
   // Must terminate rather than bouncing the kill back and forth forever.
-  server.eliminateInternal(room, werewolf, veteran, "test");
+  server.eliminateInternal(room, werewolf, veteran, "test", { ignoreFaction: true });
   assert.equal(veteran.alive, true);
   assert.equal(werewolf.alive, false);
 });
@@ -913,6 +950,18 @@ test("the Plumber seals a vent and it stops working", () => {
   assert.throws(() => server.enterVent(room, operative, room.sealedVents[0]), /welded shut/u);
 });
 
+test("the Plumber cannot seal a vent from across the map", () => {
+  server = new GameServer(new RecordingIo());
+  const room = server.createRoom("private", {});
+  room.phase = PHASES.ACTIVE;
+  const vent = stationById("the-skeld", "skeld-vent-cafeteria");
+  const plumber = assignRole(player("distant-plumber", "crew", { x: vent.x + 20, z: vent.z + 20 }), "plumber", "crew", 2);
+  room.players.set(plumber.id, plumber);
+
+  assert.throws(() => server.roleAction(room, plumber, {}), /move closer to a vent/iu);
+  assert.deepEqual(room.sealedVents, []);
+});
+
 test("a killer neutral takes the match once nothing living opposes it", () => {
   server = new GameServer(new RecordingIo());
   const room = server.createRoom("private", {});
@@ -1031,14 +1080,14 @@ test("the vent network matches the canonical Skeld layout", () => {
   const networks = new Map();
   for (const vent of vents) {
     if (!networks.has(vent.refId)) networks.set(vent.refId, []);
-    networks.get(vent.refId).push(vent.roomId);
+    networks.get(vent.refId).push(vent.label?.toLocaleLowerCase() ?? vent.roomId);
   }
   // Two three-vent loops and four two-vent loops, as on the real map.
   const sizes = [...networks.values()].map((rooms) => rooms.length).sort();
   assert.deepEqual(sizes, [2, 2, 2, 2, 3, 3]);
 
   const expected = {
-    "vent-cafeteria-admin": ["admin", "admin", "cafeteria"],
+    "vent-cafeteria-admin": ["admin", "cafeteria", "hallway"],
     "vent-electrical-security-medbay": ["electrical", "medbay", "security"],
     "vent-upper-engine": ["reactor", "upper-engine"],
     "vent-lower-engine": ["lower-engine", "reactor"],

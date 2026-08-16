@@ -1,5 +1,5 @@
 import { LOBBY_DROPSHIP, LOBBY_MAP_ID } from "./maps/lobbyDropship.js";
-import { mapIsWalkable, mapRoomAt } from "./maps/mapFactory.js";
+import { mapIsWalkable, mapRoomAt, mapStationById } from "./maps/mapFactory.js";
 import { THE_SKELD } from "./maps/theSkeld.js";
 
 export const DEFAULT_MAP_ID = "the-skeld";
@@ -37,7 +37,7 @@ export function roomAt(mapId, x, z) {
 }
 
 export function stationById(mapId, stationId) {
-  return getMapDefinition(mapId).stations.find((station) => station.id === stationId) ?? null;
+  return mapStationById(getMapDefinition(mapId), stationId);
 }
 
 export function distance2D(a, b) {

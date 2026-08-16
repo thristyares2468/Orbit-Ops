@@ -1,4 +1,5 @@
 import { repairPanelFor } from "./sabotage/repairPanels.js";
+import { claimTaskModal, ownsTaskModal, releaseTaskModal } from "./taskModalOwner.js";
 
 // Drives a sabotage repair panel. It borrows the task modal's shell rather than
 // adding a second one, but the flow is its own: repair panels are shared between
@@ -29,7 +30,7 @@ export class RepairInterface {
     this.live = null;
     // The task interface owns the same button; each only acts on its own session.
     document.querySelector("#task-cancel")?.addEventListener("click", () => {
-      if (this.active) this.close();
+      if (this.active && ownsTaskModal(this)) this.close();
     });
   }
 
@@ -39,6 +40,7 @@ export class RepairInterface {
     const kind = payload?.panel?.kind;
     const panel = repairPanelFor(kind);
     if (!panel) return false;
+    if (!claimTaskModal(this)) return false;
     this.dispose();
     this.active = { stationId: payload.stationId, sabotageId: payload.sabotage?.id, kind };
 
@@ -99,9 +101,12 @@ export class RepairInterface {
   }
 
   close() {
+    if (!ownsTaskModal(this)) return false;
     this.dispose();
     this.active = null;
     this.stage.replaceChildren();
     this.modal.classList.add("is-hidden");
+    releaseTaskModal(this);
+    return true;
   }
 }

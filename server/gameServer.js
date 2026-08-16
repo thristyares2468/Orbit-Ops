@@ -1,13 +1,15 @@
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { isDatabaseConfigured } from "../database/database.js";
-import { updateSettings } from "../database/repositories/accountsRepository.js";
+import { getActiveAccountRestrictions, updateSettings } from "../database/repositories/accountsRepository.js";
 import { recordMatch } from "../database/repositories/statsRepository.js";
 import { login, logout, profile, register, resume } from "./authService.js";
 import {
   DEFAULT_MAP_ID, LOBBY_MAP_ID, MAP_DEFINITIONS, distance2D, getMapDefinition, isWalkable, roomAt,
   stationById
 } from "../public/src/shipData.js";
+import { doorStepAllowed } from "../public/src/doorPhysics.js";
 import { findWalkablePath, segmentWalkable } from "../public/src/mapPathfinding.js";
+import { INTERACTION_RANGE, ROLE_TARGET_RANGE } from "../public/src/gameplayConstants.js";
 import { advancePlayerPosition, movementAnimation, playerMovementSpeed } from "../public/src/movementPhysics.js";
 import { rolePoolForFaction } from "../public/src/roleSettings.js";
 import {
@@ -26,7 +28,10 @@ import {
 } from "./validation.js";
 
 const ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const INTERACTION_RANGE = 2.8;
+const IP_LIMITED_AUTH_ACTIONS = new Set(["login", "register", "resumeSession"]);
+// The previous room capability exists only to recover a successful resume whose
+// acknowledgement was lost. It must not become a second long-lived bearer.
+const REJOIN_PREVIOUS_TOKEN_GRACE_MS = 15_000;
 // A station may widen its own reach; the emergency button sits on the cafeteria
 // table, which nobody can stand on, so it is worked from the floor around it.
 const reachOf = (station) => station?.range ?? INTERACTION_RANGE;
@@ -50,7 +55,7 @@ function makeRepairPanel(definition) {
       // One to five of the five are thrown, as the real panel does.
       const switches = [true, true, true, true, true];
       const down = 1 + pick(5);
-      const order = [0, 1, 2, 3, 4].sort(() => Math.random() - 0.5).slice(0, down);
+      const order = shuffle([0, 1, 2, 3, 4]).slice(0, down);
       for (const index of order) switches[index] = false;
       return { kind: "switches", switches };
     }
@@ -68,15 +73,17 @@ function makeRepairPanel(definition) {
   }
 }
 
-// What a client is allowed to see of the panel. Everything here is on the wall in
-// front of the player anyway; the server keeps it only so every player sees one
-// shared puzzle rather than each inventing their own.
-function publicRepairPanel(sabotage) {
+// What a client is allowed to see of the panel. Shared broadcasts omit details
+// that must be read at the console itself; the server still keeps one canonical
+// puzzle so everyone working there sees the same state.
+function publicRepairPanel(sabotage, { includeKeypadCode = false } = {}) {
   const panel = sabotage.panel ?? { kind: "none" };
   const now = Date.now();
   const base = { kind: panel.kind, repaired: [...sabotage.repairs] };
   if (panel.kind === "switches") return { ...base, switches: [...panel.switches] };
-  if (panel.kind === "keypad") return { ...base, code: panel.code };
+  if (panel.kind === "keypad") {
+    return includeKeypadCode ? { ...base, code: panel.code } : base;
+  }
   if (panel.kind === "radio") return { ...base, target: panel.target, tolerance: panel.tolerance };
   if (panel.kind === "handprint") {
     return {
@@ -120,10 +127,15 @@ function makeTaskChallenge(definition, site = 0) {
       return [site];
   }
 }
-const ROLE_TARGET_RANGE = 3.2;
-
 function hashOpaque(value) {
   return createHmac("sha256", SESSION_SECRET).update(String(value)).digest("hex");
+}
+
+export function rateLimitKey(socket, action) {
+  const clientIp = socket.data?.clientIp || socket.handshake?.address || "unknown";
+  return IP_LIMITED_AUTH_ACTIONS.has(action)
+    ? `ip:${clientIp}:${action}`
+    : `socket:${clientIp}:${socket.id}:${action}`;
 }
 
 function randomRoomCode() {
@@ -224,14 +236,10 @@ function publicPlayer(player) {
   };
 }
 
-function snapshotPlayer(player, room) {
-  const now = Date.now();
+function snapshotPlayer(player, room, shieldedPlayerIds = new Set(), now = Date.now()) {
   const morphTarget = player.role === "morphling" && player.roleState?.activeUntil > now
     ? room.players.get(player.roleState.morphTargetId)
     : null;
-  const medicShield = [...room.players.values()].some((candidate) =>
-    candidate.alive && candidate.role === "medic" && candidate.roleState?.shieldTargetId === player.id
-  );
   return {
     id: player.id,
     x: Number(player.position.x.toFixed(3)),
@@ -245,7 +253,7 @@ function snapshotPlayer(player, room) {
     seq: player.lastInputSeq,
     visualAppearance: morphTarget?.appearance ?? player.appearance,
     hidden: Boolean(player.ventId) || (player.role === "swooper" && player.roleState?.activeUntil > now),
-    shielded: medicShield || player.roleState?.protectedUntil > now
+    shielded: shieldedPlayerIds.has(player.id) || player.roleState?.protectedUntil > now
   };
 }
 
@@ -319,10 +327,10 @@ export class GameServer {
       const displayName = validateDisplayName(payload?.displayName ?? `Explorer-${Math.floor(Math.random() * 900 + 100)}`);
       socket.data.auth = {
         accountId: null, displayName, guest: true,
+        role: "player",
         appearance: validateAppearance(payload?.appearance)
       };
       const result = { ok: true, guest: true, displayName, account: null };
-      socket.emit("authenticationResult", result);
       return result;
     }));
 
@@ -330,10 +338,9 @@ export class GameServer {
       const result = await register(payload);
       socket.data.auth = {
         accountId: result.account.id, displayName: result.account.displayName,
-        guest: false, appearance: validateAppearance(payload?.appearance)
+        guest: false, role: result.account.role ?? "player", appearance: validateAppearance(payload?.appearance)
       };
       const response = { ok: true, ...result };
-      socket.emit("authenticationResult", response);
       return response;
     }));
 
@@ -341,10 +348,9 @@ export class GameServer {
       const result = await login(payload);
       socket.data.auth = {
         accountId: result.account.id, displayName: result.account.displayName,
-        guest: false, appearance: validateAppearance(payload?.appearance)
+        guest: false, role: result.account.role ?? "player", appearance: validateAppearance(payload?.appearance)
       };
       const response = { ok: true, ...result };
-      socket.emit("authenticationResult", response);
       return response;
     }));
 
@@ -353,10 +359,9 @@ export class GameServer {
       if (!result) throw new Error("Your saved account session has expired.");
       socket.data.auth = {
         accountId: result.account.id, displayName: result.account.displayName,
-        guest: false, appearance: validateAppearance(payload?.appearance)
+        guest: false, role: result.account.role ?? "player", appearance: validateAppearance(payload?.appearance)
       };
       const response = { ok: true, ...result };
-      socket.emit("authenticationResult", response);
       return response;
     }));
 
@@ -383,19 +388,24 @@ export class GameServer {
 
     socket.on("joinPublic", (_payload, ack) => this.guard(socket, "joinPublic", 8, 60_000, ack, async () => {
       this.requireAuth(socket);
+      // Check persistent restrictions before allocating. Otherwise a banned
+      // account can reconnect repeatedly and leave an unbounded trail of empty
+      // rooms that no player ever joins or reaps.
+      await this.requireAccountAccess(socket.data.auth.accountId);
       let room = [...this.rooms.values()].find((candidate) => candidate.mode === "public" && candidate.phase === PHASES.LOBBY && candidate.players.size < candidate.settings.maxPlayers);
       if (!room) room = this.createRoom("public", {});
-      return this.joinRoom(socket, room);
+      return this.joinRoom(socket, room, { accessChecked: true });
     }));
 
     socket.on("createRoom", (payload, ack) => this.guard(socket, "createRoom", 6, 60_000, ack, async () => {
       this.requireAuth(socket);
+      await this.requireAccountAccess(socket.data.auth.accountId);
       const mode = payload?.mode === "practice" ? "practice" : "private";
       const room = this.createRoom(mode, payload?.settings);
-      const result = await this.joinRoom(socket, room);
+      const result = await this.joinRoom(socket, room, { accessChecked: true });
       if (mode === "practice") {
         room.practiceRoles.set(result.playerId, "operations-crew");
-        this.populatePracticeBots(room, 4);
+        this.populatePracticeBots(room, this.practicePopulationTarget(room));
         result.room = this.serialiseRoom(room);
       }
       this.broadcastRoomState(room);
@@ -434,13 +444,24 @@ export class GameServer {
     socket.on("hostSettings", (payload, ack) => this.withPlayer(socket, "hostSettings", 10, 10_000, ack, (room, player) => {
       this.requireHost(room, player);
       if (room.phase !== PHASES.LOBBY) throw new Error("Match settings are locked after countdown.");
-      room.settings = validateSettings({
+      const nextSettings = validateSettings({
         ...room.settings,
         ...payload,
         roleSettings: { ...room.settings.roleSettings, ...payload?.roleSettings }
       });
+      const humanCount = [...room.players.values()].filter((candidate) => !candidate.bot).length;
+      if (nextSettings.maxPlayers < humanCount) {
+        throw new Error(`Max crew cannot be lower than the ${humanCount} human crew already aboard.`);
+      }
+      room.settings = nextSettings;
       room.mapId = room.settings.mapId;
       if (room.settings.operativeCount >= room.settings.maxPlayers) room.settings.operativeCount = Math.max(1, room.settings.maxPlayers - 1);
+      if (room.mode === "practice") {
+        // Raising the Operative count after creating the room must also grow
+        // the simulation. Otherwise a valid settings change can launch at
+        // instant parity and end before the player can move.
+        this.syncPracticeBots(room);
+      }
       this.broadcastRoomState(room);
       return { ok: true, settings: room.settings };
     }));
@@ -455,7 +476,12 @@ export class GameServer {
 
     socket.on("startMatch", (_payload, ack) => this.withPlayer(socket, "startMatch", 4, 10_000, ack, (room, player) => {
       this.requireHost(room, player);
-      this.startMatch(room);
+      // Staff roles are deliberately narrow in Orbit Ops: they may run a small
+      // private operation for moderation/testing, but do not inherit room-host
+      // controls in somebody else's lobby.
+      const staffTest = room.mode === "private"
+        && ["moderator", "admin", "owner"].includes(socket.data.auth?.role);
+      this.startMatch(room, { staffTest });
       return { ok: true };
     }));
 
@@ -483,7 +509,7 @@ export class GameServer {
 
     socket.on("beginTask", (payload, ack) => this.withPlayer(socket, "beginTask", 8, 10_000, ack, (room, player) => this.beginTask(room, player, payload)));
     socket.on("taskAction", (payload, ack) => this.withPlayer(socket, "taskAction", 12, 5000, ack, (room, player) => this.taskAction(room, player, payload)));
-    socket.on("sabotageRequest", (payload, ack) => this.withPlayer(socket, "sabotageRequest", 4, 10_000, ack, (room, player) => this.startSabotage(room, player, payload?.sabotageId)));
+    socket.on("sabotageRequest", (payload, ack) => this.withPlayer(socket, "sabotageRequest", 4, 10_000, ack, (room, player) => this.startSabotage(room, player, payload?.sabotageId, payload?.doorTargetId)));
     socket.on("repairSabotage", (payload, ack) => this.withPlayer(socket, "repairSabotage", 8, 10_000, ack, (room, player) => this.repairSabotage(room, player, payload?.stationId)));
     // The reactor's scanners have to be re-pinged while held, so this one needs a
     // far higher allowance than opening a panel does.
@@ -498,7 +524,10 @@ export class GameServer {
     socket.on("exitVent", (_payload, ack) => this.withPlayer(socket, "exitVent", 8, 10_000, ack, (room, player) => this.exitVent(room, player)));
     socket.on("requestSecurity", (_payload, ack) => this.withPlayer(socket, "requestSecurity", 5, 10_000, ack, (room, player) => this.requestSecurity(room, player)));
     socket.on("requestAdmin", (_payload, ack) => this.withPlayer(socket, "requestAdmin", 8, 10_000, ack, (room, player) => this.requestAdmin(room, player)));
-    socket.on("chatMessage", (payload, ack) => this.withPlayer(socket, "chatMessage", 6, 10_000, ack, (room, player) => this.chat(room, player, payload?.message)));
+    socket.on("chatMessage", (payload, ack) => this.withPlayer(socket, "chatMessage", 6, 10_000, ack, async (room, player) => {
+      await this.requireAccountAccess(player.accountId, { chat: true });
+      return this.chat(room, player, payload?.message);
+    }));
     socket.on("customisePlayer", (payload, ack) => this.withPlayer(socket, "customisePlayer", 8, 10_000, ack, (room, player) => {
       if (room.phase !== PHASES.LOBBY) throw new Error("Appearance is locked during a match.");
       player.appearance = validateAppearance(payload);
@@ -513,7 +542,7 @@ export class GameServer {
 
   async guard(socket, action, limit, windowMs, ack, callback) {
     try {
-      if (!this.rateLimiter.allow(`${socket.handshake.address}:${socket.id}:${action}`, limit, windowMs)) throw new Error("Too many requests. Please wait a moment.");
+      if (!this.rateLimiter.allow(rateLimitKey(socket, action), limit, windowMs)) throw new Error("Too many requests. Please wait a moment.");
       const result = await callback();
       if (typeof ack === "function") ack(result ?? { ok: true });
     } catch (error) {
@@ -540,6 +569,13 @@ export class GameServer {
 
   requireHost(room, player) {
     if (room.hostId !== player.id) throw new Error("Only the room host can do that.");
+  }
+
+  async requireAccountAccess(accountId, { chat = false } = {}) {
+    if (!accountId || !isDatabaseConfigured()) return;
+    const restrictions = await getActiveAccountRestrictions(accountId);
+    if (restrictions.banned) throw new Error("This account is banned from multiplayer.");
+    if (chat && restrictions.muted) throw new Error("This account is muted.");
   }
 
   validatePlayerSettings(value = {}) {
@@ -569,15 +605,18 @@ export class GameServer {
       hostId: null, players: new Map(), practiceRoles: new Map(),
       createdAt: Date.now(), matchStartedAt: null, matchNumber: 0, guardianAngelId: null,
       taskCompleted: 0, taskTotal: 0, incidents: new Map(), evidence: [],
-      activeSabotage: null, lastSabotageAt: 0, sabotageClearedAt: 0, meeting: null,
+      activeSabotage: null, lastSabotageAt: 0, sabotageClearedAt: 0,
+      lastCriticalBroadcastAt: 0, closedDoorIds: new Set(), meeting: null,
       specialWinnerIds: new Set(),
+      sealedVents: [], minedVents: [],
       doorLogs: [], maintenanceLogs: [], timers: new Set(), lastSnapshotAt: 0
     };
     this.rooms.set(code, room);
     return room;
   }
 
-  async joinRoom(socket, room) {
+  async joinRoom(socket, room, { accessChecked = false } = {}) {
+    if (!accessChecked) await this.requireAccountAccess(socket.data.auth.accountId);
     if (room.phase !== PHASES.LOBBY) throw new Error("That match is already in progress.");
     if (room.players.size >= room.settings.maxPlayers) throw new Error("That room is full.");
     this.leaveCurrentRoom(socket, false);
@@ -599,7 +638,6 @@ export class GameServer {
     socket.join(room.code);
     const token = this.rotateRejoinToken(player);
     const result = { ok: true, room: this.serialiseRoom(room), playerId: player.id, rejoinToken: token };
-    socket.emit("roomJoined", result);
     this.broadcastRoomState(room);
     return result;
   }
@@ -616,23 +654,61 @@ export class GameServer {
       jumpUntil: 0, activeTask: null, tasks: [], completedTasks: new Set(), vote: null,
       lastEliminationAt: 0, lastMaintenanceAt: 0, emergencyMeetings: 0,
       disconnectedAt: null, cleanupTimer: null, rejoinTokenHash: null,
+      previousRejoinTokenHash: null, previousRejoinTokenExpiresAt: 0,
       matchStats: makeStats(), eliminatedAt: null, botTarget: null, botActionAt: 0, repairStationId: null, ventId: null
     };
   }
 
   rotateRejoinToken(player) {
     const token = randomBytes(32).toString("base64url");
+    player.previousRejoinTokenHash = player.rejoinTokenHash;
+    player.previousRejoinTokenExpiresAt = player.rejoinTokenHash
+      ? Date.now() + REJOIN_PREVIOUS_TOKEN_GRACE_MS
+      : 0;
     player.rejoinTokenHash = hashOpaque(token);
     return token;
   }
 
-  resumeRoom(socket, token) {
+  async resumeRoom(socket, token) {
+    await this.requireAccountAccess(socket.data.auth.accountId);
     if (!token) throw new Error("No saved room session was found.");
     const tokenHash = hashOpaque(token);
+    const now = Date.now();
     for (const room of this.rooms.values()) {
-      const player = [...room.players.values()].find((candidate) => candidate.rejoinTokenHash === tokenHash && !candidate.bot);
+      const player = [...room.players.values()].find((candidate) => {
+        if (candidate.bot) return false;
+        if (candidate.previousRejoinTokenHash && candidate.previousRejoinTokenExpiresAt < now) {
+          candidate.previousRejoinTokenHash = null;
+          candidate.previousRejoinTokenExpiresAt = 0;
+        }
+        return candidate.rejoinTokenHash === tokenHash
+          || (candidate.previousRejoinTokenHash === tokenHash
+            && candidate.previousRejoinTokenExpiresAt >= now);
+      });
       if (!player) continue;
-      if (player.connected) throw new Error("That player is already connected.");
+      if (player.connected) {
+        if (player.socketId !== socket.id) throw new Error("That player is already connected.");
+        // The server may have restored this exact socket while its ack was lost.
+        // Re-ack the same capability instead of stranding a fresh page with no
+        // player id or rotated token. Making the supplied generation current
+        // keeps repeated retries idempotent without minting an unbounded chain.
+        if (player.rejoinTokenHash !== tokenHash) {
+          player.previousRejoinTokenHash = player.rejoinTokenHash;
+          player.previousRejoinTokenExpiresAt = now + REJOIN_PREVIOUS_TOKEN_GRACE_MS;
+          player.rejoinTokenHash = tokenHash;
+        }
+        const result = {
+          ok: true,
+          room: this.serialiseRoom(room),
+          playerId: player.id,
+          rejoinToken: token,
+          restored: this.privatePlayerState(room, player)
+        };
+        this.sendPrivateState(room, player);
+        this.syncHost(room);
+        this.broadcastRoomState(room);
+        return result;
+      }
       if (player.accountId && player.accountId !== socket.data.auth.accountId) throw new Error("Room session does not match this account.");
       if (!player.accountId && player.displayName !== socket.data.auth.displayName) throw new Error("Use the same guest name to reconnect.");
       clearTimeout(player.cleanupTimer);
@@ -640,11 +716,18 @@ export class GameServer {
       player.socketId = socket.id;
       player.connected = true;
       player.disconnectedAt = null;
+      // A reloaded browser starts its input sequence at one. Retaining the old
+      // socket's high sequence makes every packet from the replacement look
+      // stale and creates a permanent rubber-band loop until it catches up.
+      player.input = normaliseInput({});
+      player.lastInputAt = 0;
+      player.lastInputSeq = 0;
+      resetClientMovementTrail(player);
       this.socketPlayers.set(socket.id, { roomCode: room.code, playerId: player.id });
       socket.join(room.code);
+      this.syncHost(room);
       const rejoinToken = this.rotateRejoinToken(player);
       const result = { ok: true, room: this.serialiseRoom(room), playerId: player.id, rejoinToken, restored: this.privatePlayerState(room, player) };
-      socket.emit("reconnectState", result);
       this.sendPrivateState(room, player);
       this.broadcastRoomState(room);
       return result;
@@ -666,6 +749,28 @@ export class GameServer {
       });
       room.players.set(player.id, player);
     }
+  }
+
+  syncPracticeBots(room) {
+    const humans = [...room.players.values()].filter((player) => !player.bot);
+    const target = Math.max(humans.length, this.practicePopulationTarget(room));
+    // Reverse insertion order keeps the earliest named practice crew stable as
+    // parameters grow and shrink. Human players are never removed here.
+    const removableBots = [...room.players.values()].filter((player) => player.bot).reverse();
+    while (room.players.size > target && removableBots.length) {
+      const bot = removableBots.shift();
+      clearTimeout(bot.cleanupTimer);
+      room.players.delete(bot.id);
+      room.practiceRoles.delete(bot.id);
+    }
+    this.populatePracticeBots(room, target);
+  }
+
+  practicePopulationTarget(room) {
+    // Practice must not open at immediate Operative parity. With N Operatives,
+    // at least 2N+1 total players leave one more non-Operative alive; four is
+    // retained as the minimum so a one-Operative simulation still feels active.
+    return Math.min(room.settings.maxPlayers, Math.max(4, room.settings.operativeCount * 2 + 1));
   }
 
   positionPlayersAtMapSpawn(room, mapId = activeMapId(room)) {
@@ -690,6 +795,13 @@ export class GameServer {
       hostId: room.hostId, mapId: room.mapId, settings: room.settings, players: [...room.players.values()].map(publicPlayer),
       taskProgress: { completed: room.taskCompleted, total: room.taskTotal },
       activeSabotage: room.activeSabotage ? this.publicSabotage(room.activeSabotage) : null,
+      // Runtime vents have to survive event loss and reconnects. The browser
+      // uses this public topology to draw mined grilles and stop advertising
+      // welded exits; entry and movement remain server-authoritative.
+      ventTopology: {
+        minedVents: (room.minedVents ?? []).map(({ id, type, refId, roomId, x, z }) => ({ id, type, refId, roomId, x, z })),
+        sealedVentIds: [...(room.sealedVents ?? [])]
+      },
       incidentCount: room.incidents.size,
       databaseConnected: isDatabaseConfigured()
     };
@@ -773,16 +885,23 @@ export class GameServer {
     this.rooms.delete(room.code);
   }
 
-  startMatch(room) {
+  startMatch(room, { staffTest = false } = {}) {
     if (room.phase !== PHASES.LOBBY) throw new Error("The match has already started.");
     const connectedHumans = [...room.players.values()].filter((player) => player.connected && !player.bot);
-    const required = room.mode === "practice" || room.settings.allowSinglePlayer || process.env.ALLOW_SINGLE_PLAYER_TESTING === "true" ? 1 : MIN_MATCH_PLAYERS;
+    const required = room.mode === "practice" || room.settings.allowSinglePlayer
+      || process.env.ALLOW_SINGLE_PLAYER_TESTING === "true" || staffTest ? 1 : MIN_MATCH_PLAYERS;
     if (connectedHumans.length < required) throw new Error(`At least ${required} connected player${required === 1 ? "" : "s"} required.`);
     if (room.mode !== "practice" && connectedHumans.some((player) => !player.ready)) throw new Error("Every connected player must be ready before launch.");
     const participants = [...room.players.values()].filter((player) => player.connected || player.bot).slice(0, MAX_ROOM_PLAYERS);
-    if (participants.length < 2) this.populatePracticeBots(room, 4);
+    if (room.mode === "practice") {
+      // Re-evaluate at launch as well as room creation so host settings changed
+      // by an older client still cannot produce an immediately lost match.
+      this.syncPracticeBots(room);
+    } else if (participants.length < 2) {
+      this.populatePracticeBots(room, this.practicePopulationTarget(room));
+    }
     const activePlayers = [...room.players.values()].filter((player) => player.connected || player.bot);
-    const desiredOperatives = Math.min(room.settings.operativeCount, Math.max(1, Math.floor(activePlayers.length / 4)), Math.max(1, activePlayers.length - 1));
+    const desiredOperatives = Math.min(room.settings.operativeCount, Math.max(1, activePlayers.length - 1));
     const requestedRoleFor = (player) => {
       const roleId = room.practiceRoles.get(player.id);
       return ROLE_DEFINITIONS[roleId] ? roleId : null;
@@ -847,7 +966,11 @@ export class GameServer {
     room.incidents.clear();
     room.evidence = [];
     room.activeSabotage = null;
+    room.closedDoorIds.clear();
+    room.lastCriticalBroadcastAt = 0;
     room.meeting = null;
+    room.sealedVents = [];
+    room.minedVents = [];
     room.specialWinnerIds.clear();
     room.guardianAngelId = null;
     room.lastSabotageAt = Date.now();
@@ -926,6 +1049,10 @@ export class GameServer {
     room.phaseEndsAt = null;
     room.meeting = null;
     room.activeSabotage = null;
+    room.closedDoorIds.clear();
+    room.lastCriticalBroadcastAt = 0;
+    room.sealedVents = [];
+    room.minedVents = [];
     room.specialWinnerIds.clear();
     room.guardianAngelId = null;
     room.incidents.clear();
@@ -1073,17 +1200,34 @@ export class GameServer {
     return result;
   }
 
-  startSabotage(room, player, sabotageId) {
+  startSabotage(room, player, sabotageId, doorTargetId = null) {
     if (room.phase !== PHASES.ACTIVE || player.faction !== "operative") throw new Error("Your role cannot activate sabotage now.");
-    const definition = getMapDefinition(room.mapId).sabotageDefinitions.find((item) => item.id === sabotageId);
+    const map = getMapDefinition(room.mapId);
+    const definition = map.sabotageDefinitions.find((item) => item.id === sabotageId);
     if (!definition) throw new Error("Unknown sabotage system.");
     if (room.activeSabotage) throw new Error("Another sabotage is already active.");
     if (room.mode !== "practice" && Date.now() - room.lastSabotageAt < room.settings.sabotageCooldownSeconds * 1000) throw new Error("Sabotage is still recharging.");
+    let doorTarget = null;
+    if (definition.repairKind === "doors") {
+      const selectedId = doorTargetId || (player.bot ? choose(definition.doorTargets ?? [])?.id : null);
+      const allowed = definition.doorTargets?.some(({ id }) => id === selectedId);
+      doorTarget = allowed ? map.doorGroups.find(({ id }) => id === selectedId) : null;
+      if (!doorTarget) throw new Error("Choose a room to lock down.");
+      room.closedDoorIds = new Set(doorTarget.doors.map(({ id }) => id));
+    } else {
+      room.closedDoorIds.clear();
+    }
     room.lastSabotageAt = Date.now();
+    room.lastCriticalBroadcastAt = room.lastSabotageAt;
     room.activeSabotage = {
       id: definition.id, name: definition.name, critical: definition.critical,
       startedAt: Date.now(), endsAt: Date.now() + definition.durationMs,
       repairStations: definition.repairStations, repairs: new Set(), activatedBy: player.id,
+      blindsPlayers: Boolean(definition.blindsPlayers),
+      jamsTelemetry: Boolean(definition.jamsTelemetry),
+      doorTargetId: doorTarget?.id ?? null,
+      doorTargetName: doorTarget?.name ?? null,
+      closedDoorIds: [...room.closedDoorIds],
       // The shared puzzle for this outage: the breaker positions, the O2 code, the
       // dial's carrier, or the pair of scanners. Rolled once, so everyone working
       // on it is working on the same one.
@@ -1097,7 +1241,7 @@ export class GameServer {
 
   // True while a lights sabotage is blinding the deck.
   lightsAreOut(room) {
-    return Boolean(room.activeSabotage && /lights|lighting/u.test(room.activeSabotage.id));
+    return Boolean(room.activeSabotage?.blindsPlayers);
   }
 
   // How far a player can see right now, in world units. The host's crew/operative
@@ -1142,6 +1286,8 @@ export class GameServer {
   // expired sabotage starts the next cooldown instead of chaining immediately.
   clearActiveSabotage(room) {
     room.activeSabotage = null;
+    room.closedDoorIds.clear();
+    room.lastCriticalBroadcastAt = 0;
     room.sabotageClearedAt = Date.now();
     for (const player of room.players.values()) {
       if (player.bot) player.repairStationId = null;
@@ -1164,7 +1310,12 @@ export class GameServer {
     return {
       id: sabotage.id, name: sabotage.name, critical: sabotage.critical,
       startedAt: sabotage.startedAt, endsAt: sabotage.endsAt,
-      repairedStations: [...sabotage.repairs], requiredRepairs: sabotage.repairStations.length
+      repairedStations: [...sabotage.repairs], requiredRepairs: sabotage.repairStations.length,
+      blindsPlayers: sabotage.blindsPlayers,
+      jamsTelemetry: sabotage.jamsTelemetry,
+      doorTargetId: sabotage.doorTargetId,
+      doorTargetName: sabotage.doorTargetName,
+      closedDoorIds: [...(sabotage.closedDoorIds ?? [])]
     };
   }
 
@@ -1177,7 +1328,9 @@ export class GameServer {
       sabotage: this.publicSabotage(sabotage),
       stationId: station.id,
       stationLabel: station.label ?? roomLabel(getMapDefinition(room.mapId), station),
-      panel: publicRepairPanel(sabotage)
+      // Opening a nearby keypad is the act of reading its sticky note. Room-wide
+      // panel updates deliberately omit this code.
+      panel: publicRepairPanel(sabotage, { includeKeypadCode: true })
     };
   }
 
@@ -1213,7 +1366,12 @@ export class GameServer {
       case "keypad": {
         // Each keypad is signed off separately, both with the same code.
         if (String(payload.value ?? "") !== panel.code) {
-          return { ok: true, solved: false, rejected: true, panel: publicRepairPanel(sabotage) };
+          return {
+            ok: true,
+            solved: false,
+            rejected: true,
+            panel: publicRepairPanel(sabotage, { includeKeypadCode: true })
+          };
         }
         sabotage.repairs.add(station.id);
         solved = sabotage.repairStations.every((id) => sabotage.repairs.has(id));
@@ -1223,10 +1381,15 @@ export class GameServer {
         const dial = Number(payload.value);
         if (!Number.isFinite(dial) || dial < 0 || dial > 1) throw new Error("Dial is out of range.");
         if (Math.abs(dial - panel.target) > panel.tolerance) {
-          return { ok: true, solved: false, rejected: true, panel: publicRepairPanel(sabotage) };
+          return {
+            ok: true,
+            solved: false,
+            rejected: true,
+            panel: publicRepairPanel(sabotage, { includeKeypadCode: true })
+          };
         }
         sabotage.repairs.add(station.id);
-        solved = true;
+        solved = sabotage.repairStations.every((id) => sabotage.repairs.has(id));
         break;
       }
       case "handprint": {
@@ -1249,10 +1412,11 @@ export class GameServer {
       this.broadcastRoomState(room);
       return { ok: true, solved: true, panel: null };
     }
-    const view = publicRepairPanel(sabotage);
-    this.io.to(room.code).emit("sabotagePanel", { sabotageId: sabotage.id, panel: view });
+    const sharedView = publicRepairPanel(sabotage);
+    const privateView = publicRepairPanel(sabotage, { includeKeypadCode: true });
+    this.io.to(room.code).emit("sabotagePanel", { sabotageId: sabotage.id, panel: sharedView });
     this.io.to(room.code).emit("sabotageUpdated", this.publicSabotage(sabotage));
-    return { ok: true, solved: false, panel: view };
+    return { ok: true, solved: false, panel: privateView };
   }
 
   roleTarget(room, player, targetId) {
@@ -1413,6 +1577,7 @@ export class GameServer {
     const incident = incidentId ? room.incidents.get(String(incidentId)) : [...room.incidents.values()].find((item) => !item.reported && distance2D(reporter.position, item) <= INTERACTION_RANGE);
     if (!incident || incident.reported) throw new Error("No unreported incident is in range.");
     if (distance2D(reporter.position, incident) > INTERACTION_RANGE) throw new Error("Move closer to the incident.");
+    this.requireMeetingAvailable(room);
     incident.reported = true;
     reporter.matchStats.incidentsReported += 1;
     reporter.matchStats.evidenceFound += incident.evidence.length;
@@ -1425,12 +1590,13 @@ export class GameServer {
     const station = stationById(room.mapId, "meeting-console");
     if (!station || distance2D(reporter.position, station) > reachOf(station)) throw new Error("Move to the emergency meeting button.");
     if (room.mode !== "practice" && reporter.emergencyMeetings >= room.settings.emergencyMeetings) throw new Error("You have no emergency calls remaining.");
+    this.requireMeetingAvailable(room);
     reporter.emergencyMeetings += 1;
     return this.startMeeting(room, reporter, null);
   }
 
   startMeeting(room, reporter, incident) {
-    if (room.activeSabotage?.critical) throw new Error("Resolve the critical sabotage before calling a meeting.");
+    this.requireMeetingAvailable(room);
     if (room.activeSabotage) {
       const ended = this.publicSabotage(room.activeSabotage);
       this.clearActiveSabotage(room);
@@ -1462,6 +1628,12 @@ export class GameServer {
     });
     this.schedule(room, 2_500, () => this.startDiscussion(room));
     return { ok: true, meetingId: room.meeting.id };
+  }
+
+  requireMeetingAvailable(room) {
+    if (room.activeSabotage?.critical) {
+      throw new Error("Resolve the critical sabotage before calling a meeting.");
+    }
   }
 
   startDiscussion(room) {
@@ -1584,6 +1756,12 @@ export class GameServer {
   // Vents are a connected network, as in the reference: an operative climbs in,
   // travels between any vents sharing that network, and climbs back out. While
   // inside they are hidden from everyone and cannot be seen, killed or reported.
+  ventById(room, stationId, mapId = activeMapId(room)) {
+    return stationById(mapId, stationId)
+      ?? (room.minedVents ?? []).find((vent) => vent.id === stationId)
+      ?? null;
+  }
+
   ventsInNetwork(mapId, networkId, room = null) {
     const authored = getMapDefinition(mapId).stations
       .filter((station) => station.type === "maintenance" && station.refId === networkId);
@@ -1595,8 +1773,7 @@ export class GameServer {
   publicVentState(room, player) {
     if (!player.ventId) return { inVent: false, ventId: null, exits: [] };
     const mapId = activeMapId(room);
-    const vent = stationById(mapId, player.ventId)
-      ?? (room.minedVents ?? []).find((mined) => mined.id === player.ventId);
+    const vent = this.ventById(room, player.ventId, mapId);
     const reachable = this.ventsInNetwork(mapId, vent?.refId, room)
       .filter((station) => station.id !== player.ventId);
     const keys = vent ? assignVentKeys(vent, reachable) : new Map();
@@ -1625,7 +1802,7 @@ export class GameServer {
       throw new Error("Your role cannot use the vent network.");
     }
     if (player.ventId) throw new Error("You are already inside the vents.");
-    const vent = stationById(room.mapId, stationId);
+    const vent = this.ventById(room, stationId, room.mapId);
     if (!vent || vent.type !== "maintenance") throw new Error("Vent not found.");
     if ((room.sealedVents ?? []).includes(vent.id)) throw new Error("That vent has been welded shut.");
     // Never let a player into a vent they could not climb back out of.
@@ -1646,10 +1823,11 @@ export class GameServer {
     if (room.phase !== PHASES.ACTIVE || !player.alive || !player.ventId) {
       throw new Error("You are not inside the vents.");
     }
-    const from = stationById(room.mapId, player.ventId);
-    const to = stationById(room.mapId, stationId);
+    const from = this.ventById(room, player.ventId, room.mapId);
+    const to = this.ventById(room, stationId, room.mapId);
     if (!to || to.type !== "maintenance") throw new Error("Vent not found.");
     if (!from || to.refId !== from.refId) throw new Error("That vent is on a different network.");
+    if ((room.sealedVents ?? []).includes(to.id)) throw new Error("That vent has been welded shut.");
     if (to.id === from.id) throw new Error("You are already at that vent.");
     player.ventId = to.id;
     player.position = { x: to.x, z: to.z };
@@ -1662,8 +1840,12 @@ export class GameServer {
   }
 
   exitVent(room, player) {
+    if (room.phase !== PHASES.ACTIVE || !player.alive) {
+      throw new Error("You cannot exit the vents right now.");
+    }
     if (!player.ventId) throw new Error("You are not inside the vents.");
-    const vent = stationById(room.mapId, player.ventId);
+    const vent = this.ventById(room, player.ventId, room.mapId);
+    if (!vent || vent.type !== "maintenance") throw new Error("Vent not found.");
     // Climbing out on top of someone would be a free reveal; make them wait.
     const blocked = [...room.players.values()].some((candidate) =>
       candidate.id !== player.id && candidate.alive && !candidate.ventId
@@ -1703,7 +1885,7 @@ export class GameServer {
     if (room.phase !== PHASES.ACTIVE || !player.alive) throw new Error("Security systems are unavailable.");
     const consoles = getMapDefinition(room.mapId).stations.filter((station) => ["security", "doorLogs"].includes(station.type));
     if (!consoles.some((station) => distance2D(player.position, station) <= reachOf(station))) throw new Error("Move to a security console.");
-    if (room.activeSabotage?.id.includes("comms") || room.activeSabotage?.id.includes("security")) throw new Error("Security telemetry is being jammed.");
+    if (room.activeSabotage?.jamsTelemetry) throw new Error("Security telemetry is being jammed.");
     if (player.ventId) throw new Error("Climb out of the vent first.");
     return {
       ok: true,
@@ -1780,11 +1962,11 @@ export class GameServer {
     if (room.phase === PHASES.RESULTS) return;
     for (const timer of room.timers) clearTimeout(timer);
     room.timers.clear();
-    room.activeSabotage = null;
+    this.clearActiveSabotage(room);
     const endedAt = Date.now();
     const durationSeconds = Math.max(0, Math.round((endedAt - room.matchStartedAt) / 1000));
+    const survivors = new Set(survivorWinnerIds(room));
     const players = [...room.players.values()].map((player) => {
-      const survivors = new Set(survivorWinnerIds(room));
       const won = room.specialWinnerIds.has(player.id) || survivors.has(player.id)
         || (winner !== "neutral" && player.faction === winner)
         || (winner !== "neutral" && player.role === "survivor" && player.alive)
@@ -1805,7 +1987,7 @@ export class GameServer {
     if (isDatabaseConfigured()) {
       recordMatch({
         roomCode: room.code, startedAt: new Date(room.matchStartedAt), endedAt: new Date(endedAt),
-        winner, durationSeconds, players,
+        mapId: room.mapId, winner, durationSeconds, players,
         summary: { reason, mode: room.mode, settings: room.settings, incidents: room.incidents.size }
       }).then((matchId) => this.io.to(room.code).emit("databaseSaveStatus", { saved: true, matchId }))
         .catch((error) => {
@@ -1851,14 +2033,19 @@ export class GameServer {
             this.clearActiveSabotage(room);
             this.io.to(room.code).emit("sabotageEnded", { ...ended, expired: true });
           }
-        } else if (room.activeSabotage.critical && now % 1000 < 1000 / TICK_RATE) {
+        } else if (room.activeSabotage.critical && now - room.lastCriticalBroadcastAt >= 1000) {
+          room.lastCriticalBroadcastAt = now;
           this.io.to(room.code).emit("sabotageUpdated", this.publicSabotage(room.activeSabotage));
         }
       }
       if (now - room.lastSnapshotAt >= 1000 / SNAPSHOT_RATE) {
         room.lastSnapshotAt = now;
         const members = [...room.players.values()];
-        const snapshots = members.map((player) => snapshotPlayer(player, room));
+        const shieldedPlayerIds = new Set(members
+          .filter((player) => player.alive && player.role === "medic")
+          .map((player) => player.roleState?.shieldTargetId)
+          .filter(Boolean));
+        const snapshots = members.map((player) => snapshotPlayer(player, room, shieldedPlayerIds, now));
         const base = {
           serverTime: now,
           phase: room.phase,
@@ -1906,6 +2093,8 @@ export class GameServer {
     const mapId = activeMapId(room);
     const input = now - player.lastInputAt < 500 ? player.input : normaliseInput({});
     const ghost = !player.alive;
+    const map = getMapDefinition(mapId);
+    const movementStart = player.position;
     // A fresh, validated client position already includes this interval's
     // movement. Resume server simulation only when prediction packets stop.
     if (!player.lastClientPredictionAt || now - player.lastClientPredictionAt > 75) {
@@ -1916,8 +2105,9 @@ export class GameServer {
         faction: player.faction,
         settings: room.settings,
         alive: !ghost,
-        isPositionValid: (x, z) => isWalkable(mapId, x, z),
-        bounds: getMapDefinition(mapId).bounds
+        isPositionValid: (x, z) => isWalkable(mapId, x, z)
+          && (ghost || doorStepAllowed(map, room.activeSabotage, movementStart, { x, z })),
+        bounds: map.bounds
       });
     }
     player.rotation = input.yaw;
@@ -1964,7 +2154,8 @@ export class GameServer {
       const bounds = getMapDefinition(mapId).bounds;
       if (proposed.x < bounds.minX || proposed.x > bounds.maxX || proposed.z < bounds.minZ || proposed.z > bounds.maxZ) return false;
     } else if (!isWalkable(mapId, proposed.x, proposed.z)
-      || !segmentWalkable(mapId, player.position, proposed, 0.55, 0.2)) {
+      || !segmentWalkable(mapId, player.position, proposed, 0.55, 0.2)
+      || !doorStepAllowed(getMapDefinition(mapId), room.activeSabotage, player.position, proposed)) {
       return false;
     }
     player.position = { x: proposed.x, z: proposed.z };
@@ -2093,7 +2284,8 @@ export class GameServer {
     // Authored consoles and buttons can sit inside their fixture collision.
     // Use the same range as human interactions once pathfinding reaches the
     // closest clear point instead of trying to walk through the fixture.
-    if (!bot.botPath?.length && distance <= INTERACTION_RANGE) {
+    const targetStation = bot.botTarget?.stationId ? stationById(room.mapId, bot.botTarget.stationId) : null;
+    if (!bot.botPath?.length && distance <= (targetStation ? reachOf(targetStation) : INTERACTION_RANGE)) {
       bot.animation = "interact";
       if (bot.botTarget.repairSabotageId) {
         let solved = false;

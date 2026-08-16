@@ -25,5 +25,5 @@ Excluded category: `Logos`, at the owner's request.
 To rebuild both generated files:
 
 ```bash
-npm run assets:inventory
+pnpm run assets:inventory
 ```

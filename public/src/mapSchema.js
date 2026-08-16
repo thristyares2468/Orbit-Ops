@@ -166,6 +166,7 @@ export function validateMapDefinition(map) {
   const corridors = Array.isArray(map?.corridors) ? map.corridors : [];
   const corridorRoutes = Array.isArray(map?.corridorRoutes) ? map.corridorRoutes : [];
   const stations = Array.isArray(map?.stations) ? map.stations : [];
+  const doorGroups = Array.isArray(map?.doorGroups) ? map.doorGroups : [];
   const spawns = Array.isArray(map?.spawnPoints) ? map.spawnPoints : [];
   const collisionRects = Array.isArray(map?.collisionRects) ? map.collisionRects : [];
   const decals = Array.isArray(map?.decals) ? map.decals : [];
@@ -181,6 +182,8 @@ export function validateMapDefinition(map) {
   const objectGroupIds = new Set();
   const renderLayerIds = new Set();
   const routeIds = new Set();
+  const doorGroupIds = new Set();
+  const doorIds = new Set();
 
   if (!map?.id) errors.push("Map id is required.");
   if (!map?.bounds || !["minX", "maxX", "minZ", "maxZ"].every((key) => finite(map.bounds[key]))) {
@@ -242,6 +245,22 @@ export function validateMapDefinition(map) {
   }
   for (const [fromId, toId] of map?.connections ?? []) {
     if (!roomIds.has(fromId) || !roomIds.has(toId)) errors.push(`Connection ${fromId}:${toId} references an unknown room.`);
+  }
+  for (const group of doorGroups) {
+    if (!group.id || doorGroupIds.has(group.id)) errors.push(`Duplicate or missing door-group id: ${group.id ?? "(missing)"}.`);
+    doorGroupIds.add(group.id);
+    if (!roomIds.has(group.roomId)) errors.push(`Door group ${group.id ?? "(missing)"} references an unknown room.`);
+    if (!Array.isArray(group.doors) || group.doors.length === 0) {
+      errors.push(`Door group ${group.id ?? "(missing)"} requires at least one door.`);
+      continue;
+    }
+    for (const door of group.doors) {
+      if (!door.id || doorIds.has(door.id)) errors.push(`Duplicate or missing door id: ${door.id ?? "(missing)"}.`);
+      doorIds.add(door.id);
+      if (![door.x, door.z, door.width, door.depth].every(finite) || door.width <= 0 || door.depth <= 0) {
+        errors.push(`Door ${door.id ?? "(missing)"} has invalid geometry.`);
+      }
+    }
   }
   for (const route of corridorRoutes) {
     if (!route.id || routeIds.has(route.id)) errors.push(`Duplicate or missing route id: ${route.id ?? "(missing)"}.`);

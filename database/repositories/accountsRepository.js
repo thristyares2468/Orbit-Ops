@@ -4,11 +4,68 @@ const SAFE_ACCOUNT_COLUMNS = `id, email, display_name, account_status, role, cre
 
 export async function findAccountForLogin(email) {
   const result = await query(
-    `SELECT id, email, password_hash, display_name, account_status, role, created_at, last_login_at
+    `SELECT id, email, password_hash, display_name, account_status, role, created_at, last_login_at,
+            failed_login_attempts, failed_login_window_started_at, login_locked_until
      FROM accounts WHERE lower(email) = lower($1) LIMIT 1`,
     [email]
   );
   return result.rows[0] ?? null;
+}
+
+export async function recordFailedLogin(accountId) {
+  const result = await query(
+    `UPDATE accounts
+     SET failed_login_attempts = CASE
+           WHEN failed_login_window_started_at IS NULL
+             OR failed_login_window_started_at <= now() - interval '15 minutes' THEN 1
+           ELSE failed_login_attempts + 1
+         END,
+         failed_login_window_started_at = CASE
+           WHEN failed_login_window_started_at IS NULL
+             OR failed_login_window_started_at <= now() - interval '15 minutes' THEN now()
+           ELSE failed_login_window_started_at
+         END,
+         login_locked_until = CASE
+           WHEN failed_login_window_started_at IS NULL
+             OR failed_login_window_started_at <= now() - interval '15 minutes' THEN NULL
+           WHEN failed_login_attempts + 1 >= 5 THEN now() + interval '15 minutes'
+           ELSE login_locked_until
+         END,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING failed_login_attempts, login_locked_until`,
+    [accountId]
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function clearFailedLogins(accountId) {
+  await query(
+    `UPDATE accounts
+     SET failed_login_attempts = 0, failed_login_window_started_at = NULL,
+         login_locked_until = NULL, updated_at = now()
+     WHERE id = $1`,
+    [accountId]
+  );
+}
+
+export async function getActiveAccountRestrictions(accountId) {
+  if (!accountId) return { banned: false, muted: false };
+  const result = await query(
+    `SELECT
+       EXISTS (
+         SELECT 1 FROM bans
+         WHERE account_id = $1 AND active = true
+           AND (expires_at IS NULL OR expires_at > now())
+       ) AS banned,
+       EXISTS (
+         SELECT 1 FROM mutes
+         WHERE account_id = $1 AND active = true
+           AND (expires_at IS NULL OR expires_at > now())
+       ) AS muted`,
+    [accountId]
+  );
+  return result.rows[0] ?? { banned: false, muted: false };
 }
 
 export async function createAccount({ email, displayName, passwordHash }) {
@@ -42,6 +99,11 @@ export async function findAccountBySession(tokenHash) {
      FROM accounts a
      WHERE s.account_id = a.id AND s.token_hash = $1 AND s.revoked = false
        AND s.expires_at > now() AND a.account_status = 'active'
+       AND NOT EXISTS (
+         SELECT 1 FROM bans b
+         WHERE b.account_id = a.id AND b.active = true
+           AND (b.expires_at IS NULL OR b.expires_at > now())
+       )
      RETURNING a.id, a.email, a.display_name, a.account_status, a.role, a.created_at, a.last_login_at`,
     [tokenHash]
   );

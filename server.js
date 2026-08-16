@@ -8,9 +8,13 @@ import { provisionConfiguredOwner } from "./database/ownerProvisioning.js";
 import { SERVER_VERSION } from "./server/constants.js";
 import { GameServer } from "./server/gameServer.js";
 import { createJimsGateway } from "./server/jimsGateway.js";
+import { attachTrustedClientIp, configureTrustedProxy } from "./server/trustedClientIp.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
+// Direct/local deployments trust no forwarded address by default. Render opts
+// into its single proxy hop through render.yaml.
+configureTrustedProxy(app, process.env.TRUST_PROXY_HOPS ?? 0);
 const server = createServer(app);
 const io = new SocketIOServer(server, {
   maxHttpBufferSize: 64 * 1024,
@@ -18,6 +22,7 @@ const io = new SocketIOServer(server, {
   pingTimeout: 8_000,
   perMessageDeflate: { threshold: 1024 }
 });
+attachTrustedClientIp(io, app);
 
 app.disable("x-powered-by");
 app.use((request, response, next) => {
@@ -29,7 +34,7 @@ app.use((request, response, next) => {
   response.setHeader(
     "Content-Security-Policy",
     jimsRequest
-      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' blob: https://cdn.jsdelivr.net ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      ? "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' blob: https://cdn.jsdelivr.net ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
       : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
   );
   next();

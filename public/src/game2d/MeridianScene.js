@@ -1,6 +1,7 @@
 import { CharacterSprite } from "./CharacterSprite.js";
 import { MapBuilder } from "./MapBuilder.js";
 import { VisionOverlay } from "./VisionOverlay.js";
+import { DoorOverlay } from "./DoorOverlay.js";
 import { VentArrows } from "./VentArrows.js";
 import { TrackerArrow } from "./TrackerArrow.js";
 import { NetClock } from "../netClock.js";
@@ -22,7 +23,9 @@ export class MeridianScene extends Phaser.Scene {
     this.characters = new Map();
     this.incidentMarkers = new Map();
     this.stationMarkers = [];
+    this.runtimeVentMarkers = new Map();
     this.sabotageOverlay = null;
+    this.doorOverlay = null;
     this.privateState = null;
     this.ghostView = false;
     this.mapId = null;
@@ -42,6 +45,7 @@ export class MeridianScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor("#02060c");
     this.cameras.main.setRoundPixels(true);
     this.vision = new VisionOverlay(this);
+    this.doorOverlay = new DoorOverlay(this);
     this.ventArrows = new VentArrows(this);
     this.trackerArrow = new TrackerArrow(this);
     this.setMap(this.bridge.activeMapId() ?? DEFAULT_MAP_ID);
@@ -58,6 +62,7 @@ export class MeridianScene extends Phaser.Scene {
     this.sabotageOverlay?.destroy();
     this.ventArrows?.hide();
     this.trackerArrow?.hide();
+    this.clearRuntimeVentMarkers();
     this.mapBuilder?.destroy();
 
     this.mapId = map.id;
@@ -66,7 +71,9 @@ export class MeridianScene extends Phaser.Scene {
     this.detailScale = worldDetailScale(map);
     this.cameras.main.setBounds(0, 0, this.metrics.width, this.metrics.height);
     this.mapBuilder = new MapBuilder(this, map).build();
+    this.doorOverlay?.setMap(map);
     this.stationMarkers = this.mapBuilder.stationMarkers;
+    this.syncVentTopology(this.bridge.ventTopology);
     this.sabotageOverlay = this.add.rectangle(
       this.metrics.width / 2,
       this.metrics.height / 2,
@@ -182,6 +189,80 @@ export class MeridianScene extends Phaser.Scene {
     }
   }
 
+  clearRuntimeVentMarkers() {
+    for (const marker of this.runtimeVentMarkers.values()) marker.container.destroy(true);
+    this.runtimeVentMarkers.clear();
+  }
+
+  setVentMarkerSealed(marker, sealed) {
+    marker.ring.setStrokeStyle(
+      Math.max(2, 3 * this.detailScale),
+      sealed ? 0xff5369 : 0x74e5ff,
+      0.95
+    );
+    marker.icon.setAlpha(sealed ? 0.3 : marker.normalIconAlpha ?? 1);
+    if (sealed) marker.icon.setTint(0x78828b);
+    else marker.icon.clearTint();
+    if (!marker.sealedSlash) {
+      marker.sealedSlash = this.add.graphics();
+      marker.sealedSlash.lineStyle(Math.max(3, 5 * this.detailScale), 0xff5369, 0.95);
+      const radius = 18 * this.detailScale;
+      marker.sealedSlash.lineBetween(-radius, -radius * 0.65, radius, radius * 0.65);
+      marker.container.add(marker.sealedSlash);
+    }
+    marker.sealedSlash.setVisible(sealed);
+  }
+
+  createRuntimeVentMarker(vent) {
+    const point = this.mapPoint(vent.x, vent.z);
+    const style = this.map.render.station;
+    const detail = this.detailScale;
+    const container = this.add.container(point.x, point.y)
+      .setDepth((style.depth ?? 300) + 1)
+      .setName(`runtime-station:${vent.id}`);
+    const backing = this.add.ellipse(0, 0, 48 * detail, 34 * detail, 0x02070d, 0.62);
+    const ring = this.add.ellipse(0, 0, 45 * detail, 30 * detail)
+      .setStrokeStyle(Math.max(2, 3 * detail), 0x74e5ff, 0.95);
+    const icon = this.add.image(0, -4 * detail, "maintenanceConsole")
+      .setDisplaySize(style.iconSize * detail, style.iconSize * detail);
+    container.add([backing, ring, icon]);
+    container.setData({ stationId: vent.id, roomId: vent.roomId, stationType: "maintenance" });
+    return {
+      id: vent.id,
+      type: "maintenance",
+      roomId: vent.roomId,
+      container,
+      ring,
+      icon,
+      normalIconAlpha: 1,
+      sealedSlash: null,
+      seed: Math.random() * Math.PI * 2
+    };
+  }
+
+  syncVentTopology(topology = {}) {
+    if (!this.map) return;
+    const minedVents = Array.isArray(topology?.minedVents) ? topology.minedVents : [];
+    const sealed = new Set(Array.isArray(topology?.sealedVentIds) ? topology.sealedVentIds : []);
+    const wanted = new Set(minedVents.map(({ id }) => id));
+    for (const [id, marker] of this.runtimeVentMarkers) {
+      if (wanted.has(id)) continue;
+      marker.container.destroy(true);
+      this.runtimeVentMarkers.delete(id);
+    }
+    for (const vent of minedVents) {
+      let marker = this.runtimeVentMarkers.get(vent.id);
+      if (!marker) {
+        marker = this.createRuntimeVentMarker(vent);
+        this.runtimeVentMarkers.set(vent.id, marker);
+      }
+      this.setVentMarkerSealed(marker, sealed.has(vent.id));
+    }
+    for (const marker of this.stationMarkers) {
+      if (marker.type === "maintenance") this.setVentMarkerSealed(marker, sealed.has(marker.id));
+    }
+  }
+
   followPlayer(playerId) {
     const character = this.characters.get(playerId);
     if (!character) return;
@@ -198,6 +279,7 @@ export class MeridianScene extends Phaser.Scene {
     if (!this.sabotageOverlay) return;
     const alpha = sabotage ? 0.055 + Math.sin(timeSeconds * 5) * 0.025 : 0;
     this.sabotageOverlay.setAlpha(alpha);
+    this.doorOverlay?.setSabotage(sabotage);
   }
 
   // Show one arrow per exit while vented, anchored on the player's own vent.
@@ -275,7 +357,7 @@ export class MeridianScene extends Phaser.Scene {
     for (const character of this.characters.values()) {
       character.update(deltaSeconds, this.bridge.settings.reducedMotion, this.ghostView, this.renderTime);
     }
-    for (const marker of this.stationMarkers) {
+    for (const marker of [...this.stationMarkers, ...this.runtimeVentMarkers.values()]) {
       marker.seed += deltaSeconds * 2.5;
       marker.ring.setAlpha(0.45 + Math.sin(marker.seed) * 0.16);
     }

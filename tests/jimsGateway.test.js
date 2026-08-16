@@ -18,7 +18,9 @@ test("Jim's gateway access tokens expire and reject tampering", () => {
 
 test("Jim's embedded CSP permits GLB blob texture decoding", async () => {
   const source = await readFile(new URL("../server.js", import.meta.url), "utf8");
+  assert.match(source, /script-src 'self' 'unsafe-inline' https:\/\/cdn\.jsdelivr\.net/);
   assert.match(source, /connect-src 'self' blob: https:\/\/cdn\.jsdelivr\.net ws: wss:/);
+  assert.doesNotMatch(source, /'unsafe-eval'/);
 });
 
 test("Orbit Ops declares its own favicon for both the game and embedded-game route", async () => {

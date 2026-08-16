@@ -6,18 +6,42 @@ export class RateLimiter {
   allow(key, limit, windowMs) {
     const now = Date.now();
     const entry = this.entries.get(key);
-    if (!entry || now - entry.startedAt >= windowMs) {
-      this.entries.set(key, { startedAt: now, count: 1 });
+    if (!entry || now >= entry.expiresAt) {
+      this.entries.set(key, { count: 1, expiresAt: now + windowMs });
       return true;
     }
     entry.count += 1;
     return entry.count <= limit;
   }
 
+  isBlocked(key, limit) {
+    const entry = this.entries.get(key);
+    if (!entry) return false;
+    if (Date.now() >= entry.expiresAt) {
+      this.entries.delete(key);
+      return false;
+    }
+    return entry.count >= limit;
+  }
+
+  recordFailure(key, windowMs) {
+    const now = Date.now();
+    const entry = this.entries.get(key);
+    if (!entry || now >= entry.expiresAt) {
+      this.entries.set(key, { count: 1, expiresAt: now + windowMs });
+      return 1;
+    }
+    entry.count += 1;
+    return entry.count;
+  }
+
+  reset(key) {
+    this.entries.delete(key);
+  }
+
   cleanup() {
-    const cutoff = Date.now() - 5 * 60_000;
     for (const [key, entry] of this.entries) {
-      if (entry.startedAt < cutoff) this.entries.delete(key);
+      if (Date.now() >= entry.expiresAt) this.entries.delete(key);
     }
   }
 }

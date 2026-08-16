@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { after, before, test } from "node:test";
 import { io as createClient } from "socket.io-client";
-import { findWalkablePath } from "../public/src/mapPathfinding.js";
+import { findWalkablePath, segmentWalkable } from "../public/src/mapPathfinding.js";
 import { getMapDefinition, stationById } from "../public/src/shipData.js";
 
 // End-to-end pass over the flows a new player actually touches in one practice run:
@@ -12,6 +12,7 @@ const PORT = 3141;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 let serverProcess;
 const clients = [];
+const inputSequences = new WeakMap();
 
 function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
@@ -50,10 +51,13 @@ function waitFor(socket, event, predicate, timeoutMs = 10_000) {
 // Walk the authoritative simulation by feeding input until the player is in range.
 async function walkTo(socket, playerId, target, range = 1.6, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
-  let seq = 1000;
+  let seq = inputSequences.get(socket) ?? 1000;
   let last = null;
+  let lastPhase = null;
   let waypoints = null;
+  let lastPathAt = 0;
   const track = (snapshot) => {
+    lastPhase = snapshot.phase ?? lastPhase;
     const me = snapshot.players?.find((player) => player.id === playerId);
     if (me) last = me;
   };
@@ -63,8 +67,17 @@ async function walkTo(socket, playerId, target, range = 1.6, timeoutMs = 20_000)
       if (last) {
         const targetDistance = Math.hypot(target.x - last.x, target.z - last.z);
         if (targetDistance <= range) return last;
-        if (!waypoints) waypoints = findWalkablePath("the-skeld", last, target, { step: 0.5 });
-        while (waypoints.length > 1 && Math.hypot(waypoints[0].x - last.x, waypoints[0].z - last.z) < 0.25) {
+        if (!waypoints || Date.now() - lastPathAt >= 750) {
+          waypoints = findWalkablePath("the-skeld", last, target, { step: 1 });
+          lastPathAt = Date.now();
+        }
+        // The first node is the current position rounded onto the one-unit path
+        // grid. Only skip that anchor when the route from the actual snapshot to
+        // the following node is still clear. Near tight fixtures, proximity alone
+        // can cut a blocked corner even though the grid-centred route is valid.
+        while (waypoints.length > 1
+          && Math.hypot(waypoints[0].x - last.x, waypoints[0].z - last.z) < 0.85
+          && segmentWalkable("the-skeld", last, waypoints[1], 0.55)) {
           waypoints.shift();
         }
         const waypoint = waypoints[0] ?? target;
@@ -76,13 +89,14 @@ async function walkTo(socket, playerId, target, range = 1.6, timeoutMs = 20_000)
           x: dx / magnitude, z: dz / magnitude,
           yaw: Math.atan2(dx, dz), seq: seq += 1
         });
+        inputSequences.set(socket, seq);
       }
       await wait(50);
     }
   } finally {
     socket.off("worldSnapshot", track);
   }
-  throw new Error(`Could not reach ${JSON.stringify(target)}; last position ${JSON.stringify(last)}`);
+  throw new Error(`Could not reach ${JSON.stringify(target)}; last phase ${lastPhase}; last position ${JSON.stringify(last)}`);
 }
 
 before(async () => {
@@ -127,11 +141,12 @@ test("a practice run covers entry, lobby, gameplay, meeting and return", { timeo
 
   // --- parameter edit ---
   const tuned = await request(socket, "hostSettings", {
-    mapId: "the-skeld", assignmentQuantity: 3, discussionSeconds: 10, votingSeconds: 10,
+    mapId: "the-skeld", assignmentQuantity: 8, operativeCount: 1,
+    discussionSeconds: 10, votingSeconds: 10,
     emergencyMeetings: 1, sabotageCooldownSeconds: 10, eliminationCooldownSeconds: 120
   });
   assert.equal(tuned.settings.mapId, "the-skeld");
-  assert.equal(tuned.settings.assignmentQuantity, 3);
+  assert.equal(tuned.settings.assignmentQuantity, 8);
 
   // --- lobby movement happens in the dropship, not on the match map ---
   const lobbySnapshot = await once(socket, "worldSnapshot", 8_000);
@@ -155,20 +170,26 @@ test("a practice run covers entry, lobby, gameplay, meeting and return", { timeo
 
   // --- movement under server authority ---
   const map = getMapDefinition("the-skeld");
-  const firstTask = privateState.tasks[0];
+  const firstTask = privateState.tasks.find((assignment) => {
+    const definition = map.taskDefinitions.find(({ id }) => id === assignment.id);
+    return (definition?.sites?.length ?? 1) <= 1;
+  });
+  assert.ok(firstTask, "the expanded smoke assignment set includes a single-console task");
+  const taskDefinition = map.taskDefinitions.find(({ id }) => id === firstTask.id);
   const taskStation = stationById("the-skeld", `task:${firstTask.id}`);
   assert.ok(taskStation, "the assignment resolves to a real station");
-  const reached = await walkTo(socket, playerId, taskStation, 2.75);
-  assert.ok(Math.hypot(reached.x - taskStation.x, reached.z - taskStation.z) <= 2.75);
+  const taskReach = taskStation.range ?? 2.8;
+  const reached = await walkTo(socket, playerId, taskStation, taskReach);
+  assert.ok(Math.hypot(reached.x - taskStation.x, reached.z - taskStation.z) <= taskReach);
 
   // --- one task, played to completion through the authoritative interface ---
   const begun = await request(socket, "beginTask", { stationId: taskStation.id });
   assert.equal(begun.task.id, firstTask.id);
   assert.ok(Array.isArray(begun.challenge) && begun.challenge.length > 0);
   const completion = once(socket, "taskCompleted", 20_000);
-  for (const choice of begun.challenge) {
+  for (let step = 0; step < taskDefinition.steps; step += 1) {
     await wait(320);
-    await request(socket, "taskAction", { taskId: firstTask.id, choice });
+    await request(socket, "taskAction", { taskId: firstTask.id, step });
   }
   const completed = await completion;
   assert.equal(completed.taskId, firstTask.id);
@@ -181,9 +202,9 @@ test("a practice run covers entry, lobby, gameplay, meeting and return", { timeo
 
   // --- emergency meeting from the Cafeteria button ---
   const meetingConsole = stationById("the-skeld", "meeting-console");
-  // The button sits inside the emergency table collider; its usable edge is
-  // deliberately just inside the shared 2.8-unit interaction radius.
-  await walkTo(socket, playerId, meetingConsole, 2.75);
+  // The button sits at the centre of the emergency table, so its authored reach
+  // covers the collision-safe rim rather than pretending the pedestal is floor.
+  await walkTo(socket, playerId, meetingConsole, meetingConsole.range);
   const meetingStarted = once(socket, "meetingStarted", 15_000);
   await request(socket, "callMeeting");
   const meeting = await meetingStarted;

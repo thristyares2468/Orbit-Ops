@@ -691,6 +691,20 @@ export class GameUI {
     container.replaceChildren();
     const map = getMapDefinition(mapId);
     for (const sabotage of map.sabotageDefinitions) {
+      if (Array.isArray(sabotage.doorTargets) && sabotage.doorTargets.length) {
+        for (const target of sabotage.doorTargets) {
+          const button = document.createElement("button"); button.type = "button";
+          const name = document.createElement("b"); name.textContent = `Lock ${target.name}`;
+          const detail = document.createElement("small"); detail.textContent = "Doors · timed disruption";
+          button.append(name, detail);
+          button.addEventListener("click", () => {
+            this.invoke("sabotage", { sabotageId: sabotage.id, doorTargetId: target.id });
+            this.closeModal("sabotage");
+          });
+          container.append(button);
+        }
+        continue;
+      }
       const button = document.createElement("button"); button.type = "button";
       const name = document.createElement("b"); name.textContent = sabotage.name;
       const detail = document.createElement("small"); detail.textContent = `${titleCase(sabotage.roomId)} · ${sabotage.critical ? "critical" : "disruption"}`;
@@ -863,7 +877,10 @@ export class GameUI {
   }
 
   closeGameplayModals() {
-    for (const name of ["minimap", "task", "meeting", "sabotage", "security", "pause"]) setVisible(this.elements[name], false);
+    for (const name of ["minimap", "task", "meeting", "sabotage", "admin", "security", "pause", "settings"]) {
+      setVisible(this.elements[name], false);
+    }
+    setVisible(this.elements.firstRunHint, false);
   }
 
   buildAssetArchive() {

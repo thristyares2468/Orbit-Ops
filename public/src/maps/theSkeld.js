@@ -119,6 +119,23 @@ function collisionAt(id, kind, roomId, x, y, width, depth, extras = {}) {
   };
 }
 
+function doorAt(id, x, y, width, depth) {
+  const point = referencePoint(x, y);
+  return Object.freeze({
+    id,
+    x: point.x,
+    z: point.z,
+    width: worldSize(width),
+    depth: worldSize(depth),
+    referenceRect: Object.freeze({
+      left: x - width / 2,
+      top: y - depth / 2,
+      right: x + width / 2,
+      bottom: y + depth / 2
+    })
+  });
+}
+
 const ROOMS = [
   roomFromReference({
     id: "cafeteria", name: "Cafeteria", rect: [539, 2, 826, 294],
@@ -181,7 +198,7 @@ const ROOMS = [
       [445, 355], [560, 355], [560, 389], [543, 421], [543, 476], [526, 504], [526, 526],
       [431, 526], [431, 485], [426, 485], [426, 433], [445, 433]
     ],
-    navigationAnchor: [516, 471], colour: 0x594437
+    navigationAnchor: [516, 470], colour: 0x594437
   }),
   roomFromReference({
     id: "storage", name: "Storage", rect: [559, 394, 727, 620],
@@ -252,17 +269,17 @@ const ROOMS = [
 const SKELD_CORRIDORS = [
   corridorFromReference("port-engine-spine", 210, 205, 342, 408),
   corridorFromReference("upper-engine-cafeteria-hall", 315, 110, 560, 171),
-  corridorFromReference("medbay-neck", 432, 155, 550, 203),
+  corridorFromReference("medbay-neck", 432, 167, 524, 203),
   corridorFromReference("lower-engine-electrical-hall", 315, 427, 454, 491),
   corridorFromReference("lower-engine-storage-bypass", 315, 500, 568, 568),
-  corridorFromReference("electrical-south-neck", 426, 478, 550, 532),
+  corridorFromReference("electrical-south-neck", 426, 490, 550, 544),
   corridorFromReference("cafeteria-storage-spine", 642, 275, 717, 416),
   corridorFromReference("admin-branch", 697, 305, 780, 390),
   corridorFromReference("storage-shields-hall", 710, 440, 893, 503),
-  corridorFromReference("communications-neck", 779, 484, 829, 527),
+  corridorFromReference("communications-neck", 779, 483, 829, 525),
   corridorFromReference("cafeteria-weapons-hall", 811, 107, 875, 173),
   corridorFromReference("weapons-south-neck", 911, 176, 981, 263),
-  corridorFromReference("o2-navigation-junction", 908, 231, 1007, 318),
+  corridorFromReference("o2-navigation-junction", 908, 225, 1007, 312),
   corridorFromReference("navigation-hall", 978, 245, 1103, 316),
   corridorFromReference("starboard-spine", 919, 291, 987, 455),
   corridorFromReference("shields-north-neck", 909, 406, 992, 458)
@@ -291,6 +308,60 @@ const SKELD_ROUTES = [
   route("storage-shields", "storage", "shields", [[730, 470], [881, 470]]),
   route("storage-communications", "storage", "communications", [[805, 470], [805, 510]]),
   route("shields-communications", "shields", "communications", [[881, 470], [805, 510]])
+];
+
+// Door shutters sit across the measured openings rather than across whole
+// corridors. A lockdown selects one room and closes every entrance in its group.
+const SKELD_DOOR_GROUPS = [
+  {
+    id: "cafeteria", name: "Cafeteria", roomId: "cafeteria",
+    doors: [
+      doorAt("cafeteria-west", 531, 139, 12, 55),
+      doorAt("cafeteria-east", 812, 139, 12, 55),
+      doorAt("cafeteria-south", 679, 294, 60, 12)
+    ]
+  },
+  {
+    id: "upper-engine", name: "Upper Engine", roomId: "upper-engine",
+    doors: [
+      doorAt("upper-engine-east", 327, 140, 12, 55),
+      doorAt("upper-engine-south", 263, 218, 55, 12)
+    ]
+  },
+  {
+    id: "lower-engine", name: "Lower Engine", roomId: "lower-engine",
+    doors: [
+      doorAt("lower-engine-east", 327, 458, 12, 55),
+      doorAt("lower-engine-north", 263, 394, 55, 12)
+    ]
+  },
+  {
+    id: "medbay", name: "MedBay", roomId: "medbay",
+    doors: [doorAt("medbay-north", 455, 167, 45, 12)]
+  },
+  {
+    id: "security", name: "Security", roomId: "security",
+    // Security's west opening follows the full vertical notch in the traced
+    // floor; a shorter shutter leaves a one-cell bypass at its north edge.
+    doors: [doorAt("security-west", 323, 314.5, 12, 73)]
+  },
+  {
+    id: "electrical", name: "Electrical", roomId: "electrical",
+    doors: [
+      doorAt("electrical-west", 431, 459, 12, 60),
+      // The angled threshold opens onto a broad lower hall; the full traced
+      // aperture must close or the walk grid leaves a diagonal route around it.
+      doorAt("electrical-south", 479, 518, 105, 12)
+    ]
+  },
+  {
+    id: "storage", name: "Storage", roomId: "storage",
+    doors: [
+      doorAt("storage-north", 680, 394, 48, 12),
+      doorAt("storage-west", 559, 534, 12, 48),
+      doorAt("storage-east", 727, 470, 12, 48)
+    ]
+  }
 ];
 
 const OUTER_HULL = [[365, 0], [752, 0], [802, 27], [940, 60], [1015, 104], [1035, 164], [1090, 224],
@@ -337,6 +408,7 @@ export const THE_SKELD = createMapDefinition({
   corridors: SKELD_CORRIDORS,
   connections: SKELD_ROUTES.map(({ from, to }) => [from, to]),
   corridorRoutes: SKELD_ROUTES,
+  doorGroups: SKELD_DOOR_GROUPS,
   // The Skeld's assignments, each running the minigame the real task runs. Tasks
   // that genuinely span the ship list every leg in `sites` and are worked in order.
   //
@@ -402,9 +474,6 @@ export const THE_SKELD = createMapDefinition({
     taskAt("skeld-inspect-sample", "Inspect Sample", "medbay", 505, 268, "sample", 1, "taskSample"),
     taskAt("skeld-clean-o2", "Clean O2 Filter", "o2", 838, 285, "o2filter", 1, "taskO2"),
     taskAt("skeld-calibrate-distributor", "Calibrate Distributor", "electrical", 500, 352, "calibrate", 3, "taskCalibrate"),
-    // Worked at a vent. Offset south of the Cafeteria grille so walking up to it
-    // from the room finds the task rather than the vent entrance.
-    taskAt("skeld-clean-vent", "Clean Vent", "cafeteria", 796, 195, "cleanvent", 1, "taskCleanVent")
   ],
   // repairKind picks the panel each sabotage is fixed at. They are deliberately
   // all different: the handprint scanners belong to the reactor alone.
@@ -414,9 +483,12 @@ export const THE_SKELD = createMapDefinition({
     // One randomised code, written on a sticky note at both keypads.
     { id: "skeld-o2-depletion", name: "O2 Depletion", critical: true, durationMs: 50000, repairStations: ["skeld-o2-panel", "skeld-admin-o2"], roomId: "o2", repairKind: "keypad" },
     // Turn the dial until the carrier wave comes back into phase.
-    { id: "skeld-comms-sabotage", name: "Communications Sabotage", critical: false, durationMs: 40000, repairStations: ["skeld-comms-panel"], roomId: "communications", repairKind: "radio" },
+    { id: "skeld-comms-sabotage", name: "Communications Sabotage", critical: false, durationMs: 40000, repairStations: ["skeld-comms-panel"], roomId: "communications", repairKind: "radio", jamsTelemetry: true },
     // One to five of the five breakers are thrown; put them all back up.
-    { id: "skeld-lights-out", name: "Lights Out", critical: false, durationMs: 40000, repairStations: ["skeld-light-panel"], roomId: "electrical", repairKind: "switches" }
+    { id: "skeld-lights-out", name: "Lights Out", critical: false, durationMs: 40000, repairStations: ["skeld-light-panel"], roomId: "electrical", repairKind: "switches", blindsPlayers: true },
+    // Door lockdowns expire on their own and have no repair console. The target
+    // room is chosen from doorGroups when the Operative activates the system.
+    { id: "skeld-door-lockdown", name: "Door Lockdown", critical: false, durationMs: 10000, repairStations: [], roomId: "cafeteria", repairKind: "doors", doorTargets: SKELD_DOOR_GROUPS.map(({ id, name }) => ({ id, name })) }
   ],
   stations: [
     // Dead centre of the round cafeteria table, where the model paints the button.

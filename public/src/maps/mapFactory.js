@@ -31,6 +31,15 @@ function freezeItems(values = []) {
   return Object.freeze(values.map((value) => Object.freeze(value)));
 }
 
+// Definitions stay plain serialisable data, while this private side table makes
+// repeated authoritative station lookups constant-time without exposing a
+// mutable Map on the definition itself.
+const STATION_INDEXES = new WeakMap();
+
+export function mapStationById(map, stationId) {
+  return STATION_INDEXES.get(map)?.get(stationId) ?? null;
+}
+
 export function task(id, name, roomId, x, z, kind, steps = 4, assetKey = null, sites = null) {
   // assetKey lets a task show its own console art instead of a generic one.
   //
@@ -79,6 +88,7 @@ export function createMapDefinition({
   walkGrid = null,
   tasks,
   sabotages,
+  doorGroups = [],
   stations = [],
   spawnPoints,
   collisionRects = [],
@@ -106,6 +116,10 @@ export function createMapDefinition({
   const frozenZones = freezeItems(zones);
   const frozenTasks = freezeItems(tasks);
   const frozenSabotages = freezeItems(sabotages);
+  const frozenDoorGroups = Object.freeze(doorGroups.map((group) => Object.freeze({
+    ...group,
+    doors: freezeItems(group.doors ?? [])
+  })));
   const allStations = freezeItems([
     // One console per site, so a three-panel wiring job really is three consoles
     // standing in three rooms rather than one console pretending to be three.
@@ -156,6 +170,7 @@ export function createMapDefinition({
     corridors,
     taskDefinitions: frozenTasks,
     sabotageDefinitions: frozenSabotages,
+    doorGroups: frozenDoorGroups,
     collisionRects: frozenCollisions,
     walkGrid: walkGrid ? Object.freeze({ ...walkGrid }) : null,
     decals: frozenDecals,
@@ -198,6 +213,7 @@ export function createMapDefinition({
       station: Object.freeze({ depth: 210, iconSize: 52 })
     })
   });
+  STATION_INDEXES.set(map, new Map(allStations.map((item) => [item.id, item])));
   const validation = validateMapDefinition(map);
   if (!validation.valid) throw new Error(`Invalid ${name} map: ${validation.errors.join(" ")}`);
   return map;

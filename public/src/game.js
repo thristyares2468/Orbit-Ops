@@ -1,41 +1,45 @@
 import { AudioManager } from "./audio.js";
+import { doorStepAllowed } from "./doorPhysics.js";
 import { VENT_DIRECTION_KEYS, ventExitForDirection } from "./ventNavigation.js";
 import { MeridianScene } from "./game2d/MeridianScene.js";
+import { INTERACTION_RANGE, ROLE_TARGET_RANGE } from "./gameplayConstants.js";
+import { nearestLivingTarget, nearestRoleTarget as findNearestRoleTarget } from "./gameplayTargeting.js";
 import { InputController } from "./input.js";
 import { LocalMovementPredictor } from "./localMovementPredictor.js";
 import { getRoleDefinition } from "./roleData.js";
+import { readStored } from "./safeStorage.js";
 import { LOBBY_MAP_ID, getMapDefinition, isWalkable, roomAt } from "./shipData.js";
 import { TaskInterface } from "./tasks.js";
+import { resetMinigameState } from "./tasks/minigames.js";
 import { RepairInterface } from "./repairInterface.js";
 import { applyDocumentSettings, saveSettings } from "./settings.js";
+import {
+  addMinedVent, normaliseVentTopology, sealVent
+} from "./ventTopology.js";
 
 const SESSION_KEY = "orbitOps.accountSession.v1";
 const REJOIN_KEY = "orbitOps.rejoinSession.v1";
 const APPEARANCE_KEY = "orbitOps.appearance.v1";
-const INTERACTION_RANGE = 2.8;
-// Mirrors ROLE_TARGET_RANGE in server/roleEngine.js: the client only picks the
-// target, the server still decides whether the reach was legal.
-const ROLE_TARGET_RANGE = 3.2;
 
 function defaultAppearance() {
-  try {
-    return {
-      colour: "cyan",
-      visor: "#9defff",
-      symbol: "orbit",
-      number: 7,
-      accessory: "antenna",
-      ...JSON.parse(localStorage.getItem(APPEARANCE_KEY) ?? "{}")
-    };
-  } catch {
-    return { colour: "cyan", visor: "#9defff", symbol: "orbit", number: 7, accessory: "antenna" };
-  }
+  const stored = readStored(APPEARANCE_KEY, {});
+  return {
+    colour: "cyan",
+    visor: "#9defff",
+    symbol: "orbit",
+    number: 7,
+    accessory: "antenna",
+    ...(stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {})
+  };
 }
 
-function nearestInteractable(map, position, incidents = [], allow = null) {
+function nearestInteractable(map, position, incidents = [], allow = null, ventTopology = null) {
   if (!position) return null;
   let nearest = null;
-  for (const station of [...map.stations, ...incidents.map((incident) => ({ ...incident, type: "incident" }))]) {
+  const sealedVentIds = new Set(ventTopology?.sealedVentIds ?? []);
+  const runtimeVents = (ventTopology?.minedVents ?? []).filter(({ id }) => !sealedVentIds.has(id));
+  for (const station of [...map.stations, ...runtimeVents, ...incidents.map((incident) => ({ ...incident, type: "incident" }))]) {
+    if (station.type === "maintenance" && sealedVentIds.has(station.id)) continue;
     if (allow && !allow(station)) continue;
     const distance = Math.hypot(position.x - station.x, position.z - station.z);
     if (distance <= (station.range ?? INTERACTION_RANGE) && (!nearest || distance < nearest.distance)) {
@@ -61,10 +65,16 @@ export class OrbitOpsGame {
     this.trackedTarget = null;
     this.currentPhase = "menu";
     this.activeSabotage = null;
+    this.ventTopology = normaliseVentTopology();
     this.nearest = null;
     this.lastFrameAt = performance.now();
     this.lastInputSentAt = 0;
     this.localMovement = new LocalMovementPredictor();
+    this.socketSessionReady = false;
+    this.awaitingAuthoritativeSnapshot = false;
+    this.resumeRoomPromise = null;
+    this.reconnectPromise = null;
+    this.reconnectGeneration = -1;
     // Frames counted over a window, not a mean of per-frame 1/delta: delta is
     // clamped to a 1ms floor, so one very short frame used to report 1000fps and
     // drag the average up. Frames longer than a second are background-tab pauses
@@ -113,22 +123,19 @@ export class OrbitOpsGame {
     this.applyGraphicsSettings();
     if (this.room?.players) this.syncCharacterMetadata(this.room.players);
     if (this.latestIncidents.length) scene.syncIncidents(this.latestIncidents);
+    scene.syncVentTopology(this.ventTopology);
   }
 
   bindNetwork() {
-    this.network.on("authenticationResult", (payload) => { if (payload.ok) this.handleAuthenticated(payload); });
-    this.network.on("roomJoined", (payload) => this.handleRoomJoined(payload));
-    this.network.on("reconnectState", (payload) => {
-      this.handleRoomJoined(payload);
-      if (payload.restored) this.handlePrivateState(payload.restored);
-      this.audio.playCue("reconnect");
-    });
+    // Authentication, joining and resuming are request/ack operations. Handling
+    // the server event as well as the ack used to run resume twice, rotate the
+    // token once, then delete the fresh token when the duplicate request failed.
     this.network.on("roomState", (room) => this.updateRoom(room));
     this.network.on("matchReset", ({ room }) => {
       this.currentPhase = "lobby";
       this.privateState = null;
       if (this.sceneReady) this.phaserScene.setGhostView(false);
-      this.ui.closeGameplayModals();
+      this.resetTaskInterfaces();
       this.updateRoom(room);
       this.ui.showLobby(room, this.playerId);
     });
@@ -195,6 +202,16 @@ export class OrbitOpsGame {
     });
     // Repair panels are shared, so a breaker thrown by anyone repaints them all.
     this.network.on("sabotagePanel", (payload) => this.repairInterface.applyPanel(payload));
+    this.network.on("ventMined", ({ vent }) => {
+      this.ventTopology = addMinedVent(this.ventTopology, vent);
+      if (this.sceneReady) this.phaserScene.syncVentTopology(this.ventTopology);
+      this.ui.toast("A new maintenance vent was opened.");
+    });
+    this.network.on("ventSealed", ({ ventId }) => {
+      this.ventTopology = sealVent(this.ventTopology, ventId);
+      if (this.sceneReady) this.phaserScene.syncVentTopology(this.ventTopology);
+      this.ui.toast("A maintenance vent was welded shut.");
+    });
     this.network.on("playerEliminated", ({ playerId }) => {
       this.audio.playCue("eliminate");
       const snapshot = this.latestSnapshots.get(playerId);
@@ -202,6 +219,10 @@ export class OrbitOpsGame {
       if (this.sceneReady) this.phaserScene.markDead(playerId);
       if (playerId === this.playerId && this.privateState) {
         this.privateState.alive = false;
+        // Assignments remain available to ghosts, but living-only sabotage
+        // repair panels (especially the renewing reactor handprint timer) must
+        // stop the instant the local player dies.
+        this.repairInterface.close();
         if (this.sceneReady) this.phaserScene.setGhostView(true);
         this.ui.toast("Your suit is offline. You drift on as a ghost - finish your assignments.");
       }
@@ -216,6 +237,10 @@ export class OrbitOpsGame {
       if (this.sceneReady) this.phaserScene.syncIncidents(this.latestIncidents);
     });
     this.network.on("meetingStarted", (payload) => {
+      // Meetings invalidate the server-side active task/repair. Release the one
+      // shared task modal before opening the meeting or it will overlap the vote
+      // screen and disable movement again when the match resumes.
+      this.closeTaskInterfaces();
       this.ui.showMeeting(payload);
       this.audio.playCue("report");
       this.input.setEnabled(false);
@@ -246,14 +271,21 @@ export class OrbitOpsGame {
     this.network.on("matchEnded", (results) => {
       this.currentPhase = "results";
       this.input.setEnabled(false);
+      this.resetTaskInterfaces();
       this.ui.showResults(results);
     });
     this.network.on("databaseSaveStatus", (payload) => this.ui.setSaveStatus(payload));
     this.network.on("errorMessage", ({ message }) => this.ui.toast(message, true));
-    this.network.on("network:disconnected", () => { if (this.room) this.ui.setConnection(false); });
+    this.network.on("network:disconnected", () => {
+      this.socketSessionReady = false;
+      this.awaitingAuthoritativeSnapshot = Boolean(this.room);
+      this.input.setEnabled(false);
+      this.localMovement.clear();
+      if (this.room) this.ui.setConnection(false);
+    });
     this.network.on("network:connected", () => {
       this.ui.setConnection(true);
-      if (this.auth && this.room) this.resumeRoom().catch(() => {});
+      if (this.auth) this.reconnectSocketSession().catch((error) => this.ui.toast(error.message, true));
     });
   }
 
@@ -287,11 +319,12 @@ export class OrbitOpsGame {
   }
 
   async restoreIdentity() {
-    const stored = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null");
+    const stored = readStored(SESSION_KEY);
     if (stored?.token) {
       try {
         const result = await this.network.request("resumeSession", { token: stored.token, appearance: defaultAppearance() });
         this.handleAuthenticated({ ...result, token: stored.token });
+        await this.resumeRoom();
         return true;
       } catch {
         localStorage.removeItem(SESSION_KEY);
@@ -304,22 +337,24 @@ export class OrbitOpsGame {
     this.ui.setAuthMessage("Contacting Meridian personnel archive…");
     const result = await this.network.request(event, payload, 12_000);
     this.handleAuthenticated(result);
+    await this.resumeRoom();
   }
 
-  handleAuthenticated(result) {
+  handleAuthenticated(result, { showMenu = true } = {}) {
     const account = result.account;
     this.auth = {
       accountId: account?.id ?? null,
       displayName: account?.displayName ?? result.displayName,
       guest: result.guest ?? !account,
+      role: account?.role ?? "player",
       token: result.token ?? this.auth?.token ?? null
     };
+    this.socketSessionReady = true;
     if (result.token) {
       localStorage.setItem(SESSION_KEY, JSON.stringify({ token: result.token, expiresAt: result.expiresAt }));
     }
     this.ui.setAuthMessage("Clearance accepted.");
-    this.ui.showMainMenu(this.auth);
-    this.resumeRoom().catch(() => {});
+    if (showMenu) this.ui.showMainMenu(this.auth);
   }
 
   async logout() {
@@ -328,8 +363,10 @@ export class OrbitOpsGame {
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(REJOIN_KEY);
     this.auth = null;
+    this.socketSessionReady = false;
     this.room = null;
     this.playerId = null;
+    this.resetTaskInterfaces();
     this.clearCharacters();
     this.ui.showScreen("auth");
   }
@@ -353,18 +390,85 @@ export class OrbitOpsGame {
   }
 
   async resumeRoom() {
-    if (!this.auth || !this.network.connected) return false;
-    const stored = JSON.parse(localStorage.getItem(REJOIN_KEY) ?? "null");
+    if (this.resumeRoomPromise) return this.resumeRoomPromise;
+    this.resumeRoomPromise = this.performRoomResume();
+    try {
+      return await this.resumeRoomPromise;
+    } finally {
+      this.resumeRoomPromise = null;
+    }
+  }
+
+  async performRoomResume() {
+    if (!this.auth || !this.network.connected || !this.socketSessionReady) return false;
+    const stored = readStored(REJOIN_KEY);
     if (!stored?.token || stored.displayName !== this.auth.displayName) return false;
     try {
       const result = await this.network.request("resumeRoom", { token: stored.token });
       this.handleRoomJoined(result);
       if (result.restored) this.handlePrivateState(result.restored);
+      this.audio.playCue("reconnect");
       return true;
-    } catch {
-      localStorage.removeItem(REJOIN_KEY);
+    } catch (error) {
+      // A timeout or another transient disconnect must not erase the only token
+      // that can restore the reserved room slot. Remove it only when the server
+      // positively says that the reservation is unusable.
+      if (/expired|does not match|no saved room session|same guest name/iu.test(error.message)) {
+        localStorage.removeItem(REJOIN_KEY);
+        this.clearLocalRoomState();
+        this.ui.toast("Your reserved room expired. Returned to the operations menu.", true);
+      }
       return false;
     }
+  }
+
+  async reconnectSocketSession() {
+    const requestedGeneration = this.network.connectionGeneration ?? 0;
+    if (this.reconnectPromise) {
+      if (this.reconnectGeneration === requestedGeneration) return this.reconnectPromise;
+      // A newer transport connected while the previous one was still waiting
+      // on an acknowledgement. Let that attempt settle, then authenticate the
+      // current generation rather than inheriting its stale promise.
+      await this.reconnectPromise.catch(() => false);
+    }
+    if (!this.auth || !this.network.connected) return false;
+    const generation = this.network.connectionGeneration ?? 0;
+    if (this.reconnectPromise && this.reconnectGeneration === generation) return this.reconnectPromise;
+    const attempt = this.performSocketReconnect(generation);
+    this.reconnectGeneration = generation;
+    this.reconnectPromise = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (this.reconnectPromise === attempt) this.reconnectPromise = null;
+    }
+  }
+
+  async performSocketReconnect(generation = this.network.connectionGeneration ?? 0) {
+    if (!this.auth || !this.network.connected) return false;
+    if (this.auth.guest) {
+      const result = await this.network.request("guestLogin", {
+        displayName: this.auth.displayName,
+        appearance: defaultAppearance()
+      });
+      this.handleAuthenticated(result, { showMenu: !this.room });
+    } else {
+      const stored = readStored(SESSION_KEY);
+      const token = this.auth.token ?? stored?.token;
+      if (!token) throw new Error("Your saved account session is unavailable.");
+      const result = await this.network.request("resumeSession", { token, appearance: defaultAppearance() });
+      this.handleAuthenticated({ ...result, token }, { showMenu: !this.room });
+    }
+    if (!this.network.connected || (this.network.connectionGeneration ?? 0) !== generation) return false;
+    if (!this.room) return true;
+    const resumed = await this.resumeRoom();
+    if (resumed || !this.room || !this.network.connected) return resumed || !this.room;
+    // A congested deploy can lose the first request before it reaches the room
+    // handler. Retry once while the same authenticated socket is still alive;
+    // token rotation remains idempotent through the server's previous-token slot.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    if (!this.network.connected) return false;
+    return this.resumeRoom();
   }
 
   // Everything before the countdown happens in the shared dropship lobby; the
@@ -378,9 +482,13 @@ export class OrbitOpsGame {
     const previousMapId = this.activeMapId();
     this.room = room;
     this.activeSabotage = room.activeSabotage;
+    this.ventTopology = normaliseVentTopology(room.ventTopology);
     this.ui.updateRoom(room);
     if (previousMapId && previousMapId !== this.activeMapId()) this.localMovement.clear();
-    if (this.sceneReady) this.phaserScene.setMap(this.activeMapId());
+    if (this.sceneReady) {
+      this.phaserScene.setMap(this.activeMapId());
+      this.phaserScene.syncVentTopology(this.ventTopology);
+    }
     this.syncCharacterMetadata(room.players);
   }
 
@@ -422,8 +530,11 @@ export class OrbitOpsGame {
     const localServer = (snapshot.players ?? []).find((player) => player.id === this.playerId);
     let localDisplay = localServer;
     if (localServer) {
-      const force = !["active", "lobby"].includes(snapshot.phase) || Boolean(this.vent);
+      const force = this.awaitingAuthoritativeSnapshot
+        || !["active", "lobby"].includes(snapshot.phase)
+        || Boolean(this.vent);
       this.localMovement.reconcile(localServer, { force });
+      this.awaitingAuthoritativeSnapshot = false;
       localDisplay = this.localMovement.renderSnapshot(localServer);
     }
     const renderPlayers = (snapshot.players ?? []).map((player) =>
@@ -442,6 +553,10 @@ export class OrbitOpsGame {
 
   async leaveRoom() {
     await this.network.request("leaveRoom").catch(() => {});
+    this.clearLocalRoomState();
+  }
+
+  clearLocalRoomState() {
     localStorage.removeItem(REJOIN_KEY);
     this.room = null;
     this.playerId = null;
@@ -449,14 +564,28 @@ export class OrbitOpsGame {
     this.vent = null;
     this.ventCursor = null;
     this.ventActionPending = false;
+    this.ventTopology = normaliseVentTopology();
+    this.awaitingAuthoritativeSnapshot = false;
+    this.input.setEnabled(false);
     if (this.sceneReady) this.phaserScene.setVentState(null);
     this.currentPhase = "menu";
     this.latestIncidents = [];
     this.trackedTarget = null;
     this.clearCharacters();
     if (this.sceneReady) this.phaserScene.syncIncidents([]);
-    this.ui.closeGameplayModals();
+    this.resetTaskInterfaces();
     this.ui.showMainMenu(this.auth);
+  }
+
+  resetTaskInterfaces() {
+    this.closeTaskInterfaces();
+    resetMinigameState();
+  }
+
+  closeTaskInterfaces() {
+    this.taskInterface.close();
+    this.repairInterface.close();
+    this.ui.closeGameplayModals();
   }
 
   async returnToLobby() {
@@ -482,7 +611,8 @@ export class OrbitOpsGame {
       faction: this.privateState?.faction,
       settings: this.room?.settings,
       alive: this.privateState?.alive !== false,
-      isPositionValid: (x, z) => isWalkable(map.id, x, z),
+      isPositionValid: (x, z) => isWalkable(map.id, x, z)
+        && doorStepAllowed(map, this.activeSabotage, this.localMovement.position, { x, z }),
       bounds: map.bounds
     });
     if (!position) return;
@@ -607,18 +737,13 @@ export class OrbitOpsGame {
     }
     const local = this.latestSnapshots.get(this.playerId);
     if (!local) throw new Error("Local player position is unavailable.");
-    let target = null;
-    let best = 3.2;
-    for (const player of this.room?.players ?? []) {
-      if (player.id === this.playerId || !player.alive) continue;
-      const snapshot = this.latestSnapshots.get(player.id);
-      if (!snapshot || snapshot.alive === false) continue;
-      const distance = Math.hypot(local.x - snapshot.x, local.z - snapshot.z);
-      if (distance < best) {
-        target = player;
-        best = distance;
-      }
-    }
+    const configuredRange = Number(this.room?.settings?.eliminationRange);
+    const target = nearestLivingTarget(
+      this.room?.players,
+      this.latestSnapshots,
+      this.playerId,
+      Number.isFinite(configuredRange) ? configuredRange : 2.35
+    );
     if (!target) throw new Error("No valid target is in range.");
     return this.network.request("eliminationAttempt", { targetId: target.id });
   }
@@ -626,32 +751,15 @@ export class OrbitOpsGame {
   nearestRoleTarget(targeting, reach = ROLE_TARGET_RANGE) {
     const local = this.latestSnapshots.get(this.playerId);
     if (!local) throw new Error("Local player position is unavailable.");
-    if (targeting === "incident") {
-      let nearest = null;
-      let best = reach;
-      for (const incident of this.latestIncidents) {
-        const distance = Math.hypot(local.x - incident.x, local.z - incident.z);
-        if (distance < best) {
-          nearest = incident;
-          best = distance;
-        }
-      }
-      return nearest;
-    }
-    if (targeting !== "player") return null;
-    let nearest = null;
-    let best = reach;
-    for (const player of this.room?.players ?? []) {
-      if (player.id === this.playerId) continue;
-      const snapshot = this.latestSnapshots.get(player.id);
-      if (!snapshot || snapshot.alive === false) continue;
-      const distance = Math.hypot(local.x - snapshot.x, local.z - snapshot.z);
-      if (distance < best) {
-        nearest = player;
-        best = distance;
-      }
-    }
-    return nearest;
+    return findNearestRoleTarget({
+      targeting,
+      local,
+      incidents: this.latestIncidents,
+      players: this.room?.players,
+      snapshots: this.latestSnapshots,
+      selfId: this.playerId,
+      maximumRange: reach
+    });
   }
 
   // explicitTargetId comes from the meeting UI, where you pick a face rather than
@@ -779,7 +887,12 @@ export class OrbitOpsGame {
     const { modalOpen, typing } = this.uiState;
     const inLobby = this.currentPhase === "lobby" && Boolean(this.room);
     const gameplayActive = this.currentPhase === "active" && Boolean(this.room);
-    const shouldEnableInput = (inLobby || gameplayActive) && !modalOpen && !typing;
+    const shouldEnableInput = this.network.connected
+      && this.socketSessionReady
+      && !this.awaitingAuthoritativeSnapshot
+      && (inLobby || gameplayActive)
+      && !modalOpen
+      && !typing;
     if (this.input.enabled !== shouldEnableInput) this.input.setEnabled(shouldEnableInput);
     if (shouldEnableInput) {
       const movement = this.input.currentMovement();
@@ -796,8 +909,8 @@ export class OrbitOpsGame {
         ? nearestInteractable(map, local)
         : !gameplayActive ? null
           : this.privateState?.alive
-            ? nearestInteractable(map, local, this.latestIncidents)
-            : nearestInteractable(map, local, [], (station) => station.type === "task");
+            ? nearestInteractable(map, local, this.latestIncidents, null, this.ventTopology)
+            : nearestInteractable(map, local, [], (station) => station.type === "task", this.ventTopology);
       this.ui.updateInteraction(this.nearest, inLobby);
       if (!inLobby) this.ui.updateRoleAbility(Date.now());
     }

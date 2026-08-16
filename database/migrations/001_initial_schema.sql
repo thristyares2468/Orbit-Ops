@@ -9,7 +9,10 @@ CREATE TABLE IF NOT EXISTS accounts (
   role varchar(20) NOT NULL DEFAULT 'player' CHECK (role IN ('player', 'moderator', 'admin', 'owner')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  last_login_at timestamptz
+  last_login_at timestamptz,
+  failed_login_attempts integer NOT NULL DEFAULT 0 CHECK (failed_login_attempts >= 0),
+  failed_login_window_started_at timestamptz,
+  login_locked_until timestamptz
 );
 CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_lower_uidx ON accounts (lower(email));
 CREATE UNIQUE INDEX IF NOT EXISTS accounts_display_name_lower_uidx ON accounts (lower(display_name));
@@ -65,7 +68,7 @@ CREATE TABLE IF NOT EXISTS matches (
   ended_at timestamptz NOT NULL,
   winning_faction varchar(20) NOT NULL CHECK (winning_faction IN ('crew', 'operative', 'neutral', 'abandoned')),
   player_count smallint NOT NULL CHECK (player_count BETWEEN 1 AND 16),
-  map_id varchar(40) NOT NULL DEFAULT 'osv-meridian',
+  map_id varchar(40) NOT NULL DEFAULT 'the-skeld',
   duration_seconds integer NOT NULL CHECK (duration_seconds >= 0),
   match_data_json jsonb NOT NULL DEFAULT '{}'::jsonb
 );
@@ -147,3 +150,27 @@ CREATE TABLE IF NOT EXISTS mutes (
 );
 CREATE INDEX IF NOT EXISTS mutes_account_active_idx ON mutes (account_id) WHERE active = true;
 CREATE INDEX IF NOT EXISTS mutes_issued_by_idx ON mutes (issued_by);
+
+-- Existing installations may predate owner accounts and login lockout state.
+-- This migration runs once, so compatibility DDL belongs here rather than in
+-- the application boot path.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS failed_login_attempts integer NOT NULL DEFAULT 0;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS failed_login_window_started_at timestamptz;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS login_locked_until timestamptz;
+ALTER TABLE accounts DROP CONSTRAINT IF EXISTS accounts_role_check;
+ALTER TABLE accounts
+  ADD CONSTRAINT accounts_role_check
+  CHECK (role IN ('player', 'moderator', 'admin', 'owner'));
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'accounts_failed_login_attempts_check'
+      AND conrelid = 'accounts'::regclass
+  ) THEN
+    ALTER TABLE accounts
+      ADD CONSTRAINT accounts_failed_login_attempts_check
+      CHECK (failed_login_attempts >= 0);
+  END IF;
+END $$;

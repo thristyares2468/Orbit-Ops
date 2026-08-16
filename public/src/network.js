@@ -8,15 +8,25 @@ export class NetworkClient {
     this.lastPingSample = null;
     this.serverInfo = null;
     this.pingTimer = null;
+    this.connectionGeneration = 0;
+    this.pendingRequests = new Set();
 
     this.socket.onAny((event, payload) => this.emitLocal(event, payload));
     this.socket.on("connect", () => {
+      this.connectionGeneration += 1;
       this.connected = true;
       this.emitLocal("network:connected", { socketId: this.socket.id });
       this.startPing();
     });
     this.socket.on("disconnect", (reason) => {
+      this.connectionGeneration += 1;
       this.connected = false;
+      // Socket.IO acknowledgements from the old transport can never complete
+      // reliably after a disconnect. Reject them now so a newly connected
+      // generation can authenticate instead of waiting for the old timeout.
+      const error = new Error("The server connection was interrupted.");
+      error.code = "NETWORK_DISCONNECTED";
+      for (const request of [...this.pendingRequests]) request.reject(error);
       this.emitLocal("network:disconnected", { reason });
       clearInterval(this.pingTimer);
     });
@@ -56,11 +66,31 @@ export class NetworkClient {
         reject(new Error("The server connection is unavailable."));
         return;
       }
-      const timer = setTimeout(() => reject(new Error(`${event} timed out.`)), timeoutMs);
-      this.socket.emit(event, payload, (response) => {
+      const generation = this.connectionGeneration;
+      let timer = null;
+      let settled = false;
+      const settle = (handler, value) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
-        if (response?.ok === false) reject(new Error(response.error ?? "Request failed."));
-        else resolve(response ?? { ok: true });
+        this.pendingRequests.delete(pending);
+        handler(value);
+      };
+      const pending = {
+        reject: (error) => settle(reject, error)
+      };
+      this.pendingRequests.add(pending);
+      timer = setTimeout(() => settle(reject, new Error(`${event} timed out.`)), timeoutMs);
+      this.socket.emit(event, payload, (response) => {
+        if (!this.connected || generation !== this.connectionGeneration) {
+          const error = new Error("The server connection changed before the response arrived.");
+          error.code = "NETWORK_DISCONNECTED";
+          settle(reject, error);
+        } else if (response?.ok === false) {
+          settle(reject, new Error(response.error ?? "Request failed."));
+        } else {
+          settle(resolve, response ?? { ok: true });
+        }
       });
     });
   }

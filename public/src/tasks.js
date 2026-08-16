@@ -1,4 +1,5 @@
 import { minigameFor } from "./tasks/minigames.js";
+import { claimTaskModal, ownsTaskModal, releaseTaskModal } from "./taskModalOwner.js";
 
 // The console art each assignment opens against, all from the game's own set.
 const TASK_ART = Object.freeze({
@@ -18,8 +19,7 @@ const TASK_ART = Object.freeze({
   scan: "/assets/art/Tasks/MedScan-sharedassets0.assets-61.png",
   sample: "/assets/art/Tasks/MedSample-sharedassets0.assets-101.png",
   o2filter: "/assets/art/Tasks/MonitorOxy-sharedassets0.assets-182.png",
-  calibrate: "/assets/art/Tasks/Calibrator-sharedassets0.assets-207.png",
-  cleanvent: "/assets/art/Tasks/panel_doors_bg-sharedassets0.assets-71.png"
+  calibrate: "/assets/art/Tasks/Calibrator-sharedassets0.assets-207.png"
 });
 
 const FALLBACK_ART = "/assets/art/Tasks/TaskAdder-sharedassets0.assets-192.png";
@@ -39,11 +39,14 @@ export class TaskInterface {
     this.feedback = document.querySelector("#task-feedback");
     this.active = null;
     this.teardown = null;
-    document.querySelector("#task-cancel").addEventListener("click", () => this.close());
+    document.querySelector("#task-cancel").addEventListener("click", () => {
+      if (this.active && ownsTaskModal(this)) this.close();
+    });
   }
 
   open(payload) {
-    const task = payload.task;
+    const task = payload?.task;
+    if (!task || !claimTaskModal(this)) return false;
     const game = minigameFor(task.kind);
     this.disposeStage();
     this.active = {
@@ -71,6 +74,7 @@ export class TaskInterface {
     this.controls.replaceChildren();
     this.modal.classList.remove("is-hidden");
     this.buildStage();
+    return true;
   }
 
   // Each step gets a fresh board: Simon Says grows a square, the distributor
@@ -142,9 +146,12 @@ export class TaskInterface {
   }
 
   close() {
+    if (!ownsTaskModal(this)) return false;
     this.disposeStage();
     this.active = null;
     this.challengeElement.replaceChildren();
     this.modal.classList.add("is-hidden");
+    releaseTaskModal(this);
+    return true;
   }
 }

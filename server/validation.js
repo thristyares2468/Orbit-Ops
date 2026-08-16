@@ -34,28 +34,36 @@ export function validateChat(value) {
 }
 
 export function validateRoomCode(value) {
-  const code = cleanText(value, 6).toUpperCase().replace(/[^A-Z0-9]/gu, "");
+  // Formatting characters do not count towards the six-character wire value.
+  // Strip them before applying the bound so pasted codes such as "AB-C12" work.
+  const code = cleanText(value, 32).toUpperCase().replace(/[^A-Z0-9]/gu, "").slice(0, 6);
   if (!/^[A-Z0-9]{5,6}$/u.test(code)) throw new Error("Enter a valid room code.");
   return code;
 }
 
 export function validateAppearance(value = {}) {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const colours = ["cyan", "amber", "violet", "lime", "coral", "white", "blue", "rose"];
   const symbols = ["delta", "orbit", "nova", "pulse", "vector", "quasar", "helix", "zenith"];
   return {
-    colour: colours.includes(value.colour) ? value.colour : "cyan",
-    visor: /^#[0-9a-f]{6}$/iu.test(value.visor) ? value.visor : "#9defff",
-    symbol: symbols.includes(value.symbol) ? value.symbol : "orbit",
-    number: Math.max(1, Math.min(99, Math.round(Number(value.number) || 7))),
-    accessory: ["none", "antenna", "scanner", "crest"].includes(value.accessory) ? value.accessory : "none"
+    colour: colours.includes(input.colour) ? input.colour : "cyan",
+    visor: /^#[0-9a-f]{6}$/iu.test(input.visor) ? input.visor : "#9defff",
+    symbol: symbols.includes(input.symbol) ? input.symbol : "orbit",
+    number: Math.max(1, Math.min(99, Math.round(Number(input.number) || 7))),
+    accessory: ["none", "antenna", "scanner", "crest"].includes(input.accessory) ? input.accessory : "none"
   };
 }
 
 export function validateSettings(input = {}) {
-  const integer = (key, min, max) => Math.max(min, Math.min(max, Math.round(Number(input[key] ?? DEFAULT_SETTINGS[key]))));
-  const decimal = (key, min, max) => Math.max(min, Math.min(max, Number(input[key] ?? DEFAULT_SETTINGS[key])));
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const numeric = (key) => {
+    const value = Number(source[key] ?? DEFAULT_SETTINGS[key]);
+    return Number.isFinite(value) ? value : DEFAULT_SETTINGS[key];
+  };
+  const integer = (key, min, max) => Math.max(min, Math.min(max, Math.round(numeric(key))));
+  const decimal = (key, min, max) => Math.max(min, Math.min(max, numeric(key)));
   return {
-    mapId: MAP_IDS.includes(input.mapId) ? input.mapId : DEFAULT_SETTINGS.mapId,
+    mapId: MAP_IDS.includes(source.mapId) ? source.mapId : DEFAULT_SETTINGS.mapId,
     maxPlayers: integer("maxPlayers", 4, 16),
     operativeCount: integer("operativeCount", 1, 4),
     discussionSeconds: integer("discussionSeconds", 10, 120),
@@ -68,13 +76,13 @@ export function validateSettings(input = {}) {
     operativeSpeed: decimal("operativeSpeed", 0.75, 1.35),
     crewVisibility: decimal("crewVisibility", 0.5, 1.5),
     operativeVisibility: decimal("operativeVisibility", 0.75, 1.75),
-    anonymousVoting: Boolean(input.anonymousVoting),
-    factionReveal: Boolean(input.factionReveal),
-    evidenceEnabled: input.evidenceEnabled !== false,
+    anonymousVoting: Boolean(source.anonymousVoting),
+    factionReveal: Boolean(source.factionReveal),
+    evidenceEnabled: source.evidenceEnabled !== false,
     emergencyMeetings: integer("emergencyMeetings", 0, 3),
-    finalExtractionEnabled: input.finalExtractionEnabled !== false,
-    allowSinglePlayer: Boolean(input.allowSinglePlayer),
-    roleSettings: normaliseRoleSettings(input.roleSettings, DEFAULT_SETTINGS.roleSettings)
+    finalExtractionEnabled: source.finalExtractionEnabled !== false,
+    allowSinglePlayer: Boolean(source.allowSinglePlayer),
+    roleSettings: normaliseRoleSettings(source.roleSettings, DEFAULT_SETTINGS.roleSettings)
   };
 }
 

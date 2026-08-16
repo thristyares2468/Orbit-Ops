@@ -4,18 +4,22 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm install && npm run jims:sync
-    startCommand: npm start
+    buildCommand: pnpm install --frozen-lockfile && pnpm run jims:sync && pnpm run db:migrate
+    startCommand: pnpm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATABASE_SSL
-        value: "true"
+      - key: DATABASE_SSL_MODE
+        value: verify-full
       - key: DATABASE_URL
+        sync: false
+      - key: ORBIT_OWNER_ACCOUNT_ID
         sync: false
       - key: SESSION_SECRET
         generateValue: true
+      - key: TRUST_PROXY_HOPS
+        value: "1"
       - key: JIMS_DATABASE_URL
         sync: false
       - key: JIMS_ADMIN_TOKEN

@@ -532,10 +532,12 @@ export class MapBuilder {
       layer.add(stationContainer);
       this.stationMarkers.push({
         id: station.id,
+        type: station.type,
         roomId: station.roomId,
         container: stationContainer,
         ring,
         icon,
+        normalIconAlpha: station.artAlpha ?? 1,
         seed: Math.random() * Math.PI * 2
       });
     }

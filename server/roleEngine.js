@@ -1,12 +1,11 @@
 import { FACTIONS, TARGETING, WIN_KINDS } from "../public/src/roles/defineRole.js";
+import { ROLE_TARGET_RANGE } from "../public/src/gameplayConstants.js";
 import { getRoleDefinition } from "../public/src/roleData.js";
 import { MEETING_PHASES } from "./constants.js";
 
 // Executes a role's declared ability against a narrow API, so a role definition can
 // never reach past the rules it is allowed to touch. Everything a role may do to the
 // match goes through buildAbilityApi below and nothing else.
-
-const ROLE_TARGET_RANGE = 3.2;
 
 // Every vent on the map plus any the Miner has dug.
 function getRoleVents(server, room) {
@@ -127,6 +126,7 @@ function buildAbilityApi(server, room, player) {
         if (!nearest || gap < nearest.gap) nearest = { vent, gap };
       }
       if (!nearest) throw new Error("There is no vent to seal here.");
+      if (nearest.gap > ROLE_TARGET_RANGE) throw new Error("Move closer to a vent.");
       room.sealedVents = room.sealedVents ?? [];
       room.sealedVents.push(nearest.vent.id);
       server.io.to(room.code).emit("ventSealed", { ventId: nearest.vent.id });
@@ -177,8 +177,14 @@ export function fireHook(server, room, hookName, payload = {}) {
     if (!hook) continue;
     try {
       hook({ ...payload, room, player, api: buildAbilityApi(server, room, player) });
-    } catch {
-      // A misbehaving hook must never break the match.
+    } catch (error) {
+      // A misbehaving hook must never break the match, but it must be visible to
+      // operators instead of silently disabling a role every round.
+      console.error("Role hook failed:", {
+        roleId: player.role,
+        hookName,
+        message: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 }

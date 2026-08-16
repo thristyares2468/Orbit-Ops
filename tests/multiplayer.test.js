@@ -87,7 +87,7 @@ after(async () => {
   }
 });
 
-test("four clients join, receive private roles, and move through authoritative snapshots", { timeout: 30_000 }, async () => {
+test("four clients join, receive private roles, and move through authoritative snapshots", { timeout: 45_000 }, async () => {
   const sockets = await Promise.all([0, 1, 2, 3].map(connectGuest));
   const created = await request(sockets[0], "createRoom", { mode: "private", settings: { operativeCount: 2, discussionSeconds: 10, votingSeconds: 10, eliminationCooldownSeconds: 10 } });
   const roomCode = created.room.code;
@@ -105,15 +105,17 @@ test("four clients join, receive private roles, and move through authoritative s
     socket.on("worldSnapshot", (snapshot) => snapshots.set(index, snapshot));
   });
 
-  const started = sockets.map((socket, index) => once(socket, "matchStarted", 12_000).catch((error) => { throw new Error(`Client ${index}: ${error.message}`); }));
+  // The countdown itself consumes six seconds. Leave enough headroom for a busy
+  // full-suite worker or CI host without weakening any gameplay assertion.
+  const started = sockets.map((socket, index) => once(socket, "matchStarted", 20_000).catch((error) => { throw new Error(`Client ${index}: ${error.message}`); }));
   await request(sockets[0], "startMatch");
   await Promise.all(started);
   assert.equal(privateStates.size, 4);
   const operativeEntries = [...privateStates.entries()].filter(([, state]) => state.faction === "operative");
-  assert.equal(operativeEntries.length, 1, "four-player games clamp to one Operative");
+  assert.equal(operativeEntries.length, 2, "the host's requested Operative count is honored");
   const [operativeIndex, operativeState] = operativeEntries[0];
   const crewEntries = [...privateStates.entries()].filter(([, state]) => state.faction === "crew");
-  assert.equal(crewEntries.length, 3);
+  assert.equal(crewEntries.length, 2);
   assert.ok(operativeState.tasks.every((task) => task.fake), "Operative assignments are marked fake only in private state");
   assert.ok(crewEntries.every(([, state]) => state.tasks.every((task) => !task.fake)));
 
@@ -137,4 +139,59 @@ test("four clients join, receive private roles, and move through authoritative s
 
   const rejectedElimination = await requestResult(sockets[crewIndex], "eliminationAttempt", { targetId: operativeState.id });
   assert.deepEqual(rejectedElimination, { ok: false, error: "Elimination is unavailable." });
+});
+
+test("a replacement guest socket reauthenticates, resumes once, and can move from sequence one", { timeout: 20_000 }, async () => {
+  const first = createClient(ORIGIN, { transports: ["websocket"], forceNew: true, reconnection: false });
+  clients.push(first);
+  await once(first, "connected");
+  await request(first, "guestLogin", {
+    displayName: "Reconnect-Guest",
+    appearance: { colour: "cyan", symbol: "orbit", number: 77 }
+  });
+  const created = await request(first, "createRoom", { mode: "private" });
+  const playerId = created.playerId;
+  const initialSnapshot = await waitFor(
+    first,
+    "worldSnapshot",
+    (snapshot) => snapshot.players.some((player) => player.id === playerId)
+  );
+  const initial = initialSnapshot.players.find((player) => player.id === playerId);
+  const highSequence = waitFor(
+    first,
+    "worldSnapshot",
+    (snapshot) => snapshot.players.some((player) => player.id === playerId && player.seq === 100)
+  );
+  first.emit("playerInput", {
+    x: 0, z: 0, yaw: 0, crouch: false, seq: 100,
+    position: { x: initial.x, z: initial.z }
+  });
+  await highSequence;
+  first.disconnect();
+  await wait(150);
+
+  const replacement = createClient(ORIGIN, { transports: ["websocket"], forceNew: true, reconnection: false });
+  clients.push(replacement);
+  let duplicateAuthEvents = 0;
+  replacement.on("authenticationResult", () => { duplicateAuthEvents += 1; });
+  await once(replacement, "connected");
+  await request(replacement, "guestLogin", {
+    displayName: "Reconnect-Guest",
+    appearance: { colour: "cyan", symbol: "orbit", number: 77 }
+  });
+  const resumed = await request(replacement, "resumeRoom", { token: created.rejoinToken });
+  assert.equal(resumed.playerId, playerId);
+  assert.notEqual(resumed.rejoinToken, created.rejoinToken, "a successful resume rotates the capability token once");
+  assert.equal(duplicateAuthEvents, 0, "auth completion has one request/ack path");
+
+  const firstSequence = waitFor(
+    replacement,
+    "worldSnapshot",
+    (snapshot) => snapshot.players.some((player) => player.id === playerId && player.seq === 1)
+  );
+  replacement.emit("playerInput", {
+    x: 0, z: 0, yaw: 0, crouch: false, seq: 1,
+    position: { x: resumed.restored.position.x, z: resumed.restored.position.z }
+  });
+  await firstSequence;
 });
