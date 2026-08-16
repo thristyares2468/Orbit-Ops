@@ -7,6 +7,10 @@ import {
   resume, revealRecoveryCode
 } from "./authService.js";
 import { PartyRegistry } from "./parties.js";
+import { allocateRoomCode, randomRoomCode } from "./roomCodes.js";
+import {
+  claimRoomCode, releaseInstanceRoomCodes, releaseRoomCode, renewRoomCodes, sweepExpiredRoomCodes
+} from "../database/repositories/roomCodeRepository.js";
 import {
   createRestriction, findAccountByDisplayName, findAccountById, listRestrictions, revokeRestrictions
 } from "../database/repositories/moderationRepository.js";
@@ -40,7 +44,6 @@ import {
   validateRoomCode, validateSettings
 } from "./validation.js";
 
-const ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const IP_LIMITED_AUTH_ACTIONS = new Set(["login", "register", "resumeSession"]);
 // The previous room capability exists only to recover a successful resume whose
 // acknowledgement was lost. It must not become a second long-lived bearer.
@@ -149,10 +152,6 @@ export function rateLimitKey(socket, action) {
   return IP_LIMITED_AUTH_ACTIONS.has(action)
     ? `ip:${clientIp}:${action}`
     : `socket:${clientIp}:${socket.id}:${action}`;
-}
-
-function randomRoomCode() {
-  return Array.from({ length: 5 }, () => ROOM_ALPHABET[Math.floor(Math.random() * ROOM_ALPHABET.length)]).join("");
 }
 
 function shuffle(values) {
@@ -311,6 +310,13 @@ export class GameServer {
     this.socketPlayers = new Map();
     this.rateLimiter = new RateLimiter();
     this.parties = new PartyRegistry();
+    // Identifies this process in the shared room-code directory. A random id per
+    // boot is right: a restarted instance has no rooms, so its old claims should
+    // lapse rather than be reclaimed.
+    this.instanceId = process.env.ORBIT_INSTANCE_ID || `orbit-${randomUUID()}`;
+    this.roomCodeLeaseSeconds = 900;
+    this.roomCodeUpkeep = setInterval(() => this.renewRoomCodeLeases(), 300_000);
+    this.roomCodeUpkeep.unref?.();
     this.startedAt = Date.now();
     this.lastTickAt = Date.now();
     this.loop = setInterval(() => this.tick(), 1000 / TICK_RATE);
@@ -565,7 +571,7 @@ export class GameServer {
       let room = [...this.rooms.values()].find((candidate) => candidate.mode === "public"
         && candidate.phase === PHASES.LOBBY
         && candidate.players.size + seats <= candidate.settings.maxPlayers);
-      if (!room) room = this.createRoom("public", {});
+      if (!room) room = this.createRoom("public", {}, await this.allocateSharedRoomCode());
       const result = await this.joinRoom(socket, room, { accessChecked: true });
       this.summonParty(socket, room);
       return result;
@@ -575,7 +581,7 @@ export class GameServer {
       this.requireAuth(socket);
       await this.requireAccountAccess(socket.data.auth.accountId);
       const mode = payload?.mode === "practice" ? "practice" : "private";
-      const room = this.createRoom(mode, payload?.settings);
+      const room = this.createRoom(mode, payload?.settings, await this.allocateSharedRoomCode());
       const result = await this.joinRoom(socket, room, { accessChecked: true });
       if (mode === "practice") {
         room.practiceRoles.set(result.playerId, "operations-crew");
@@ -837,9 +843,15 @@ export class GameServer {
     };
   }
 
-  createRoom(mode, settingsInput) {
-    let code = randomRoomCode();
-    while (this.rooms.has(code)) code = randomRoomCode();
+  // `code` comes from allocateRoomCode when a socket asks for a room, so it has
+  // already been claimed in the shared directory. Tests and the bot paths call
+  // this without one and get local-only uniqueness, which is what a single
+  // instance has always had.
+  createRoom(mode, settingsInput, code = null) {
+    if (!code || this.rooms.has(code)) {
+      code = randomRoomCode();
+      while (this.rooms.has(code)) code = randomRoomCode();
+    }
     const settings = validateSettings({ ...DEFAULT_SETTINGS, ...settingsInput, allowSinglePlayer: mode === "practice" });
     const room = {
       code, mode, settings, mapId: settings.mapId, phase: PHASES.LOBBY, phaseEndsAt: null,
@@ -1120,10 +1132,35 @@ export class GameServer {
     if (room.phase !== PHASES.LOBBY) this.checkWinConditions(room, "player-left");
   }
 
+  // Claim a code that no instance sharing this database is already using. With
+  // no database this degrades to local uniqueness rather than refusing to work.
+  async allocateSharedRoomCode() {
+    return allocateRoomCode({
+      isTakenLocally: (candidate) => this.rooms.has(candidate),
+      claim: isDatabaseConfigured()
+        ? (candidate) => claimRoomCode(candidate, this.instanceId, this.roomCodeLeaseSeconds)
+        : null
+    });
+  }
+
+  renewRoomCodeLeases() {
+    if (!isDatabaseConfigured()) return;
+    const codes = [...this.rooms.keys()];
+    Promise.all([
+      codes.length ? renewRoomCodes(codes, this.instanceId, this.roomCodeLeaseSeconds) : Promise.resolve(0),
+      sweepExpiredRoomCodes()
+    ]).catch((error) => console.error("Room code lease upkeep failed:", error.message));
+  }
+
   destroyRoom(room) {
     for (const timer of room.timers) clearTimeout(timer);
     for (const player of room.players.values()) clearTimeout(player.cleanupTimer);
     this.rooms.delete(room.code);
+    // Hand the code back immediately rather than waiting for the lease to lapse.
+    if (isDatabaseConfigured()) {
+      releaseRoomCode(room.code, this.instanceId)
+        .catch((error) => console.error("Releasing a room code failed:", error.message));
+    }
   }
 
   startMatch(room, { staffTest = false } = {}) {
@@ -2576,6 +2613,11 @@ export class GameServer {
   stop() {
     clearInterval(this.loop);
     clearInterval(this.rateCleanup);
+    clearInterval(this.roomCodeUpkeep);
+    if (isDatabaseConfigured()) {
+      releaseInstanceRoomCodes(this.instanceId)
+        .catch((error) => console.error("Releasing this instance's room codes failed:", error.message));
+    }
     for (const room of this.rooms.values()) this.destroyRoom(room);
   }
 }
