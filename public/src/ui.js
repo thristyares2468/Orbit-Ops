@@ -943,7 +943,7 @@ export class GameUI {
   renderFriends({ friends = [], recent = [] } = {}) {
     const list = byId("friend-list");
     list.replaceChildren();
-    if (!friends.length) list.append(Object.assign(document.createElement("p"), { textContent: "No crew linked yet." }));
+    if (!friends.length) list.append(Object.assign(document.createElement("p"), { textContent: "No crewmates linked yet." }));
     for (const friend of friends) {
       const row = document.createElement("div");
       row.className = "roster-row";
