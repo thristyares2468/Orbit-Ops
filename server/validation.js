@@ -1,5 +1,6 @@
 import { DEFAULT_SETTINGS, MAX_CHAT_LENGTH, MAX_NAME_LENGTH, MIN_NAME_LENGTH } from "./constants.js";
 import { MAP_IDS } from "../public/src/shipData.js";
+import { DISPOSABLE_EMAIL_DOMAINS } from "./disposableEmailDomains.js";
 import { normaliseRoleSettings } from "../public/src/roleSettings.js";
 
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu;
@@ -15,9 +16,17 @@ export function validateDisplayName(value) {
   return displayName;
 }
 
-export function validateEmail(value) {
+export function validateEmail(value, { allowDisposable = true } = {}) {
   const email = cleanText(value, 254).toLowerCase();
   if (!EMAIL_PATTERN.test(email)) throw new Error("Enter a valid email address.");
+  // Only registration refuses throwaway mailboxes. Sign-in and recovery must
+  // still work for an account that was created before a domain joined the list.
+  if (!allowDisposable) {
+    const domain = email.slice(email.lastIndexOf("@") + 1);
+    if (DISPOSABLE_EMAIL_DOMAINS.has(domain)) {
+      throw new Error("That email provider is not accepted; use a permanent address.");
+    }
+  }
   return email;
 }
 
@@ -88,4 +97,14 @@ export function validateSettings(input = {}) {
 
 export function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
+// Postgres raises a syntax error on a malformed uuid, which would surface to the
+// player as database text. Refuse it here in the game's own words instead.
+export function validateUuid(value, label = "identifier") {
+  const id = cleanText(value, 40).toLowerCase();
+  if (!UUID_PATTERN.test(id)) throw new Error(`That ${label} is not valid.`);
+  return id;
 }

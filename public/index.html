@@ -63,6 +63,7 @@
           <button class="tab is-active" data-auth-tab="guest" type="button">Guest</button>
           <button class="tab" data-auth-tab="login" type="button">Login</button>
           <button class="tab" data-auth-tab="register" type="button">Register</button>
+          <button class="tab" data-auth-tab="reset" type="button">Reset</button>
         </div>
         <form id="guest-form" class="auth-form">
           <!-- Filled with a fresh callsign by GameUI.seedGuestCallsign on load. -->
@@ -81,6 +82,14 @@
           <label>Password<input id="register-password" type="password" minlength="10" maxlength="128" autocomplete="new-password" required></label>
           <label>Confirm password<input id="register-confirm" type="password" minlength="10" maxlength="128" autocomplete="new-password" required></label>
           <button class="button button-primary" type="submit">Create Personnel File</button>
+        </form>
+        <form id="reset-form" class="auth-form is-hidden">
+          <label>Email<input id="reset-email" type="email" autocomplete="email" required></label>
+          <label>Callsign<input id="reset-name" maxlength="22" autocomplete="nickname" required></label>
+          <label>Recovery code<input id="reset-code" maxlength="24" autocomplete="one-time-code" placeholder="XXXX-XXXX-XXXX-XXXX" spellcheck="false" required></label>
+          <label>New password<input id="reset-password" type="password" minlength="10" maxlength="128" autocomplete="new-password" required></label>
+          <button class="button button-primary" type="submit">Reset Password</button>
+          <small>Orbit Ops sends no mail. The recovery code shown when you registered is the way back in.</small>
         </form>
         <p id="auth-message" class="form-message" role="status"></p>
         <div class="service-strip"><span id="auth-server-status">Server online</span><span id="auth-db-status">Database checking</span></div>
@@ -114,6 +123,8 @@
         </form>
         <nav class="utility-nav">
           <button data-open-modal="profile" type="button">Profile</button>
+          <button data-open-modal="community" type="button">Crew</button>
+          <button id="moderation-button" class="is-hidden" data-open-modal="moderation" type="button">Moderation</button>
           <button data-open-modal="settings" type="button">Settings</button>
           <button data-open-modal="howto" type="button">How to Play</button>
           <button data-open-modal="assets" type="button">Asset Archive</button>
@@ -301,7 +312,64 @@
     </div><button id="save-settings" class="button button-primary" type="button">Apply Settings</button></section>
 
     <section id="howto-modal" class="modal reading-modal is-hidden"><header><div><p class="eyebrow">FIELD MANUAL</p><h2>How to Play</h2></div><button data-close-modal="howto" type="button">×</button></header><div class="reading-grid"><article><h3>Operations Crew</h3><p>Complete assignments, repair sabotage, recover evidence and remove every hidden Operative.</p></article><article><h3>Operatives</h3><p>Blend in with fake assignments, disrupt systems, use maintenance routes and isolate the Crew.</p></article><article><h3>Controls</h3><p>WASD or arrow keys move · C stealth-walk · E interact/emergency · R report · G role ability · Tab map · Q eliminate · F sabotage · Enter chat · Escape pause.</p></article><article><h3>Evidence</h3><p>Evidence suggests time, method and location. It is deliberately incomplete and may be corrupted.</p></article><a id="ghosts-easter-egg" class="manual-card-link" href="/easter-egg/jims-launch" aria-label="Ghosts — open the hidden transmission"><article><h3>Ghosts</h3><p>Death is not the end: ghosts drift through walls, chat with other ghosts and keep finishing assignments. The first crew member to fall returns as the Guardian Angel and can cast a protective shield over the living.</p></article></a></div></section>
-    <section id="profile-modal" class="modal compact-modal is-hidden"><header><div><p class="eyebrow">PERSONNEL FILE</p><h2>Profile</h2></div><button data-close-modal="profile" type="button">×</button></header><div id="profile-content"><p>Guest progression lasts for this browser session.</p></div></section>
+    <section id="profile-modal" class="modal compact-modal is-hidden"><header><div><p class="eyebrow">PERSONNEL FILE</p><h2>Profile</h2></div><button data-close-modal="profile" type="button">×</button></header><div id="profile-content"><p>Guest progression lasts for this browser session.</p></div><div id="recovery-block" class="is-hidden"><h3>Recovery code</h3><p class="pause-note">This is the only way back into your account if you forget your password. Keep it somewhere private.</p><p id="recovery-code" class="recovery-code">••••-••••-••••-••••</p><div class="pause-actions"><button id="recovery-reveal" class="button button-ghost" type="button">Show Code</button><button id="recovery-regenerate" class="button button-ghost" type="button">Generate New Code</button></div></div></section>
+    <section id="community-modal" class="modal archive-modal is-hidden">
+      <header><div><p class="eyebrow">CREW NETWORK</p><h2>Crew</h2></div><button data-close-modal="community" type="button">×</button></header>
+      <div class="auth-tabs" role="tablist">
+        <button class="tab is-active" data-community-tab="friends" type="button">Friends</button>
+        <button class="tab" data-community-tab="party" type="button">Party</button>
+        <button class="tab" data-community-tab="leaderboard" type="button">Leaderboard</button>
+        <button class="tab" data-community-tab="news" type="button">Bulletins</button>
+      </div>
+      <div id="community-friends" class="community-panel">
+        <form id="friend-add-form" class="join-code">
+          <label>Add by callsign<input id="friend-add-name" maxlength="22" autocomplete="off" spellcheck="false" required></label>
+          <button class="button button-primary" type="submit">Send Request</button>
+        </form>
+        <div id="friend-list"></div>
+        <h3>Played with recently</h3>
+        <div id="recent-list"></div>
+      </div>
+      <div id="community-party" class="community-panel is-hidden">
+        <form id="party-invite-form" class="join-code">
+          <label>Invite by callsign<input id="party-invite-name" maxlength="22" autocomplete="off" spellcheck="false" required></label>
+          <button class="button button-primary" type="submit">Invite</button>
+        </form>
+        <div id="party-content"></div>
+      </div>
+      <div id="community-leaderboard" class="community-panel is-hidden">
+        <div id="leaderboard-filter" class="filter-row"></div>
+        <div id="leaderboard-content"></div>
+      </div>
+      <div id="community-news" class="community-panel is-hidden">
+        <div id="news-content"></div>
+      </div>
+      <p id="community-message" class="form-message" role="status"></p>
+    </section>
+
+    <section id="moderation-modal" class="modal archive-modal is-hidden">
+      <header><div><p class="eyebrow">COMMAND AUTHORITY</p><h2>Moderation</h2></div><button data-close-modal="moderation" type="button">×</button></header>
+      <form id="moderation-form" class="auth-form">
+        <label>Callsign<input id="moderation-name" maxlength="22" autocomplete="off" spellcheck="false" required></label>
+        <label>Reason<input id="moderation-reason" maxlength="200" autocomplete="off"></label>
+        <label>Hours (blank for permanent)<input id="moderation-hours" type="number" min="1" max="8760" autocomplete="off"></label>
+        <div class="pause-actions">
+          <button class="button button-danger" data-moderation-action="ban" type="submit">Ban</button>
+          <button class="button button-ghost" data-moderation-action="mute" type="submit">Mute</button>
+          <button class="button button-ghost" data-moderation-action="unban" type="submit">Unban</button>
+          <button class="button button-ghost" data-moderation-action="unmute" type="submit">Unmute</button>
+        </div>
+      </form>
+      <h3>Bulletin</h3>
+      <form id="news-form" class="auth-form">
+        <label>Title<input id="news-title" maxlength="120" autocomplete="off" required></label>
+        <label>Body<textarea id="news-body" maxlength="4000" rows="3" required></textarea></label>
+        <button class="button button-primary" type="submit">Post Bulletin</button>
+      </form>
+      <div id="moderation-content"></div>
+      <p id="moderation-message" class="form-message" role="status"></p>
+    </section>
+
     <section id="assets-modal" class="modal archive-modal is-hidden"><header><div><p class="eyebrow">SUPPLIED ART INVENTORY</p><h2>Asset Archive</h2></div><button data-close-modal="assets" type="button">×</button></header><p>All provided non-logo art is catalogued here. Map and usage integration remains provisional until the authored map code is supplied.</p><div id="asset-filter" class="filter-row"></div><div id="asset-grid" class="asset-grid"></div></section>
 
     <div id="disconnect-overlay" class="disconnect-overlay is-hidden"><div class="spinner"></div><strong>Operations link interrupted</strong><span>Reconnecting to the Meridian…</span></div>

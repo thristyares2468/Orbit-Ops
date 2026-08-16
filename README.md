@@ -7,6 +7,10 @@ The current release has one selectable match map: **The Skeld**. Its shared defi
 ## Current feature set
 
 - Guest, registration, login, hashed passwords, opaque HMAC-hashed sessions, logout, profile, and saved settings
+- Account recovery without a mail provider: registration issues a four-group recovery code, shown once and readable again from the profile panel. Email, callsign and code together reset a password, which also revokes every existing session and issues a fresh code. Registration refuses known throwaway mailbox domains.
+- Moderation that can actually be applied: bans and mutes are issued and lifted from an in-game panel visible only to moderator, admin and owner accounts, and from a break-glass `POST /admin/:action` route guarded by `ORBIT_ADMIN_TOKEN`. The route 404s entirely when that secret is unset. A ban takes effect immediately - the account's sockets are dropped rather than left playing until next sign-in.
+- Friends and parties: link up by callsign or from the people you have just played with, then invite them into a party. Public matchmaking seats the whole party in one lobby rather than splitting it, by looking for a room with enough free seats for the group instead of for one more player.
+- Leaderboards over the statistics already being recorded - score, victories, assignments, eliminations and longest survival - and owner-posted bulletins pushed live to everyone connected.
 - A walkable dropship lobby built from the supplied Lobby artwork: players move, gather, and chat in-world before launch, with the host's parameters, room code, crew manifest, and a boarding-console launch point layered over the live scene
 - Public matchmaking with all-ready auto-launch, private room codes, practice simulations with bots, host settings, ready state, and host reassignment
 - 45-second reconnect reservation with rotated rejoin tokens

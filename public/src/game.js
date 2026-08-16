@@ -275,6 +275,10 @@ export class OrbitOpsGame {
       this.ui.showResults(results);
     });
     this.network.on("databaseSaveStatus", (payload) => this.ui.setSaveStatus(payload));
+    this.network.on("partyInvited", (payload) => this.ui.showPartyInvite(payload));
+    this.network.on("partyUpdated", ({ party }) => this.ui.renderParty(party));
+    this.network.on("friendActivity", ({ from }) => this.ui.toast(`${from} wants to link up.`));
+    this.network.on("newsUpdated", ({ posts }) => this.ui.renderNews(posts));
     this.network.on("errorMessage", ({ message }) => this.ui.toast(message, true));
     this.network.on("network:disconnected", () => {
       this.socketSessionReady = false;
@@ -312,6 +316,38 @@ export class OrbitOpsGame {
       emergencyMeeting: () => this.callEmergencyMeeting(),
       sabotage: (payload) => this.network.request("sabotageRequest", payload),
       hopVent: (payload) => this.hopVent(payload.stationId),
+      resetPassword: (payload) => this.resetPassword(payload),
+      revealRecoveryCode: () => this.network.request("revealRecoveryCode")
+        .then(({ recoveryCode }) => this.ui.showRecoveryCode(recoveryCode)),
+      regenerateRecoveryCode: () => this.network.request("regenerateRecoveryCode")
+        .then(({ recoveryCode }) => {
+          this.ui.showRecoveryCode(recoveryCode);
+          this.ui.toast("A new recovery code was generated. The old one no longer works.");
+        }),
+      friendList: () => this.refreshFriends(),
+      friendRequest: (payload) => this.network.request("friendRequest", payload)
+        .then(() => { this.ui.setCommunityMessage("Request sent."); return this.refreshFriends(); }),
+      friendRespond: (payload) => this.network.request("friendRespond", payload).then(() => this.refreshFriends()),
+      friendRemove: (payload) => this.network.request("friendRemove", payload).then(() => this.refreshFriends()),
+      partyState: () => this.network.request("partyState").then(({ party }) => this.ui.renderParty(party)),
+      partyInvite: (payload) => this.network.request("partyInvite", payload)
+        .then(({ party }) => { this.ui.renderParty(party); this.ui.setCommunityMessage("Invitation sent."); }),
+      partyRespond: (payload) => this.network.request("partyRespond", payload)
+        .then(({ party }) => this.ui.renderParty(party)),
+      partyLeave: () => this.network.request("partyLeave").then(() => this.ui.renderParty(null)),
+      partyKick: (payload) => this.network.request("partyKick", payload)
+        .then(({ party }) => this.ui.renderParty(party)),
+      leaderboard: (payload) => this.network.request("leaderboard", payload)
+        .then((result) => this.ui.renderLeaderboard(result)),
+      newsList: () => this.network.request("newsList").then(({ posts }) => this.ui.renderNews(posts)),
+      newsPost: (payload) => this.network.request("newsPost", payload)
+        .then(({ posts }) => { this.ui.renderNews(posts); this.ui.setModerationMessage("Bulletin posted."); }),
+      moderationList: () => this.network.request("moderationList").then((result) => this.ui.renderModeration(result)),
+      moderationAct: (payload) => this.network.request("moderationAct", payload)
+        .then((result) => {
+          this.ui.renderModeration(result);
+          this.ui.setModerationMessage(`${result.action} applied to ${result.displayName}.`);
+        }),
       saveSettings: (payload) => this.applySettings(payload),
       modalChanged: ({ open, name }) => this.onModalChanged(open, name)
     });
@@ -354,7 +390,29 @@ export class OrbitOpsGame {
       localStorage.setItem(SESSION_KEY, JSON.stringify({ token: result.token, expiresAt: result.expiresAt }));
     }
     this.ui.setAuthMessage("Clearance accepted.");
+    this.ui.setModeratorVisible(["moderator", "admin", "owner"].includes(this.auth.role));
+    this.ui.setRecoveryAvailable(!this.auth.guest);
+    // Registration returns the code once. It stays readable from the profile
+    // panel, but someone who never opens that should still see it now.
+    if (result.recoveryCode) {
+      this.ui.showRecoveryCode(result.recoveryCode);
+      this.ui.openModal("profile");
+      this.ui.toast("Save your recovery code — it is the only way back into this account.");
+    }
     if (showMenu) this.ui.showMainMenu(this.auth);
+  }
+
+  async refreshFriends() {
+    const result = await this.network.request("friendList");
+    this.ui.renderFriends(result);
+    return result;
+  }
+
+  async resetPassword(payload) {
+    const result = await this.network.request("resetPassword", payload);
+    this.ui.setAuthMessage("Password reset. Sign in with your new password.");
+    this.ui.showAuthTab("login");
+    return result;
   }
 
   async logout() {

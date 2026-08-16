@@ -146,3 +146,56 @@ export async function updateSettings(accountId, settings) {
   );
   return result.rows[0] ?? null;
 }
+
+// --- account recovery ---------------------------------------------------
+// The ciphertext is written and read here; server/recoveryCodes.js owns the
+// crypto. Storing it means a lost password is recoverable without any mail
+// provider, which Orbit Ops does not have.
+
+export async function setRecoveryCodeCiphertext(accountId, ciphertext) {
+  const result = await query(
+    `UPDATE accounts SET recovery_code_ciphertext = $2, recovery_code_updated_at = now(),
+                         updated_at = now()
+      WHERE id = $1 RETURNING id`,
+    [accountId, ciphertext]
+  );
+  return result.rowCount > 0;
+}
+
+export async function getRecoveryCodeCiphertext(accountId) {
+  const result = await query(
+    `SELECT recovery_code_ciphertext FROM accounts WHERE id = $1`,
+    [accountId]
+  );
+  return result.rows[0]?.recovery_code_ciphertext ?? null;
+}
+
+// Reset needs email and display name together: the code alone must not be enough
+// if one ever leaks, and the pair is what the player is asked to remember.
+export async function findAccountForRecovery(email, displayName) {
+  const result = await query(
+    `SELECT id, email, display_name, account_status, recovery_code_ciphertext
+       FROM accounts
+      WHERE lower(email) = lower($1) AND lower(display_name) = lower($2)
+      LIMIT 1`,
+    [email, displayName]
+  );
+  return result.rows[0] ?? null;
+}
+
+// Changing the password ends every existing session: a reset is exactly the
+// moment when someone else may be holding one.
+export async function replacePassword(accountId, passwordHash) {
+  return withTransaction(async (client) => {
+    const updated = await client.query(
+      `UPDATE accounts SET password_hash = $2, failed_login_attempts = 0,
+                           failed_login_window_started_at = NULL, login_locked_until = NULL,
+                           updated_at = now()
+        WHERE id = $1 RETURNING id`,
+      [accountId, passwordHash]
+    );
+    if (!updated.rowCount) return false;
+    await client.query(`UPDATE sessions SET revoked = true WHERE account_id = $1 AND revoked = false`, [accountId]);
+    return true;
+  });
+}

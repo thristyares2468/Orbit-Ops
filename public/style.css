@@ -724,3 +724,31 @@ kbd { display: inline-grid; place-items: center; min-width: 27px; min-height: 27
 .rp-hand.is-paired .rp-handpad { border-color: var(--green); background: rgba(20,86,66,.6); box-shadow: 0 0 28px rgba(52,229,154,.3); }
 .rp-handmark { font-size: 5rem; filter: grayscale(1) brightness(1.7); }
 .rp-hand-readout { margin: 0; font: 800 .95rem/1 monospace; letter-spacing: .16em; color: var(--cyan-bright); }
+
+/* Crew network: friends, party, leaderboard and bulletins share one panel shell. */
+/* A name, its status, and the buttons that act on it. The name is allowed to
+   shrink so a long callsign never pushes the actions off the panel. */
+.roster-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px;
+  background: rgba(4, 18, 27, 0.5);
+}
+.roster-row > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.roster-row small { flex: 0 0 auto; opacity: 0.62; }
+.roster-row button {
+  flex: 0 0 auto; padding: 5px 9px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit;
+}
+.roster-row button:hover { border-color: var(--cyan); }
+.community-panel { display: flex; flex-direction: column; gap: 12px; }
+.community-panel h3 { margin: 6px 0 0; font-size: 0.92rem; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; }
+.community-panel article { border-left: 2px solid rgba(125, 231, 245, 0.4); padding-left: 10px; }
+.community-panel article h3 { margin-bottom: 2px; }
+.community-panel article small { opacity: 0.6; }
+/* The code is read off the screen and typed elsewhere, so it is spaced and selectable. */
+.recovery-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.24rem; letter-spacing: 0.16em; user-select: all;
+  padding: 10px 12px; border-radius: 10px;
+  background: rgba(3, 16, 24, 0.65); border: 1px solid rgba(125, 231, 245, 0.28);
+}

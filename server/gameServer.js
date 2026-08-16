@@ -2,7 +2,20 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { isDatabaseConfigured } from "../database/database.js";
 import { getActiveAccountRestrictions, updateSettings } from "../database/repositories/accountsRepository.js";
 import { recordMatch } from "../database/repositories/statsRepository.js";
-import { login, logout, profile, register, resume } from "./authService.js";
+import {
+  login, logout, profile, regenerateRecoveryCode, register, resetPasswordWithRecoveryCode,
+  resume, revealRecoveryCode
+} from "./authService.js";
+import { PartyRegistry } from "./parties.js";
+import {
+  createRestriction, findAccountByDisplayName, findAccountById, listRestrictions, revokeRestrictions
+} from "../database/repositories/moderationRepository.js";
+import {
+  listFriends, listRecentPlayers, removeFriendship, requestFriendship, respondToFriendship
+} from "../database/repositories/socialRepository.js";
+import {
+  createNews, leaderboardKinds, listLeaderboard, listNews
+} from "../database/repositories/communityRepository.js";
 import {
   DEFAULT_MAP_ID, LOBBY_MAP_ID, MAP_DEFINITIONS, distance2D, getMapDefinition, isWalkable, roomAt,
   stationById
@@ -23,7 +36,7 @@ import {
 import { RateLimiter } from "./rateLimits.js";
 import { checkSoloWin, fireHook, performRoleAbility, survivorWinnerIds } from "./roleEngine.js";
 import {
-  cleanText, isPlainObject, validateAppearance, validateChat, validateDisplayName,
+  cleanText, isPlainObject, validateAppearance, validateChat, validateDisplayName, validateUuid,
   validateRoomCode, validateSettings
 } from "./validation.js";
 
@@ -297,6 +310,7 @@ export class GameServer {
     this.rooms = new Map();
     this.socketPlayers = new Map();
     this.rateLimiter = new RateLimiter();
+    this.parties = new PartyRegistry();
     this.startedAt = Date.now();
     this.lastTickAt = Date.now();
     this.loop = setInterval(() => this.tick(), 1000 / TICK_RATE);
@@ -378,6 +392,159 @@ export class GameServer {
       return { ok: true, profile: await profile(socket.data.auth.accountId) };
     }));
 
+    // --- account recovery -------------------------------------------------
+
+    socket.on("revealRecoveryCode", (_payload, ack) => this.guard(socket, "revealRecoveryCode", 4, 60_000, ack, async () => {
+      this.requireAuth(socket);
+      if (socket.data.auth.guest) throw new Error("Guests have no account to recover.");
+      return { ok: true, ...(await revealRecoveryCode(socket.data.auth.accountId)) };
+    }));
+
+    socket.on("regenerateRecoveryCode", (_payload, ack) => this.guard(socket, "regenerateRecoveryCode", 3, 5 * 60_000, ack, async () => {
+      this.requireAuth(socket);
+      if (socket.data.auth.guest) throw new Error("Guests have no account to recover.");
+      return { ok: true, ...(await regenerateRecoveryCode(socket.data.auth.accountId)) };
+    }));
+
+    // Deliberately available without a session - it is the way back in when you
+    // have none. Rate limited hard because it is an unauthenticated write.
+    socket.on("resetPassword", (payload, ack) => this.guard(socket, "resetPassword", 4, 15 * 60_000, ack, async () =>
+      resetPasswordWithRecoveryCode(payload)));
+
+    // --- moderation -------------------------------------------------------
+
+    socket.on("moderationList", (_payload, ack) => this.guard(socket, "moderationList", 10, 60_000, ack, async () => {
+      await this.requireModerator(socket);
+      const [bans, mutes] = await Promise.all([listRestrictions("bans"), listRestrictions("mutes")]);
+      return { ok: true, bans, mutes };
+    }));
+
+    socket.on("moderationAct", (payload, ack) => this.guard(socket, "moderationAct", 20, 60_000, ack, async () => {
+      const moderator = await this.requireModerator(socket);
+      const action = String(payload?.action ?? "");
+      if (!["ban", "unban", "mute", "unmute"].includes(action)) throw new Error("Unknown moderation action.");
+      const target = await findAccountByDisplayName(validateDisplayName(payload?.displayName));
+      if (!target) throw new Error("No account with that callsign.");
+      if (String(target.id) === String(moderator.accountId)) throw new Error("You cannot restrict your own account.");
+      if (["owner", "admin"].includes(target.role) && moderator.role !== "owner") {
+        throw new Error("Only the owner can restrict another moderator.");
+      }
+      const table = action.endsWith("ban") ? "bans" : "mutes";
+      if (["ban", "mute"].includes(action)) {
+        const hours = Number(payload?.hours);
+        await createRestriction(table, {
+          accountId: target.id,
+          reason: cleanText(payload?.reason, 500) || "No reason recorded.",
+          issuedBy: moderator.accountId,
+          expiresAt: Number.isFinite(hours) && hours > 0
+            ? new Date(Date.now() + Math.min(hours, 24 * 365) * 3_600_000)
+            : null
+        });
+        if (table === "bans") this.evictAccount(target.id, "You have been removed by a moderator.");
+      } else {
+        await revokeRestrictions(table, target.id);
+      }
+      const [bans, mutes] = await Promise.all([listRestrictions("bans"), listRestrictions("mutes")]);
+      return { ok: true, action, displayName: target.display_name, bans, mutes };
+    }));
+
+    // --- friends ----------------------------------------------------------
+
+    socket.on("friendList", (_payload, ack) => this.guard(socket, "friendList", 15, 60_000, ack, async () => {
+      const accountId = this.requireAccount(socket);
+      const [friends, recent] = await Promise.all([listFriends(accountId), listRecentPlayers(accountId)]);
+      return { ok: true, friends, recent };
+    }));
+
+    socket.on("friendRequest", (payload, ack) => this.guard(socket, "friendRequest", 12, 60_000, ack, async () => {
+      const accountId = this.requireAccount(socket);
+      const target = await findAccountByDisplayName(validateDisplayName(payload?.displayName));
+      if (!target) throw new Error("No account with that callsign.");
+      if (String(target.id) === String(accountId)) throw new Error("You cannot add yourself.");
+      await requestFriendship(accountId, target.id);
+      this.notifyAccount(target.id, "friendActivity", { from: socket.data.auth.displayName });
+      return { ok: true, friends: await listFriends(accountId) };
+    }));
+
+    socket.on("friendRespond", (payload, ack) => this.guard(socket, "friendRespond", 15, 60_000, ack, async () => {
+      const accountId = this.requireAccount(socket);
+      await respondToFriendship(accountId, validateUuid(payload?.friendshipId, "invitation"), Boolean(payload?.accept));
+      return { ok: true, friends: await listFriends(accountId) };
+    }));
+
+    socket.on("friendRemove", (payload, ack) => this.guard(socket, "friendRemove", 15, 60_000, ack, async () => {
+      const accountId = this.requireAccount(socket);
+      await removeFriendship(accountId, validateUuid(payload?.friendshipId, "friendship"));
+      return { ok: true, friends: await listFriends(accountId) };
+    }));
+
+    // --- party ------------------------------------------------------------
+
+    socket.on("partyState", (_payload, ack) => this.guard(socket, "partyState", 20, 60_000, ack, async () => {
+      const accountId = this.requireAccount(socket);
+      return { ok: true, party: this.parties.publicView(this.parties.partyFor(accountId), accountId) };
+    }));
+
+    socket.on("partyInvite", (payload, ack) => this.guard(socket, "partyInvite", 12, 60_000, ack, async () => {
+      const accountId = this.requireAccount(socket);
+      const target = await findAccountByDisplayName(validateDisplayName(payload?.displayName));
+      if (!target) throw new Error("No account with that callsign.");
+      this.parties.create({ accountId, displayName: socket.data.auth.displayName });
+      const party = this.parties.invite(accountId, { accountId: target.id, displayName: target.display_name });
+      this.notifyAccount(target.id, "partyInvited", {
+        partyId: party.id, from: socket.data.auth.displayName
+      });
+      this.broadcastParty(party);
+      return { ok: true, party: this.parties.publicView(party, accountId) };
+    }));
+
+    socket.on("partyRespond", (payload, ack) => this.guard(socket, "partyRespond", 15, 60_000, ack, async () => {
+      const accountId = this.requireAccount(socket);
+      const { party, joined } = this.parties.respond(accountId, payload?.partyId, Boolean(payload?.accept));
+      this.broadcastParty(party);
+      return { ok: true, joined, party: joined ? this.parties.publicView(party, accountId) : null };
+    }));
+
+    socket.on("partyLeave", (_payload, ack) => this.guard(socket, "partyLeave", 15, 60_000, ack, async () => {
+      const accountId = this.requireAccount(socket);
+      const party = this.parties.leave(accountId);
+      if (party) this.broadcastParty(party);
+      return { ok: true, party: null };
+    }));
+
+    socket.on("partyKick", (payload, ack) => this.guard(socket, "partyKick", 12, 60_000, ack, async () => {
+      const accountId = this.requireAccount(socket);
+      const party = this.parties.kick(accountId, payload?.accountId);
+      this.broadcastParty(party);
+      return { ok: true, party: this.parties.publicView(party, accountId) };
+    }));
+
+    // --- leaderboards and news --------------------------------------------
+
+    socket.on("leaderboard", (payload, ack) => this.guard(socket, "leaderboard", 10, 60_000, ack, async () => {
+      this.requireAuth(socket);
+      if (!isDatabaseConfigured()) return { ok: true, kinds: leaderboardKinds(), entries: [], unavailable: true };
+      const kind = String(payload?.kind ?? "score");
+      return { ok: true, kind, kinds: leaderboardKinds(), entries: await listLeaderboard(kind) };
+    }));
+
+    socket.on("newsList", (_payload, ack) => this.guard(socket, "newsList", 10, 60_000, ack, async () => {
+      this.requireAuth(socket);
+      if (!isDatabaseConfigured()) return { ok: true, posts: [] };
+      return { ok: true, posts: await listNews() };
+    }));
+
+    socket.on("newsPost", (payload, ack) => this.guard(socket, "newsPost", 6, 60_000, ack, async () => {
+      const moderator = await this.requireModerator(socket);
+      const title = cleanText(payload?.title, 120);
+      const body = cleanText(payload?.body, 4000);
+      if (!title || !body) throw new Error("A bulletin needs a title and a body.");
+      await createNews({ title, body, postedBy: moderator.accountId });
+      const posts = await listNews();
+      this.io.emit("newsUpdated", { posts });
+      return { ok: true, posts };
+    }));
+
     socket.on("saveSettings", (payload, ack) => this.guard(socket, "saveSettings", 12, 60_000, ack, async () => {
       this.requireAuth(socket);
       if (socket.data.auth.guest || !isDatabaseConfigured()) return { ok: true, persisted: false };
@@ -392,9 +559,16 @@ export class GameServer {
       // account can reconnect repeatedly and leave an unbounded trail of empty
       // rooms that no player ever joins or reaps.
       await this.requireAccountAccess(socket.data.auth.accountId);
-      let room = [...this.rooms.values()].find((candidate) => candidate.mode === "public" && candidate.phase === PHASES.LOBBY && candidate.players.size < candidate.settings.maxPlayers);
+      // A party has to land in one room together, so matchmaking looks for a
+      // lobby with room for the whole group rather than for one more player.
+      const seats = this.parties.seatsRequired(socket.data.auth.accountId);
+      let room = [...this.rooms.values()].find((candidate) => candidate.mode === "public"
+        && candidate.phase === PHASES.LOBBY
+        && candidate.players.size + seats <= candidate.settings.maxPlayers);
       if (!room) room = this.createRoom("public", {});
-      return this.joinRoom(socket, room, { accessChecked: true });
+      const result = await this.joinRoom(socket, room, { accessChecked: true });
+      this.summonParty(socket, room);
+      return result;
     }));
 
     socket.on("createRoom", (payload, ack) => this.guard(socket, "createRoom", 6, 60_000, ack, async () => {
@@ -565,6 +739,73 @@ export class GameServer {
 
   requireAuth(socket) {
     if (!socket.data.auth) throw new Error("Sign in or continue as a guest first.");
+  }
+
+  // An account-bound action: guests are excluded because none of these features
+  // can survive a guest's identity vanishing on reconnect.
+  requireAccount(socket) {
+    this.requireAuth(socket);
+    if (socket.data.auth.guest || !socket.data.auth.accountId) {
+      throw new Error("Sign in with an account to use this.");
+    }
+    if (!isDatabaseConfigured()) throw new Error("Accounts are temporarily unavailable.");
+    return socket.data.auth.accountId;
+  }
+
+  // Role is read from the database rather than from the socket's cached auth, so
+  // a demotion takes effect immediately rather than at the next sign-in.
+  async requireModerator(socket) {
+    const accountId = this.requireAccount(socket);
+    const account = await findAccountById(accountId);
+    if (!account || !["moderator", "admin", "owner"].includes(account.role)) {
+      throw new Error("Only a moderator can do that.");
+    }
+    return { accountId, role: account.role };
+  }
+
+  socketsForAccount(accountId) {
+    const wanted = String(accountId ?? "");
+    if (!wanted) return [];
+    return [...this.io.sockets.sockets.values()]
+      .filter((candidate) => String(candidate.data?.auth?.accountId ?? "") === wanted);
+  }
+
+  notifyAccount(accountId, event, payload) {
+    for (const target of this.socketsForAccount(accountId)) target.emit(event, payload);
+  }
+
+  broadcastParty(party) {
+    if (!party) return;
+    for (const memberId of party.members.keys()) {
+      this.notifyAccount(memberId, "partyUpdated", { party: this.parties.publicView(party, memberId) });
+    }
+  }
+
+  // A freshly banned account should not keep playing until it next signs in.
+  evictAccount(accountId, message) {
+    for (const target of this.socketsForAccount(accountId)) {
+      target.emit("errorMessage", { action: "moderation", message });
+      this.leaveCurrentRoom(target, false);
+      target.disconnect(true);
+    }
+  }
+
+  // Pull the rest of the party into the room this socket just joined. Failures
+  // are per-member and non-fatal: one member being unreachable must not undo
+  // the join that already succeeded.
+  summonParty(socket, room) {
+    const accountId = socket.data.auth?.accountId;
+    const party = accountId ? this.parties.partyFor(accountId) : null;
+    if (!party) return;
+    for (const memberId of party.members.keys()) {
+      if (String(memberId) === String(accountId)) continue;
+      for (const member of this.socketsForAccount(memberId)) {
+        if (this.socketPlayers.has(member.id)) continue;
+        this.joinRoom(member, room).catch((error) => {
+          member.emit("errorMessage", { action: "party", message: error.message });
+        });
+      }
+    }
   }
 
   requireHost(room, player) {

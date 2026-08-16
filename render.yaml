@@ -14,6 +14,9 @@ services:
         value: verify-full
       - key: DATABASE_URL
         sync: false
+      # Break-glass moderation. Absent, the /admin route 404s entirely.
+      - key: ORBIT_ADMIN_TOKEN
+        sync: false
       - key: ORBIT_OWNER_ACCOUNT_ID
         sync: false
       - key: SESSION_SECRET

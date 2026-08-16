@@ -74,6 +74,7 @@ export class GameUI {
       pause: byId("pause-modal"), settings: byId("settings-modal"), howto: byId("howto-modal"), profile: byId("profile-modal"), assets: byId("assets-modal"),
       lobbySettings: byId("lobby-settings-modal"),
       admin: byId("admin-modal"),
+      community: byId("community-modal"), moderation: byId("moderation-modal"),
       firstRunHint: byId("first-run-hint"),
       ventPanel: byId("vent-panel")
     };
@@ -189,6 +190,62 @@ export class GameUI {
       if (byId("register-password").value !== byId("register-confirm").value) { this.setAuthMessage("Passwords do not match.", true); return; }
       this.invoke("register", { email: byId("register-email").value, displayName: byId("register-name").value, password: byId("register-password").value });
     });
+    byId("reset-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      this.invoke("resetPassword", {
+        email: byId("reset-email").value, displayName: byId("reset-name").value,
+        recoveryCode: byId("reset-code").value, newPassword: byId("reset-password").value
+      });
+    });
+    document.querySelectorAll("[data-community-tab]").forEach((button) =>
+      button.addEventListener("click", () => this.showCommunityTab(button.dataset.communityTab)));
+    byId("friend-add-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      this.invoke("friendRequest", { displayName: byId("friend-add-name").value });
+      byId("friend-add-name").value = "";
+    });
+    byId("friend-list").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-friend-action]");
+      if (!button) return;
+      const { friendAction, friendshipId } = button.dataset;
+      if (friendAction === "remove") this.invoke("friendRemove", { friendshipId });
+      else this.invoke("friendRespond", { friendshipId, accept: friendAction === "accept" });
+    });
+    byId("recent-list").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-add-name]");
+      if (button) this.invoke("friendRequest", { displayName: button.dataset.addName });
+    });
+    byId("party-invite-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      this.invoke("partyInvite", { displayName: byId("party-invite-name").value });
+      byId("party-invite-name").value = "";
+    });
+    byId("party-content").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-party-action]");
+      if (!button) return;
+      const { partyAction, accountId, partyId } = button.dataset;
+      if (partyAction === "leave") this.invoke("partyLeave");
+      else if (partyAction === "kick") this.invoke("partyKick", { accountId });
+      else this.invoke("partyRespond", { partyId, accept: partyAction === "accept" });
+    });
+    byId("leaderboard-filter").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-board]");
+      if (button) this.invoke("leaderboard", { kind: button.dataset.board });
+    });
+    byId("moderation-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const action = event.submitter?.dataset?.moderationAction ?? "ban";
+      this.invoke("moderationAct", {
+        action, displayName: byId("moderation-name").value,
+        reason: byId("moderation-reason").value, hours: byId("moderation-hours").value
+      });
+    });
+    byId("news-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      this.invoke("newsPost", { title: byId("news-title").value, body: byId("news-body").value });
+    });
+    byId("recovery-reveal").addEventListener("click", () => this.invoke("revealRecoveryCode"));
+    byId("recovery-regenerate").addEventListener("click", () => this.invoke("regenerateRecoveryCode"));
     byId("join-public").addEventListener("click", () => this.invoke("joinPublic"));
     byId("create-private").addEventListener("click", () => this.invoke("createRoom", { mode: "private" }));
     byId("practice-mode").addEventListener("click", () => this.invoke("createRoom", { mode: "practice" }));
@@ -260,7 +317,7 @@ export class GameUI {
 
   showAuthTab(tab) {
     document.querySelectorAll("[data-auth-tab]").forEach((button) => button.classList.toggle("is-active", button.dataset.authTab === tab));
-    for (const name of ["guest", "login", "register"]) setVisible(byId(`${name}-form`), name === tab);
+    for (const name of ["guest", "login", "register", "reset"]) setVisible(byId(`${name}-form`), name === tab);
   }
 
   setAuthMessage(message, error = false) {
@@ -862,9 +919,230 @@ export class GameUI {
 
   setSaveStatus(payload) { byId("results-save").textContent = payload.saved ? "Neon match record saved." : "Guest/local result only — database record unavailable."; }
 
+  showCommunityTab(tab) {
+    document.querySelectorAll("[data-community-tab]").forEach((button) =>
+      button.classList.toggle("is-active", button.dataset.communityTab === tab));
+    for (const name of ["friends", "party", "leaderboard", "news"]) {
+      setVisible(byId(`community-${name}`), name === tab);
+    }
+    this.communityTab = tab;
+    if (tab === "leaderboard") this.invoke("leaderboard", { kind: this.leaderboardKind ?? "score" });
+    if (tab === "news") this.invoke("newsList");
+    if (tab === "party") this.invoke("partyState");
+    if (tab === "friends") this.invoke("friendList");
+  }
+
+  setCommunityMessage(message, error = false) {
+    const element = byId("community-message");
+    element.textContent = message ?? "";
+    element.classList.toggle("is-error", Boolean(error));
+  }
+
+  // Everything below builds nodes rather than markup: display names are player
+  // supplied, and this project has no innerHTML anywhere by design.
+  renderFriends({ friends = [], recent = [] } = {}) {
+    const list = byId("friend-list");
+    list.replaceChildren();
+    if (!friends.length) list.append(Object.assign(document.createElement("p"), { textContent: "No crew linked yet." }));
+    for (const friend of friends) {
+      const row = document.createElement("div");
+      row.className = "roster-row";
+      row.append(Object.assign(document.createElement("span"), { textContent: friend.displayName }));
+      const status = document.createElement("small");
+      status.textContent = friend.status === "accepted" ? "Linked" : friend.incoming ? "Wants to link" : "Request sent";
+      row.append(status);
+      const actions = document.createElement("span");
+      if (friend.status === "pending" && friend.incoming) {
+        for (const [action, label] of [["accept", "Accept"], ["decline", "Decline"]]) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.dataset.friendAction = action;
+          button.dataset.friendshipId = friend.friendshipId;
+          button.textContent = label;
+          actions.append(button);
+        }
+      } else {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.friendAction = "remove";
+        button.dataset.friendshipId = friend.friendshipId;
+        button.textContent = friend.status === "accepted" ? "Remove" : "Cancel";
+        actions.append(button);
+      }
+      row.append(actions);
+      list.append(row);
+    }
+
+    const recentList = byId("recent-list");
+    recentList.replaceChildren();
+    if (!recent.length) {
+      recentList.append(Object.assign(document.createElement("p"), { textContent: "Nobody yet — finish a match with an account." }));
+    }
+    for (const player of recent) {
+      const row = document.createElement("div");
+      row.className = "roster-row";
+      row.append(Object.assign(document.createElement("span"), { textContent: player.displayName }));
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.addName = player.displayName;
+      button.textContent = "Add";
+      row.append(button);
+      recentList.append(row);
+    }
+  }
+
+  renderParty(party) {
+    const content = byId("party-content");
+    content.replaceChildren();
+    if (!party) {
+      content.append(Object.assign(document.createElement("p"), {
+        textContent: "You are not in a party. Invite someone by callsign and you will be seated in the same lobby."
+      }));
+      return;
+    }
+    for (const member of party.members) {
+      const row = document.createElement("div");
+      row.className = "roster-row";
+      const name = member.accountId === party.leaderId ? `${member.displayName} (leader)` : member.displayName;
+      row.append(Object.assign(document.createElement("span"), { textContent: name }));
+      if (party.isLeader && member.accountId !== party.leaderId) {
+        const kick = document.createElement("button");
+        kick.type = "button";
+        kick.dataset.partyAction = "kick";
+        kick.dataset.accountId = member.accountId;
+        kick.textContent = "Remove";
+        row.append(kick);
+      }
+      content.append(row);
+    }
+    for (const invited of party.invited) {
+      const row = document.createElement("div");
+      row.className = "roster-row";
+      row.append(Object.assign(document.createElement("span"), { textContent: invited.displayName }));
+      row.append(Object.assign(document.createElement("small"), { textContent: "Invited" }));
+      content.append(row);
+    }
+    const leave = document.createElement("button");
+    leave.type = "button";
+    leave.className = "button button-ghost";
+    leave.dataset.partyAction = "leave";
+    leave.textContent = "Leave Party";
+    content.append(leave);
+  }
+
+  // An invitation that arrives while the panel is shut still needs answering.
+  showPartyInvite({ partyId, from }) {
+    this.openModal("community");
+    this.showCommunityTab("party");
+    const content = byId("party-content");
+    const prompt = document.createElement("div");
+    prompt.className = "roster-row";
+    prompt.append(Object.assign(document.createElement("span"), { textContent: `${from} invited you to their party.` }));
+    for (const [action, label] of [["accept", "Accept"], ["decline", "Decline"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.partyAction = action;
+      button.dataset.partyId = partyId;
+      button.textContent = label;
+      prompt.append(button);
+    }
+    content.prepend(prompt);
+  }
+
+  renderLeaderboard({ kind = "score", kinds = [], entries = [] } = {}) {
+    this.leaderboardKind = kind;
+    const filter = byId("leaderboard-filter");
+    filter.replaceChildren();
+    for (const board of kinds) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.board = board.id;
+      button.textContent = board.label;
+      button.classList.toggle("is-active", board.id === kind);
+      filter.append(button);
+    }
+    const content = byId("leaderboard-content");
+    content.replaceChildren();
+    if (!entries.length) {
+      content.append(Object.assign(document.createElement("p"), { textContent: "No ranked operations yet." }));
+      return;
+    }
+    for (const entry of entries) {
+      const row = document.createElement("div");
+      row.className = "roster-row";
+      row.append(Object.assign(document.createElement("span"), { textContent: `${entry.rank}. ${entry.displayName}` }));
+      row.append(Object.assign(document.createElement("small"), {
+        textContent: `${entry.value} · ${entry.gamesPlayed} operations`
+      }));
+      content.append(row);
+    }
+  }
+
+  renderNews(posts = []) {
+    const content = byId("news-content");
+    content.replaceChildren();
+    if (!posts.length) {
+      content.append(Object.assign(document.createElement("p"), { textContent: "No bulletins." }));
+      return;
+    }
+    for (const post of posts) {
+      const article = document.createElement("article");
+      article.append(Object.assign(document.createElement("h3"), { textContent: post.title }));
+      article.append(Object.assign(document.createElement("p"), { textContent: post.body }));
+      article.append(Object.assign(document.createElement("small"), {
+        textContent: `${post.postedBy ?? "Command"} · ${new Date(post.createdAt).toLocaleDateString()}`
+      }));
+      content.append(article);
+    }
+  }
+
+  renderModeration({ bans = [], mutes = [] } = {}) {
+    const content = byId("moderation-content");
+    content.replaceChildren();
+    for (const [label, entries] of [["Bans", bans], ["Mutes", mutes]]) {
+      content.append(Object.assign(document.createElement("h3"), { textContent: `${label} (${entries.length})` }));
+      if (!entries.length) {
+        content.append(Object.assign(document.createElement("p"), { textContent: "None active." }));
+        continue;
+      }
+      for (const entry of entries) {
+        const row = document.createElement("div");
+        row.className = "roster-row";
+        row.append(Object.assign(document.createElement("span"), { textContent: entry.display_name }));
+        row.append(Object.assign(document.createElement("small"), {
+          textContent: `${entry.reason} · ${entry.expires_at ? `until ${new Date(entry.expires_at).toLocaleString()}` : "permanent"}`
+        }));
+        content.append(row);
+      }
+    }
+  }
+
+  setModerationMessage(message, error = false) {
+    const element = byId("moderation-message");
+    element.textContent = message ?? "";
+    element.classList.toggle("is-error", Boolean(error));
+  }
+
+  // Only a moderator ever sees the entry point; the server checks again anyway.
+  setModeratorVisible(visible) {
+    byId("moderation-button").classList.toggle("is-hidden", !visible);
+  }
+
+  showRecoveryCode(code) {
+    setVisible(byId("recovery-block"), true);
+    byId("recovery-code").textContent = code ?? "••••-••••-••••-••••";
+  }
+
+  setRecoveryAvailable(available) {
+    setVisible(byId("recovery-block"), Boolean(available));
+    if (!available) byId("recovery-code").textContent = "••••-••••-••••-••••";
+  }
+
   openModal(name) {
     const element = this.elements[name]; if (!element) return;
     if (name === "assets" && !this.assetArchiveBuilt) this.buildAssetArchive();
+    if (name === "community") this.showCommunityTab(this.communityTab ?? "friends");
+    if (name === "moderation") { this.invoke("moderationList"); this.invoke("newsList"); }
     if (name === "pause") this.syncPauseCopy();
     setVisible(element, true);
     this.actions.modalChanged?.({ open: true, name });

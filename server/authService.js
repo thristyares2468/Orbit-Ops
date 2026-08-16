@@ -3,9 +3,13 @@ import bcrypt from "bcryptjs";
 import { isDatabaseConfigured } from "../database/database.js";
 import {
   clearFailedLogins, createAccount, createSession, findAccountBySession, findAccountForLogin,
-  getActiveAccountRestrictions, getProfile, recordFailedLogin, revokeSession, touchLastLogin
+  findAccountForRecovery, getActiveAccountRestrictions, getProfile, getRecoveryCodeCiphertext,
+  recordFailedLogin, replacePassword, revokeSession, setRecoveryCodeCiphertext, touchLastLogin
 } from "../database/repositories/accountsRepository.js";
 import { validateDisplayName, validateEmail, validatePassword } from "./validation.js";
+import {
+  decryptRecoveryCode, encryptRecoveryCode, generateRecoveryCode, recoveryCodeMatches
+} from "./recoveryCodes.js";
 import { SESSION_SECRET } from "./constants.js";
 
 const SESSION_DAYS = 30;
@@ -27,6 +31,14 @@ const DEFAULT_DEPENDENCIES = Object.freeze({
   clearFailedLogins,
   revokeSession,
   touchLastLogin,
+  findAccountForRecovery,
+  getRecoveryCodeCiphertext,
+  setRecoveryCodeCiphertext,
+  replacePassword,
+  generateRecoveryCode,
+  encryptRecoveryCode,
+  decryptRecoveryCode,
+  recoveryCodeMatches,
   randomToken: () => randomBytes(32).toString("base64url"),
   now: () => Date.now()
 });
@@ -61,7 +73,7 @@ async function issueSession(account, service) {
 export async function register(payload, overrides) {
   const service = dependencies(overrides);
   if (!service.isDatabaseConfigured()) throw new Error("Accounts are temporarily unavailable; continue as a guest.");
-  const email = validateEmail(payload?.email);
+  const email = validateEmail(payload?.email, { allowDisposable: false });
   const displayName = validateDisplayName(payload?.displayName);
   const password = validatePassword(payload?.password);
   const passwordHash = await service.hashPassword(password, 12);
@@ -73,7 +85,11 @@ export async function register(payload, overrides) {
     throw error;
   }
   const session = await issueSession(account, service);
-  return { account: safeAccount(account), ...session };
+  // Issued now rather than on demand, so a player who never opens the account
+  // panel still has a way back in. It is shown once here and can be re-read later.
+  const recoveryCode = service.generateRecoveryCode();
+  await service.setRecoveryCodeCiphertext(account.id, service.encryptRecoveryCode(recoveryCode));
+  return { account: safeAccount(account), ...session, recoveryCode };
 }
 
 export async function login(payload, overrides) {
@@ -116,4 +132,56 @@ export async function profile(accountId, overrides) {
   const service = dependencies(overrides);
   if (!accountId || !service.isDatabaseConfigured()) return null;
   return service.getProfile(accountId);
+}
+
+// --- account recovery ---------------------------------------------------
+
+// Reading your own code back. Requires a live session, so it is only ever
+// available to someone already signed in as that account.
+export async function revealRecoveryCode(accountId, overrides) {
+  const service = dependencies(overrides);
+  if (!accountId || !service.isDatabaseConfigured()) throw new Error("Accounts are temporarily unavailable.");
+  let ciphertext = await service.getRecoveryCodeCiphertext(accountId);
+  let code = ciphertext ? service.decryptRecoveryCode(ciphertext) : "";
+  if (!code) {
+    // Accounts registered before recovery codes existed, or a record written
+    // under a since-rotated SESSION_SECRET. Mint a fresh one rather than
+    // leaving the account with no way back.
+    code = service.generateRecoveryCode();
+    ciphertext = service.encryptRecoveryCode(code);
+    await service.setRecoveryCodeCiphertext(accountId, ciphertext);
+  }
+  return { recoveryCode: code };
+}
+
+export async function regenerateRecoveryCode(accountId, overrides) {
+  const service = dependencies(overrides);
+  if (!accountId || !service.isDatabaseConfigured()) throw new Error("Accounts are temporarily unavailable.");
+  const recoveryCode = service.generateRecoveryCode();
+  await service.setRecoveryCodeCiphertext(accountId, service.encryptRecoveryCode(recoveryCode));
+  return { recoveryCode };
+}
+
+// Email, display name and code together. All three are required so a leaked code
+// on its own is not a password reset, and every failure reads the same.
+export async function resetPasswordWithRecoveryCode(payload, overrides) {
+  const service = dependencies(overrides);
+  if (!service.isDatabaseConfigured()) throw new Error("Accounts are temporarily unavailable; continue as a guest.");
+  const email = validateEmail(payload?.email);
+  const displayName = validateDisplayName(payload?.displayName);
+  const password = validatePassword(payload?.newPassword);
+  const refusal = new Error("The email, callsign or recovery code is not correct.");
+
+  const account = await service.findAccountForRecovery(email, displayName);
+  if (!account || account.account_status !== "active") throw refusal;
+  if (!service.recoveryCodeMatches(payload?.recoveryCode, account.recovery_code_ciphertext)) throw refusal;
+
+  const passwordHash = await service.hashPassword(password, 12);
+  const replaced = await service.replacePassword(account.id, passwordHash);
+  if (!replaced) throw refusal;
+  // The old code is spent. Issuing a new one keeps the account recoverable and
+  // means a code seen over someone's shoulder cannot be used twice.
+  const recoveryCode = service.generateRecoveryCode();
+  await service.setRecoveryCodeCiphertext(account.id, service.encryptRecoveryCode(recoveryCode));
+  return { ok: true, recoveryCode };
 }

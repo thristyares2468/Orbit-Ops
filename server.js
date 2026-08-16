@@ -8,6 +8,7 @@ import { provisionConfiguredOwner } from "./database/ownerProvisioning.js";
 import { SERVER_VERSION } from "./server/constants.js";
 import { GameServer } from "./server/gameServer.js";
 import { createJimsGateway } from "./server/jimsGateway.js";
+import { createAdminRouter } from "./server/adminHttp.js";
 import { attachTrustedClientIp, configureTrustedProxy } from "./server/trustedClientIp.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -46,6 +47,14 @@ const jimsGateway = createJimsGateway({
   secret: process.env.SESSION_SECRET,
   orbitRoot: here
 });
+
+// Break-glass moderation. 404s entirely unless ORBIT_ADMIN_TOKEN is configured,
+// so an unset secret is a closed door rather than an open one.
+app.post("/admin/:action", createAdminRouter({
+  onRestrictionChanged: ({ table, accountId }) => {
+    if (table === "bans") gameServer.evictAccount(accountId, "You have been removed by a moderator.");
+  }
+}));
 
 app.get("/easter-egg/jims-launch", jimsGateway.launch);
 app.get("/easter-egg/jims-health", jimsGateway.health);
