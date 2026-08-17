@@ -38,6 +38,7 @@ import {
   TICK_RATE, VISION
 } from "./constants.js";
 import { RateLimiter } from "./rateLimits.js";
+import { BUILD_ID } from "./buildInfo.js";
 import { ConnectionFloodGuard } from "./connectionFlood.js";
 import { checkSoloWin, fireHook, performRoleAbility, survivorWinnerIds } from "./roleEngine.js";
 import {
@@ -354,6 +355,9 @@ export class GameServer {
     socket.emit("connected", {
       socketId: socket.id,
       serverVersion: SERVER_VERSION,
+      // Reconnecting to a different build means a deploy landed while this page
+      // was open, so the code it is running no longer matches the server.
+      buildId: BUILD_ID,
       databaseConfigured: isDatabaseConfigured(),
       serverTime: Date.now()
     });

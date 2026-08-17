@@ -39,6 +39,10 @@ const loader = new AssetLoader({
   onError: ({ error }) => ui.setLoading({ error: error.message, assetsReady, serverReady, ...health })
 });
 
+// A deploy before the player has even entered costs nothing to take.
+network.on("server:updated", () => {
+  if (!game) window.location.reload();
+});
 network.on("server:ready", (info) => {
   serverReady = true;
   health.databaseConfigured = info.databaseConfigured;

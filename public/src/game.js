@@ -13,6 +13,7 @@ import { TaskInterface } from "./tasks.js";
 import { resetMinigameState } from "./tasks/minigames.js";
 import { RepairInterface } from "./repairInterface.js";
 import { applyDocumentSettings, saveSettings } from "./settings.js";
+import { UpdateReloader } from "./updateReload.js";
 import {
   addMinedVent, normaliseVentTopology, sealVent
 } from "./ventTopology.js";
@@ -70,6 +71,9 @@ export class OrbitOpsGame {
     this.lastFrameAt = performance.now();
     this.lastInputSentAt = 0;
     this.localMovement = new LocalMovementPredictor();
+    // A deploy while the page is open leaves this client running old code. The
+    // reloader takes the update at the next moment that costs the player nothing.
+    this.updateReloader = new UpdateReloader({ notify: (message) => this.ui.toast(message) });
     this.socketSessionReady = false;
     this.awaitingAuthoritativeSnapshot = false;
     this.resumeRoomPromise = null;
@@ -156,6 +160,7 @@ export class OrbitOpsGame {
     });
     this.network.on("phaseChanged", ({ phase, endsAt }) => {
       this.currentPhase = phase;
+      this.updateReloader.applyWhenSafe(phase);
       this.ui.setPhase(phase, endsAt);
       if (phase !== "active") this.input.setEnabled(false);
     });
@@ -270,6 +275,7 @@ export class OrbitOpsGame {
     this.network.on("chatMessage", (payload) => this.ui.appendChat(payload));
     this.network.on("matchEnded", (results) => {
       this.currentPhase = "results";
+      this.updateReloader.applyWhenSafe("results");
       this.input.setEnabled(false);
       this.resetTaskInterfaces();
       this.ui.showResults(results);
@@ -279,6 +285,7 @@ export class OrbitOpsGame {
     this.network.on("partyUpdated", ({ party }) => this.ui.renderParty(party));
     this.network.on("friendActivity", ({ from }) => this.ui.toast(`${from} wants to link up.`));
     this.network.on("newsUpdated", ({ posts }) => this.ui.renderNews(posts));
+    this.network.on("server:updated", () => this.updateReloader.noteUpdate(this.currentPhase));
     this.network.on("errorMessage", ({ message }) => this.ui.toast(message, true));
     this.network.on("network:disconnected", () => {
       this.socketSessionReady = false;

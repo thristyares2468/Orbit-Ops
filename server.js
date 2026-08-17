@@ -1,11 +1,12 @@
 import { createServer } from "node:http";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import { Server as SocketIOServer } from "socket.io";
 import { checkDatabaseHealth, closeDatabase, isDatabaseConfigured } from "./database/database.js";
 import { provisionConfiguredOwner } from "./database/ownerProvisioning.js";
 import { SERVER_VERSION } from "./server/constants.js";
+import { BUILD_ID } from "./server/buildInfo.js";
 import { GameServer } from "./server/gameServer.js";
 import { createJimsGateway } from "./server/jimsGateway.js";
 import { createAdminRouter } from "./server/adminHttp.js";
@@ -69,10 +70,24 @@ app.use("/vendor/phaser", express.static(join(here, "node_modules", "phaser"), {
   maxAge: process.env.NODE_ENV === "production" ? "30d" : 0,
   immutable: process.env.NODE_ENV === "production"
 }));
+const production = process.env.NODE_ENV === "production";
 app.use(express.static(join(here, "public"), {
-  maxAge: process.env.NODE_ENV === "production" ? "1h" : 0,
   etag: true,
-  index: "index.html"
+  index: "index.html",
+  setHeaders(response, filePath) {
+    // The document and the module graph together decide which build the browser
+    // is running. Both must be revalidated on every load, because a cached
+    // index.html paired with a freshly deployed module - or the reverse - is how
+    // a deploy half-lands and leaves a blank page. ETags make that a 304 in the
+    // common case, so revalidating costs a round trip, not a download.
+    const isEntrypoint = filePath.endsWith(".html") || filePath.includes(`${sep}src${sep}`);
+    if (isEntrypoint || !production) {
+      response.setHeader("Cache-Control", "no-cache");
+      return;
+    }
+    // Art and audio are large and change only when their filename does.
+    response.setHeader("Cache-Control", "public, max-age=2592000");
+  }
 }));
 
 const gameServer = new GameServer(io);
@@ -92,6 +107,7 @@ app.get("/health", async (_request, response) => {
     activeRooms: gameServer.activeRooms,
     uptime: Math.round(process.uptime()),
     serverVersion: SERVER_VERSION,
+    buildId: BUILD_ID,
     jimsGameAvailable: jimsGateway.available,
     jimsGameRunning: jimsGateway.running,
     // The hidden game's own health route answers 503 while it is down, and a 503

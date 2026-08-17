@@ -7,6 +7,7 @@ export class NetworkClient {
     this.jitterMs = 0;
     this.lastPingSample = null;
     this.serverInfo = null;
+    this.buildId = null;
     this.pingTimer = null;
     this.connectionGeneration = 0;
     this.pendingRequests = new Set();
@@ -32,8 +33,17 @@ export class NetworkClient {
     });
     this.socket.on("connect_error", (error) => this.emitLocal("network:error", { message: error.message }));
     this.socket.on("connected", (payload) => {
+      // Socket.IO reconnects on its own after a deploy restarts the server, so
+      // this fires again with the new build's id. That reconnect is the only
+      // reliable moment we learn a deploy happened - there is no push channel
+      // that survives the very restart we are trying to detect.
+      const previousBuild = this.buildId;
+      this.buildId = payload.buildId ?? null;
       this.serverInfo = payload;
       this.emitLocal("server:ready", payload);
+      if (previousBuild && this.buildId && previousBuild !== this.buildId) {
+        this.emitLocal("server:updated", { from: previousBuild, to: this.buildId });
+      }
     });
     this.socket.on("pong", (payload) => {
       const sample = Math.max(0, Date.now() - Number(payload.clientTime));
