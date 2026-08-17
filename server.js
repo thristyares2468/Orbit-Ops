@@ -26,6 +26,11 @@ const io = new SocketIOServer(server, {
 attachTrustedClientIp(io, app);
 
 app.disable("x-powered-by");
+// The embedded game decodes its map meshes with meshopt, which compiles a
+// WebAssembly module. That needs an explicit grant: 'wasm-unsafe-eval' allows
+// exactly that and nothing else, where the 'unsafe-eval' this replaced also
+// permitted eval() and new Function(). The client uses neither - checked - so
+// the narrower token is enough. Removing it blanks the hidden game entirely.
 app.use((request, response, next) => {
   const jimsRequest = request.path === "/tips" || request.path.startsWith("/tips/");
   response.setHeader("X-Content-Type-Options", "nosniff");
@@ -35,7 +40,7 @@ app.use((request, response, next) => {
   response.setHeader(
     "Content-Security-Policy",
     jimsRequest
-      ? "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' blob: https://cdn.jsdelivr.net ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' blob: https://cdn.jsdelivr.net ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
       : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
   );
   next();
