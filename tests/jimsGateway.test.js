@@ -31,10 +31,21 @@ test("Orbit Ops declares its own favicon for both the game and embedded-game rou
   assert.match(index, /rel="icon" type="image\/svg\+xml" href="\/orbit-ops-favicon\.svg"/);
 });
 
-test("the Ghosts easter egg stays visually neutral on pointer hover", async () => {
+test("the Ghosts card gives nothing away", async () => {
   const styles = await readFile(new URL("../public/style.css", import.meta.url), "utf8");
-  assert.doesNotMatch(styles, /\.manual-card-link:hover article/);
-  assert.match(styles, /\.manual-card-link:focus-visible/);
+  const index = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  // No hover cue, and nothing styled as a link, or the card reads as clickable.
+  assert.doesNotMatch(styles, /\.manual-card-link/u);
+  // The destination must not appear in the document: an href would show it in
+  // the status bar on hover, which defeats the whole thing.
+  assert.doesNotMatch(index, /jims-launch/u);
+  assert.doesNotMatch(index, /easter-egg/u);
+  assert.doesNotMatch(index, /hidden transmission/u);
+  // The card has to be structurally identical to the four beside it - a lone
+  // <a> among <article>s is a tell even without a visible difference.
+  const manual = index.match(/<div class="reading-grid">([\s\S]*?)<\/section>/u)[1];
+  assert.doesNotMatch(manual, /<a\b/u, "no anchor among the manual cards");
+  assert.match(manual, /<h3 id="manual-ghosts">Ghosts<\/h3>/u, "only the heading carries a hook");
 });
 
 test("the embedded game uses bounded Railway connection settings and restarts after transient boot failures", async () => {

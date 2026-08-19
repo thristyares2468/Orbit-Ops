@@ -6,6 +6,7 @@ import { DEFAULT_ROLE_SETTINGS, enabledRoleCount, normaliseRoleSettings } from "
 import { getMapDefinition } from "./shipData.js";
 import { pauseCopy, progressLabels, roleAbilityStatus } from "./hudState.js";
 import { randomCallsign } from "./callsign.js";
+import { SecretDoor } from "./secretDoor.js";
 
 const FIRST_RUN_KEY = "orbitOps.firstRunHint.v1";
 const COLOURS = Object.freeze({ cyan: "#27bad8", amber: "#e2a238", violet: "#805bd0", lime: "#54b86a", coral: "#d9575f", white: "#c8d8dd", blue: "#3f67c9", rose: "#c74f87" });
@@ -272,6 +273,17 @@ export class GameUI {
     byId("results-lobby").addEventListener("click", () => this.invoke("returnLobby"));
     byId("results-menu").addEventListener("click", () => this.invoke("leaveRoom"));
     byId("save-settings").addEventListener("click", () => this.invoke("saveSettings", this.readSettingsForm()));
+    // The hidden game's door. The card carries no link, no destination and no
+    // label saying what it is, so nothing about it reads as clickable: the only
+    // way through is pressing the word Ghosts itself, repeatedly and quickly.
+    // Silent by design - showing progress would advertise that it is a door.
+    const ghostsHeading = byId("manual-ghosts");
+    if (ghostsHeading) {
+      const door = new SecretDoor();
+      ghostsHeading.addEventListener("click", () => {
+        if (door.press()) window.location.assign("/easter-egg/jims-launch");
+      });
+    }
     document.querySelectorAll("[data-open-modal]").forEach((button) => button.addEventListener("click", () => this.openModal(button.dataset.openModal)));
     document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", () => this.closeModal(button.dataset.closeModal)));
     for (const id of ["setting-max-players", "setting-operatives", "setting-tasks", "setting-discussion", "setting-voting"]) {
