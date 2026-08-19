@@ -43,3 +43,25 @@ export class SecretDoor {
     this.lastAt = null;
   }
 }
+
+// The code the prompt asks for, kept out of the bundle as plain text. This is
+// obscurity, not security: anyone who reads this file can work out what to type,
+// and the real gate is the server route that mints the access cookie. It only
+// stops the answer being found by searching the source for likely strings.
+const CODE_FINGERPRINT = 182135868;
+
+function fingerprint(value) {
+  // FNV-1a, 32-bit. Chosen for being four lines rather than for its strength.
+  let hash = 2166136261;
+  for (const character of value) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+// Typed case and spacing are forgiven; nothing else is.
+export function codeOpensDoor(value) {
+  const typed = String(value ?? "").trim().toUpperCase();
+  return typed.length > 0 && fingerprint(typed) === CODE_FINGERPRINT;
+}
