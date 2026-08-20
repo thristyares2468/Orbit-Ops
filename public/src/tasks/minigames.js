@@ -12,6 +12,17 @@
 // A minigame returns a teardown function, or nothing if it has nothing to undo.
 // The server holds the shape of the work - steps in order, one at a time, rate
 // limited - but it cannot referee a drag, so the gesture itself is judged here.
+//
+// Two rules the consoles below all follow:
+//
+//   Every task is playable without a mouse. Five of these were pure drags, which
+//   made them impossible on a keyboard - not awkward, impossible. Each drag
+//   surface is focusable and answers the arrow keys, and the pointer and key
+//   paths drive the same state so neither is a second-class way to play.
+//
+//   Difficulty never depends on the size of the window. A threshold in pixels is
+//   a different task on a phone than on a desktop; anything measured across a
+//   surface is measured as a fraction of that surface.
 
 const NS = "http://www.w3.org/2000/svg";
 const svg = (name, attrs = {}) => {
@@ -29,6 +40,82 @@ const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 
 // Wire colours, in the game's order.
 const WIRE_COLOURS = ["#e8483f", "#3f6ee8", "#e8c53f", "#ec4bd0"];
+
+// Names for the colours, so the wiring panel can be described rather than seen.
+const WIRE_NAMES = ["red", "blue", "yellow", "pink"];
+
+// A status line that only touches the DOM when the words actually change. The
+// held tasks report progress every frame; without this each of them wrote a
+// fresh string sixty times a second for the whole hold.
+function throttleStatus(ctx) {
+  let last = null;
+  return (text) => {
+    if (text === last) return;
+    last = text;
+    ctx.status(text);
+  };
+}
+
+// Unbiased shuffle. Array.sort with a random comparator is not one: the result
+// is skewed by the sort implementation, so some layouts came up far more often
+// than others.
+//
+// Exported for the tests. The minigames themselves need a document, so this and
+// distanceToPath below are the only parts of this file a headless test can reach
+// - which is exactly why the arithmetic worth checking lives in them.
+export function shuffled(values) {
+  const out = [...values];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// Make an element part of the tab order and describe it, so the console can be
+// reached and understood without sight of it.
+function makeFocusable(node, label) {
+  node.tabIndex = 0;
+  node.setAttribute("role", "application");
+  node.setAttribute("aria-label", label);
+  return node;
+}
+
+// Arrow keys as a second way to drive a drag. Returns a teardown.
+//
+// `onNudge` is handed a direction in the surface's own normalised space, already
+// scaled by the step; holding a key repeats it, which is what makes a steady
+// keyboard drag possible at all.
+function onArrowKeys(surface, { step = 0.045, onNudge, onCommit, onRelease } = {}) {
+  const DIRECTIONS = {
+    ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]
+  };
+  const down = (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      if (!onCommit) return;
+      event.preventDefault();
+      onCommit();
+      return;
+    }
+    const direction = DIRECTIONS[event.key];
+    if (!direction) return;
+    // Otherwise the arrows scroll the modal out from under the console.
+    event.preventDefault();
+    // Shift is the fine adjustment, for the tasks that ask you to settle on a
+    // mark rather than just reach it.
+    const scale = event.shiftKey ? 0.25 : 1;
+    onNudge?.(direction[0] * step * scale, direction[1] * step * scale, event);
+  };
+  const up = (event) => {
+    if (DIRECTIONS[event.key]) onRelease?.(event);
+  };
+  surface.addEventListener("keydown", down);
+  surface.addEventListener("keyup", up);
+  return () => {
+    surface.removeEventListener("keydown", down);
+    surface.removeEventListener("keyup", up);
+  };
+}
 
 // Pointer drag helper: reports movement in the element's own pixel space.
 function onDrag(surface, { start, move, end }) {
@@ -63,9 +150,15 @@ function onDrag(surface, { start, move, end }) {
 }
 
 // A press you have to keep held; releasing early loses the fill.
+//
+// The loop keeps running after the fill lands. It used to stop there, which left
+// the board frozen at full if the server refused the step - the lever was up,
+// nothing was moving, and there was no way to try again short of walking away
+// from the console. Now letting go drains it and the next hold re-fires.
 function holdToFill(button, { seconds = 2.5, onProgress, onFull, decay = 2 }) {
   let held = false;
   let fill = 0;
+  let fired = false;
   let last = performance.now();
   let raf = 0;
   const tick = (now) => {
@@ -73,21 +166,57 @@ function holdToFill(button, { seconds = 2.5, onProgress, onFull, decay = 2 }) {
     last = now;
     fill = clamp(fill + (held ? delta / seconds : -delta * decay / seconds), 0, 1);
     onProgress?.(fill);
-    if (fill >= 1) { onFull?.(); return; }
+    if (fill >= 1 && !fired) {
+      fired = true;
+      onFull?.();
+    } else if (fill < 0.9) {
+      // Re-arm once it has drained clear of the top, so a held button cannot
+      // fire twice off one press.
+      fired = false;
+    }
     raf = requestAnimationFrame(tick);
   };
   raf = requestAnimationFrame(tick);
   const down = () => { held = true; };
   const up = () => { held = false; };
+  const key = (event) => {
+    if (event.key !== " " && event.key !== "Enter") return;
+    event.preventDefault();
+    if (event.type === "keydown") held = true; else held = false;
+  };
   button.addEventListener("pointerdown", down);
   window.addEventListener("pointerup", up);
   button.addEventListener("pointerleave", up);
+  button.addEventListener("keydown", key);
+  button.addEventListener("keyup", key);
+  button.addEventListener("blur", up);
   return () => {
     cancelAnimationFrame(raf);
     button.removeEventListener("pointerdown", down);
     window.removeEventListener("pointerup", up);
     button.removeEventListener("pointerleave", up);
+    button.removeEventListener("keydown", key);
+    button.removeEventListener("keyup", key);
+    button.removeEventListener("blur", up);
   };
+}
+
+// Shortest distance from a point to a polyline, and which segment was nearest.
+// The course task needs this to tell following the line from wandering off it.
+export function distanceToPath(path, x, y) {
+  let best = Infinity;
+  let atSegment = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const [ax, ay] = path[i];
+    const [bx, by] = path[i + 1];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lengthSquared = dx * dx + dy * dy;
+    const t = lengthSquared ? clamp(((x - ax) * dx + (y - ay) * dy) / lengthSquared, 0, 1) : 0;
+    const distance = Math.hypot(x - (ax + dx * t), y - (ay + dy * t));
+    if (distance < best) { best = distance; atSegment = i; }
+  }
+  return { distance: best, segment: atSegment };
 }
 
 // ---------------------------------------------------------------------------
@@ -96,10 +225,11 @@ export const MINIGAMES = {
   // Join each wire on the left to the terminal of the same colour on the right.
   wiring: {
     label: "Fix Wiring",
-    instruction: "Drag each wire to the terminal of the same colour.",
+    instruction: "Drag each wire to the terminal of the same colour, or tab to a wire and press Enter.",
     build(ctx) {
       const board = el("div", "tg-wiring");
       const canvas = svg("svg", { class: "tg-wires", viewBox: "0 0 400 260", preserveAspectRatio: "none" });
+      canvas.setAttribute("aria-hidden", "true");
       const left = el("div", "tg-wiring-side is-left");
       const right = el("div", "tg-wiring-side is-right");
       // challenge[i] is which right-hand terminal the i-th left wire belongs to.
@@ -111,14 +241,17 @@ export const MINIGAMES = {
         l.type = "button";
         l.style.background = WIRE_COLOURS[i];
         l.dataset.index = String(i);
+        l.setAttribute("aria-label", `${WIRE_NAMES[i]} wire, not connected`);
         left.append(l);
         nodes.left.push(l);
 
         const r = el("button", "tg-wire-node");
         r.type = "button";
         // The right column is colour-shuffled by the pairing, as on the real panel.
-        r.style.background = WIRE_COLOURS[pairing.indexOf(i)];
+        const colour = pairing.indexOf(i);
+        r.style.background = WIRE_COLOURS[colour];
         r.dataset.index = String(i);
+        r.setAttribute("aria-label", `${WIRE_NAMES[colour]} terminal`);
         right.append(r);
         nodes.right.push(r);
       }
@@ -136,7 +269,17 @@ export const MINIGAMES = {
         };
       };
       const live = svg("line", { class: "tg-wire-live", "stroke-width": 7, "stroke-linecap": "round" });
+      // Hidden rather than collapsed to a point. Collapsing it to (0,0) left a
+      // stub of stroke pinned to the top-left corner after every join, because a
+      // 7px round cap still paints when both ends sit on the same coordinate.
+      live.style.display = "none";
       canvas.append(live);
+
+      const clearLive = () => {
+        live.style.display = "none";
+        if (from !== null) nodes.left[from].classList.remove("is-live");
+        from = null;
+      };
       const drawJoin = (li, ri) => {
         const a = centreOf(nodes.left[li]);
         const b = centreOf(nodes.right[ri]);
@@ -146,6 +289,16 @@ export const MINIGAMES = {
         });
         canvas.insertBefore(line, live);
       };
+      const join = (li, ri) => {
+        joined.add(li);
+        drawJoin(li, ri);
+        nodes.left[li].classList.add("is-done");
+        nodes.left[li].setAttribute("aria-label", `${WIRE_NAMES[li]} wire, connected`);
+        nodes.right[ri].classList.add("is-done");
+        nodes.right[ri].disabled = true;
+        ctx.status(`${joined.size} of 4 joined.`);
+        if (joined.size === 4) ctx.complete();
+      };
       const pick = (event) => {
         const node = event.target.closest(".tg-wire-node");
         if (!node) return;
@@ -153,28 +306,29 @@ export const MINIGAMES = {
         const index = Number(node.dataset.index);
         if (side === "left") {
           if (joined.has(index)) return;
+          // Picking the live wire again puts it down; picking a different one
+          // switches to it. Previously a second press left two wires marked live.
+          if (from === index) { clearLive(); ctx.status("Wire put down."); return; }
+          if (from !== null) nodes.left[from].classList.remove("is-live");
           from = index;
           node.classList.add("is-live");
           const a = centreOf(node);
+          live.style.display = "";
           live.setAttribute("stroke", WIRE_COLOURS[index]);
           live.setAttribute("x1", "0"); live.setAttribute("y1", String(a.y));
           live.setAttribute("x2", "0"); live.setAttribute("y2", String(a.y));
+          ctx.status(`Holding the ${WIRE_NAMES[index]} wire.`);
           return;
         }
-        if (from === null) return;
+        if (from === null) { ctx.status("Take hold of a wire on the left first."); return; }
         if (pairing[from] === index) {
-          joined.add(from);
-          drawJoin(from, index);
-          nodes.left[from].classList.add("is-done");
-          node.classList.add("is-done");
-          ctx.status(`${joined.size} of 4 joined.`);
-          if (joined.size === 4) ctx.complete();
+          const wire = from;
+          clearLive();
+          join(wire, index);
         } else {
           ctx.status("That terminal is the wrong colour.");
+          clearLive();
         }
-        nodes.left[from]?.classList.remove("is-live");
-        from = null;
-        live.setAttribute("x2", "0"); live.setAttribute("y2", "0");
       };
       const track = (event) => {
         if (from === null) return;
@@ -184,6 +338,11 @@ export const MINIGAMES = {
       };
       board.addEventListener("pointerdown", pick);
       board.addEventListener("pointermove", track);
+      // The nodes are real buttons, so Enter and Space already reach `pick`
+      // through the click event - keyboard play needs no separate path here.
+      board.addEventListener("click", (event) => {
+        if (event.detail === 0) pick(event);   // detail 0 means it came from a key
+      });
       ctx.status("Drag a wire across.");
       return () => {
         board.removeEventListener("pointerdown", pick);
@@ -195,47 +354,91 @@ export const MINIGAMES = {
   // Swipe the card through at a steady speed - too fast or too slow is rejected.
   card: {
     label: "Swipe Card",
-    instruction: "Drag the card through the reader at a steady speed.",
+    instruction: "Drag the card through the reader at a steady speed, or hold the right arrow key.",
     build(ctx) {
       const rig = el("div", "tg-card-rig");
       const slot = el("div", "tg-card-slot");
       const card = el("div", "tg-card", "CREW ID");
       const readout = el("div", "tg-card-readout", "READY");
+      readout.setAttribute("role", "status");
       slot.append(card);
       rig.append(slot, readout);
       ctx.root.append(rig);
+      makeFocusable(slot, "Card reader. Hold the right arrow key to draw the card through at a steady speed.");
 
-      let startX = 0, startAt = 0, dragging = false;
-      const stop = onDrag(slot, {
+      // Judged in slot-widths per second, not pixels per second. The old
+      // thresholds were absolute, so the same swipe that read as steady on a
+      // 420px desktop slot read as far too slow on a narrow phone - the task
+      // was quietly harder on a small screen.
+      const TOO_FAST = 2.15;
+      const TOO_SLOW = 0.45;
+      const NEEDED = 0.55;              // fraction of the slot to count as through
+      const CARD_FRACTION = 0.26;       // the card's own share of the slot width
+
+      let startX = 0, startAt = 0, dragging = false, offset = 0;
+      const width = () => slot.getBoundingClientRect().width || 1;
+      const draw = () => { card.style.transform = `translateX(${offset * width()}px)`; };
+      const judge = (travelled, seconds) => {
+        card.style.transition = "transform .35s ease";
+        offset = 0;
+        draw();
+        if (travelled < NEEDED) {
+          readout.textContent = "INCOMPLETE";
+          ctx.status("Swipe all the way through.");
+          return;
+        }
+        const speed = travelled / Math.max(0.001, seconds);   // slot widths per second
+        if (speed > TOO_FAST) { readout.textContent = "TOO FAST"; ctx.status("Too fast — try again."); }
+        else if (speed < TOO_SLOW) { readout.textContent = "TOO SLOW"; ctx.status("Too slow — try again."); }
+        else { readout.textContent = "ACCEPTED"; ctx.complete(); }
+      };
+
+      const stopDrag = onDrag(slot, {
         start: (p) => {
-          if (p.x > 130) return;
-          dragging = true; startX = p.x; startAt = performance.now();
+          // Grab anywhere on the card itself, wherever the card happens to be.
+          if (p.x / p.box.width > CARD_FRACTION + offset) {
+            ctx.status("Take hold of the card on the left.");
+            return;
+          }
+          dragging = true;
+          startX = p.x / p.box.width;
+          startAt = performance.now();
           card.style.transition = "none";
         },
         move: (p) => {
           if (!dragging) return;
-          card.style.transform = `translateX(${clamp(p.x - startX, 0, p.box.width - 110)}px)`;
+          offset = clamp(p.x / p.box.width - startX, 0, 1 - CARD_FRACTION);
+          draw();
         },
         end: (p) => {
           if (!dragging) return;
           dragging = false;
-          const travel = p.x - startX;
-          const seconds = (performance.now() - startAt) / 1000;
-          card.style.transition = "transform .35s ease";
-          card.style.transform = "translateX(0)";
-          if (travel < p.box.width * 0.55) {
-            readout.textContent = "INCOMPLETE";
-            ctx.status("Swipe all the way through.");
-            return;
-          }
-          const speed = travel / Math.max(0.001, seconds);   // px per second
-          if (speed > 900) { readout.textContent = "TOO FAST"; ctx.status("Too fast — try again."); }
-          else if (speed < 190) { readout.textContent = "TOO SLOW"; ctx.status("Too slow — try again."); }
-          else { readout.textContent = "ACCEPTED"; ctx.complete(); }
+          judge(p.x / p.box.width - startX, (performance.now() - startAt) / 1000);
         }
       });
+
+      // Key repeat is what makes this fair on a keyboard: holding the arrow
+      // moves the card at whatever rate the player's repeat is set to, and the
+      // same steadiness test applies to it.
+      let keyStartedAt = 0;
+      const stopKeys = onArrowKeys(slot, {
+        step: 0.055,
+        onNudge: (dx) => {
+          if (dx <= 0) return;
+          if (!keyStartedAt) { keyStartedAt = performance.now(); card.style.transition = "none"; }
+          offset = clamp(offset + dx, 0, 1 - CARD_FRACTION);
+          draw();
+        },
+        onRelease: () => {
+          if (!keyStartedAt) return;
+          const seconds = (performance.now() - keyStartedAt) / 1000;
+          keyStartedAt = 0;
+          judge(offset, seconds);
+        }
+      });
+
       ctx.status("Drag the card from the left.");
-      return stop;
+      return () => { stopDrag(); stopKeys(); };
     }
   },
 
@@ -248,6 +451,10 @@ export const MINIGAMES = {
       const rig = el("div", "tg-upload");
       const title = el("p", "tg-upload-title", downloading ? "DOWNLOAD" : "UPLOAD");
       const bar = el("div", "tg-bar");
+      bar.setAttribute("role", "progressbar");
+      bar.setAttribute("aria-valuemin", "0");
+      bar.setAttribute("aria-valuemax", "100");
+      bar.setAttribute("aria-valuenow", "0");
       const fill = el("i");
       bar.append(fill);
       const button = el("button", "tg-button", downloading ? "Download" : "Upload");
@@ -255,14 +462,17 @@ export const MINIGAMES = {
       rig.append(title, bar, button);
       ctx.root.append(rig);
 
+      const say = throttleStatus(ctx);
       let raf = 0;
       button.addEventListener("click", () => {
         button.disabled = true;
         const started = performance.now();
         const run = (now) => {
           const ratio = clamp((now - started) / 4200, 0, 1);
+          const percent = Math.round(ratio * 100);
           fill.style.width = `${ratio * 100}%`;
-          ctx.status(`${Math.round(ratio * 100)}%`);
+          bar.setAttribute("aria-valuenow", String(percent));
+          say(`${percent}%`);
           if (ratio >= 1) { ctx.complete(); return; }
           raf = requestAnimationFrame(run);
         };
@@ -284,17 +494,19 @@ export const MINIGAMES = {
       chute.append(trash);
       const lever = el("button", "tg-lever");
       lever.type = "button";
+      lever.setAttribute("aria-label", "Garbage lever. Hold to empty the chute.");
       lever.append(el("span", null, "PULL"));
       rig.append(chute, lever);
       ctx.root.append(rig);
 
+      const say = throttleStatus(ctx);
       const stop = holdToFill(lever, {
         seconds: 2.6, decay: 1.6,
         onProgress: (fill) => {
           trash.style.transform = `translateY(${fill * 130}%)`;
           trash.style.opacity = String(1 - fill * 0.7);
           lever.style.setProperty("--pull", String(fill));
-          ctx.status(fill > 0.02 ? `Chute ${Math.round(fill * 100)}% clear.` : "Hold the lever down.");
+          say(fill > 0.02 ? `Chute ${Math.round(fill * 100)}% clear.` : "Hold the lever down.");
         },
         onFull: () => ctx.complete()
       });
@@ -316,14 +528,16 @@ export const MINIGAMES = {
       const label = el("p", "tg-fuel-label", filling ? "FILL CANISTER" : "PUMP INTO ENGINE");
       const button = el("button", "tg-button is-hold", "Hold");
       button.type = "button";
+      button.setAttribute("aria-label", filling ? "Hold to fill the canister" : "Hold to pump fuel into the engine");
       rig.append(label, gauge, button);
       ctx.root.append(rig);
 
+      const say = throttleStatus(ctx);
       const stop = holdToFill(button, {
         seconds: 3, decay: 1.4,
         onProgress: (value) => {
           fill.style.height = `${value * 100}%`;
-          ctx.status(`${Math.round(value * 100)}%`);
+          say(`${Math.round(value * 100)}%`);
         },
         onFull: () => ctx.complete()
       });
@@ -345,35 +559,52 @@ export const MINIGAMES = {
       track.append(knob);
       rig.append(label, track);
       ctx.root.append(rig);
+      makeFocusable(track, `${diverting ? "Divert to weapons" : "Accept power"} breaker. Press the up arrow to throw it.`);
 
       let done = false;
       // The knob is 58px tall in a 210px track, so it can travel 72% of the way
       // up before its own top would leave the track.
       const TRAVEL = 72;
+      let ratio = 0;
+      const draw = () => { knob.style.bottom = `${ratio * TRAVEL}%`; };
       const throwUp = () => {
+        if (done) return;
         done = true;
-        knob.style.bottom = `${TRAVEL}%`;
+        ratio = 1;
+        draw();
         track.classList.add("is-on");
+        track.setAttribute("aria-label", "Breaker thrown");
         ctx.complete();
       };
       const stop = onDrag(track, {
         move: (p) => {
           if (done) return;
-          const ratio = 1 - clamp(p.y / p.box.height, 0, 1);
-          knob.style.bottom = `${ratio * TRAVEL}%`;
+          ratio = 1 - clamp(p.y / p.box.height, 0, 1);
+          draw();
           if (ratio > 0.86) throwUp();
         },
-        end: () => { if (!done) knob.style.bottom = "0%"; }
+        end: () => { if (!done) { ratio = 0; draw(); } }
       });
       // Clicking the top of the track works too, for anyone not dragging.
       const click = (event) => {
-        if (done) return;
+        if (done || event.detail === 0) return;
         const box = track.getBoundingClientRect();
         if ((event.clientY - box.top) / box.height < 0.3) throwUp();
       };
       track.addEventListener("click", click);
+      const stopKeys = onArrowKeys(track, {
+        step: 0.12,
+        onNudge: (dx, dy) => {
+          if (done) return;
+          ratio = clamp(ratio - dy, 0, 1);
+          draw();
+          if (ratio > 0.86) throwUp();
+        },
+        onCommit: throwUp,
+        onRelease: () => { if (!done) { ratio = 0; draw(); } }
+      });
       ctx.status("Push the switch up.");
-      return () => { stop(); track.removeEventListener("click", click); };
+      return () => { stop(); stopKeys(); track.removeEventListener("click", click); };
     }
   },
 
@@ -384,6 +615,7 @@ export const MINIGAMES = {
     build(ctx) {
       const rig = el("div", "tg-reactor");
       const show = el("div", "tg-pad is-display");
+      show.setAttribute("aria-hidden", "true");
       const pad = el("div", "tg-pad is-input");
       const showCells = [], padCells = [];
       for (let i = 0; i < 4; i++) {
@@ -391,6 +623,7 @@ export const MINIGAMES = {
         show.append(a); showCells.push(a);
         const b = el("button", "tg-cell");
         b.type = "button"; b.dataset.index = String(i);
+        b.setAttribute("aria-label", `Square ${i + 1}`);
         pad.append(b); padCells.push(b);
       }
       rig.append(show, pad);
@@ -401,21 +634,31 @@ export const MINIGAMES = {
       const sequence = rounds[ctx.step] ?? rounds[rounds.length - 1];
       let expect = 0;
       let accepting = false;
-      const timers = [];
+      const timers = new Set();
+      // Every timeout goes through here. A press near the end of a round used to
+      // schedule its own un-light with a bare setTimeout, which then fired into a
+      // detached board after the stage was torn down and rebuilt.
+      const later = (fn, ms) => {
+        const id = setTimeout(() => { timers.delete(id); fn(); }, ms);
+        timers.add(id);
+        return id;
+      };
 
       const play = () => {
         accepting = false;
+        pad.setAttribute("aria-disabled", "true");
         ctx.status(`Round ${ctx.step + 1} of ${ctx.steps} — watch.`);
         sequence.forEach((cell, i) => {
-          timers.push(setTimeout(() => {
+          later(() => {
             showCells[cell].classList.add("is-lit");
-            timers.push(setTimeout(() => showCells[cell].classList.remove("is-lit"), 380));
-          }, 520 * i + 400));
+            later(() => showCells[cell].classList.remove("is-lit"), 380);
+          }, 520 * i + 400);
         });
-        timers.push(setTimeout(() => {
+        later(() => {
           accepting = true;
+          pad.setAttribute("aria-disabled", "false");
           ctx.status("Your turn.");
-        }, 520 * sequence.length + 500));
+        }, 520 * sequence.length + 500);
       };
 
       const press = (event) => {
@@ -423,17 +666,20 @@ export const MINIGAMES = {
         if (!cell || !accepting) return;
         const index = Number(cell.dataset.index);
         cell.classList.add("is-lit");
-        setTimeout(() => cell.classList.remove("is-lit"), 180);
+        later(() => cell.classList.remove("is-lit"), 180);
         if (index !== sequence[expect]) {
           expect = 0;
           accepting = false;
+          pad.setAttribute("aria-disabled", "true");
           ctx.status("Wrong square — watch again.");
-          timers.push(setTimeout(play, 800));
+          later(play, 800);
           return;
         }
         expect += 1;
+        ctx.status(`${expect} of ${sequence.length}.`);
         if (expect >= sequence.length) {
           accepting = false;
+          pad.setAttribute("aria-disabled", "true");
           ctx.complete();
         }
       };
@@ -442,6 +688,7 @@ export const MINIGAMES = {
       return () => {
         pad.removeEventListener("click", press);
         for (const timer of timers) clearTimeout(timer);
+        timers.clear();
       };
     }
   },
@@ -453,8 +700,7 @@ export const MINIGAMES = {
     build(ctx) {
       const grid = el("div", "tg-manifolds");
       // Scattered, as on the real panel, so it is a search and not a row.
-      const order = [...Array(10).keys()].sort(() => Math.random() - 0.5);
-      for (const value of order) {
+      for (const value of shuffled([...Array(10).keys()])) {
         const button = el("button", "tg-manifold", String(value + 1));
         button.type = "button";
         button.dataset.value = String(value);
@@ -485,42 +731,50 @@ export const MINIGAMES = {
   // Slide the output onto the centre line and hold it there.
   align: {
     label: "Align Engine Output",
-    instruction: "Drag the engine onto the centre line and hold it there.",
+    instruction: "Drag the engine onto the centre line and hold it there. Arrow keys work too.",
     build(ctx) {
       const rig = el("div", "tg-align");
       const line = el("div", "tg-align-line");
       const slider = el("div", "tg-align-slider");
       rig.append(line, slider);
       ctx.root.append(rig);
+      makeFocusable(rig, "Engine alignment. Use the up and down arrows to bring the engine onto the centre line, hold Shift for fine adjustment.");
 
+      const HOLD_SECONDS = 0.9;
+      const TOLERANCE = 0.045;
       let y = 0.24;             // 0..1 down the track
       let settled = 0;
       let raf = 0;
       let done = false;
+      const say = throttleStatus(ctx);
       const draw = () => { slider.style.top = `${y * 100}%`; };
       draw();
 
       const stop = onDrag(rig, {
         move: (p) => { y = clamp(p.y / p.box.height, 0, 1); draw(); }
       });
+      const stopKeys = onArrowKeys(rig, {
+        step: 0.03,
+        onNudge: (dx, dy) => { y = clamp(y + dy, 0, 1); draw(); }
+      });
       let last = performance.now();
       const tick = (now) => {
         const delta = (now - last) / 1000; last = now;
         const off = Math.abs(y - 0.5);
-        if (off < 0.045) {
+        if (off < TOLERANCE) {
           settled += delta;
           rig.classList.add("is-aligned");
-          ctx.status(`Holding… ${Math.min(1, settled / 0.9).toFixed(1)}`);
-          if (settled >= 0.9 && !done) { done = true; ctx.complete(); return; }
+          say(`Holding… ${Math.min(HOLD_SECONDS, settled).toFixed(1)}s of ${HOLD_SECONDS.toFixed(1)}s`);
+          if (settled >= HOLD_SECONDS && !done) { done = true; ctx.complete(); return; }
         } else {
           settled = 0;
           rig.classList.remove("is-aligned");
-          ctx.status(off > 0.2 ? "Well off centre." : "Nearly — a little more.");
+          say(off > 0.2 ? "Well off centre." : "Nearly — a little more.");
         }
         raf = requestAnimationFrame(tick);
       };
       raf = requestAnimationFrame(tick);
-      return () => { stop(); cancelAnimationFrame(raf); };
+      return () => { stop(); stopKeys(); cancelAnimationFrame(raf); };
     }
   },
 
@@ -532,6 +786,7 @@ export const MINIGAMES = {
       const TARGET = 20;
       const field = el("div", "tg-asteroids");
       const count = el("p", "tg-asteroid-count", `0 / ${TARGET}`);
+      count.setAttribute("role", "status");
       const sky = el("div", "tg-sky");
       field.append(sky, count);
       ctx.root.append(field);
@@ -539,47 +794,54 @@ export const MINIGAMES = {
       let hit = 0;
       let raf = 0;
       let spawnAt = 0;
+      // Position lives on the object, not in dataset. Reading four numbers back
+      // out of stringified attributes for every rock on every frame was the one
+      // piece of per-frame work here that did real parsing.
       const rocks = [];
       const spawn = () => {
-        const rock = el("i", "tg-rock");
+        const node = el("i", "tg-rock");
         const size = 20 + Math.random() * 22;
-        rock.style.width = `${size}px`;
-        rock.style.height = `${size}px`;
+        node.style.width = `${size}px`;
+        node.style.height = `${size}px`;
         const from = Math.random();
-        rock.dataset.x = String(from * 92);
-        rock.dataset.y = "-12";
-        rock.dataset.vx = String((0.5 - from) * 8);
-        rock.dataset.vy = String(11 + Math.random() * 9);
-        sky.append(rock);
+        const rock = { node, x: from * 92, y: -12, vx: (0.5 - from) * 8, vy: 11 + Math.random() * 9 };
+        node.rock = rock;
+        sky.append(node);
         rocks.push(rock);
+      };
+      const remove = (rock) => {
+        const at = rocks.indexOf(rock);
+        if (at >= 0) rocks.splice(at, 1);
       };
       let last = performance.now();
       const tick = (now) => {
         const delta = Math.min(0.06, (now - last) / 1000); last = now;
         spawnAt -= delta;
         if (spawnAt <= 0 && rocks.length < 9) { spawn(); spawnAt = 0.42; }
-        for (const rock of [...rocks]) {
-          const y = Number(rock.dataset.y) + Number(rock.dataset.vy) * delta;
-          const x = Number(rock.dataset.x) + Number(rock.dataset.vx) * delta;
-          rock.dataset.y = String(y); rock.dataset.x = String(x);
-          rock.style.top = `${y}%`;
-          rock.style.left = `${x}%`;
-          rock.style.transform = `rotate(${y * 6}deg)`;
-          if (y > 104) { rock.remove(); rocks.splice(rocks.indexOf(rock), 1); }
+        for (let i = rocks.length - 1; i >= 0; i--) {
+          const rock = rocks[i];
+          rock.y += rock.vy * delta;
+          rock.x += rock.vx * delta;
+          rock.node.style.top = `${rock.y}%`;
+          rock.node.style.left = `${rock.x}%`;
+          rock.node.style.transform = `rotate(${rock.y * 6}deg)`;
+          if (rock.y > 104) { rock.node.remove(); rocks.splice(i, 1); }
         }
         raf = requestAnimationFrame(tick);
       };
       raf = requestAnimationFrame(tick);
 
+      const say = throttleStatus(ctx);
       const shoot = (event) => {
-        const rock = event.target.closest(".tg-rock");
-        if (!rock) return;
-        rock.classList.add("is-hit");
-        rocks.splice(rocks.indexOf(rock), 1);
-        setTimeout(() => rock.remove(), 180);
+        const node = event.target.closest(".tg-rock");
+        if (!node?.rock) return;
+        node.classList.add("is-hit");
+        remove(node.rock);
+        node.rock = null;
+        setTimeout(() => node.remove(), 180);
         hit += 1;
         count.textContent = `${hit} / ${TARGET}`;
-        ctx.status(`${hit} destroyed.`);
+        say(`${hit} destroyed.`);
         if (hit >= TARGET) ctx.complete();
       };
       sky.addEventListener("pointerdown", shoot);
@@ -607,7 +869,11 @@ export const MINIGAMES = {
         cell.style.top = `${y}%`;
         cell.dataset.index = String(index);
         // Anything the server did not flag starts already lit.
-        if (!dead.has(index)) cell.classList.add("is-lit");
+        const lit = !dead.has(index);
+        if (lit) cell.classList.add("is-lit");
+        cell.setAttribute("aria-label", `Shield panel ${index + 1}, ${lit ? "lit" : "down"}`);
+        // A lit panel is not a control any more, so it should not be a tab stop.
+        cell.disabled = lit;
         rig.append(cell);
         cells.push(cell);
       });
@@ -618,6 +884,8 @@ export const MINIGAMES = {
         const cell = event.target.closest(".tg-hex");
         if (!cell || cell.classList.contains("is-lit")) return;
         cell.classList.add("is-lit");
+        cell.disabled = true;
+        cell.setAttribute("aria-label", `Shield panel ${Number(cell.dataset.index) + 1}, lit`);
         const left = remaining();
         ctx.status(left ? `${left} panel${left === 1 ? "" : "s"} still down.` : "Shields primed.");
         if (left === 0) ctx.complete();
@@ -632,10 +900,11 @@ export const MINIGAMES = {
   // Trace the course through every checkpoint.
   course: {
     label: "Chart Course",
-    instruction: "Drag the ship along the dotted line through every marker.",
+    instruction: "Drag the ship along the dotted line through every marker. Arrow keys work too.",
     build(ctx) {
       const rig = el("div", "tg-course");
       const canvas = svg("svg", { class: "tg-course-svg", viewBox: "0 0 400 240" });
+      canvas.setAttribute("aria-hidden", "true");
       const PATH = [[28, 196], [110, 150], [186, 178], [258, 96], [330, 44]];
       const d = PATH.map((p, i) => `${i ? "L" : "M"}${p[0]} ${p[1]}`).join(" ");
       canvas.append(svg("path", { d, class: "tg-course-line" }));
@@ -649,69 +918,139 @@ export const MINIGAMES = {
       canvas.append(ship);
       rig.append(canvas);
       ctx.root.append(rig);
+      makeFocusable(rig, "Course plotter. Use the arrow keys to fly the ship along the dotted line through each marker.");
 
-      let reached = 0;
-      let dragging = false;
+      // How far off the line the ship may stray before the course is lost.
+      // Without it the ship could be walked anywhere on the panel between two
+      // markers, so the dotted line was decoration rather than a route.
+      //
+      // This deliberately does not police how fast the line is followed. Between
+      // two consecutive markers the straight line IS the path, so a player who
+      // drags quickly from one to the next is tracing it correctly, not cutting
+      // a corner - and a step limit strict enough to catch a tap would also
+      // punish an honest fast drag on a slow frame.
+      const CORRIDOR = 26;
+      let reached = 1;
+      let x = PATH[0][0];
+      let y = PATH[0][1];
+      const say = throttleStatus(ctx);
       marks[0].classList.add("is-done");
-      reached = 1;
+
+      const draw = () => {
+        ship.setAttribute("cx", String(x));
+        ship.setAttribute("cy", String(y));
+      };
+      const resetToLastMarker = (why) => {
+        const at = PATH[Math.max(0, reached - 1)];
+        x = at[0]; y = at[1];
+        draw();
+        rig.classList.remove("is-straying");
+        if (why) ctx.status(why);
+      };
+      // Shared by the pointer and the arrow keys, so both are held to the corridor.
+      const moveTo = (nx, ny) => {
+        x = clamp(nx, 0, 400);
+        y = clamp(ny, 0, 240);
+        draw();
+        const { distance } = distanceToPath(PATH, x, y);
+        if (distance > CORRIDOR) {
+          resetToLastMarker("Off course — back to the last marker.");
+          return;
+        }
+        rig.classList.toggle("is-straying", distance > CORRIDOR * 0.6);
+        const next = PATH[reached];
+        if (next && Math.hypot(x - next[0], y - next[1]) < 22) {
+          marks[reached].classList.add("is-done");
+          reached += 1;
+          ctx.status(`${reached} of ${PATH.length} markers.`);
+          if (reached >= PATH.length) ctx.complete();
+          return;
+        }
+        say(`Marker ${reached + 1} of ${PATH.length} ahead.`);
+      };
+
+      let dragging = false;
       const stop = onDrag(rig, {
-        start: () => { dragging = true; },
+        start: (p) => {
+          // Only picking the ship up counts. Pressing straight onto a distant
+          // marker used to teleport the ship there.
+          const px = p.x / p.box.width * 400;
+          const py = p.y / p.box.height * 240;
+          dragging = Math.hypot(px - x, py - y) < 34;
+          if (!dragging) ctx.status("Take hold of the ship first.");
+        },
         move: (p) => {
-          if (!dragging) return;
-          const x = p.x / p.box.width * 400;
-          const y = p.y / p.box.height * 240;
-          ship.setAttribute("cx", String(x));
-          ship.setAttribute("cy", String(y));
-          const next = PATH[reached];
-          if (next && Math.hypot(x - next[0], y - next[1]) < 22) {
-            marks[reached].classList.add("is-done");
-            reached += 1;
-            ctx.status(`${reached} of ${PATH.length} markers.`);
-            if (reached >= PATH.length) { dragging = false; ctx.complete(); }
-          }
+          if (!dragging || reached >= PATH.length) return;
+          moveTo(p.x / p.box.width * 400, p.y / p.box.height * 240);
         },
         end: () => {
+          if (!dragging) return;
           dragging = false;
-          // Slipping off the line sends the ship back to the last marker reached.
-          const at = PATH[Math.max(0, reached - 1)];
-          ship.setAttribute("cx", String(at[0]));
-          ship.setAttribute("cy", String(at[1]));
+          // Letting go mid-leg drops back to the last marker reached, as before.
+          if (reached < PATH.length) resetToLastMarker(null);
         }
       });
+      const stopKeys = onArrowKeys(rig, {
+        step: 1,
+        onNudge: (dx, dy) => {
+          if (reached >= PATH.length) return;
+          moveTo(x + dx * 11, y + dy * 11);
+        }
+      });
+      draw();
       ctx.status("Drag from the first marker.");
-      return stop;
+      return () => { stop(); stopKeys(); };
     }
   },
 
   // Hold the crosshair inside the box while the ship drifts.
   steering: {
     label: "Stabilize Steering",
-    instruction: "Drag the crosshair into the box and hold it steady.",
+    instruction: "Drag the crosshair into the box and hold it steady. Arrow keys work too.",
     build(ctx) {
       const rig = el("div", "tg-steering");
       const target = el("div", "tg-steer-target");
       const cross = el("div", "tg-steer-cross");
       rig.append(target, cross);
       ctx.root.append(rig);
+      makeFocusable(rig, "Steering. Use the arrow keys to bring the crosshair into the box and hold it there; the ship drifts whenever you are not steering.");
 
+      const HOLD_SECONDS = 1.4;
       let x = 0.22, y = 0.74;
       let settled = 0, raf = 0, done = false;
       let driftX = 0.06, driftY = -0.05;
+      const say = throttleStatus(ctx);
       const draw = () => {
         cross.style.left = `${x * 100}%`;
         cross.style.top = `${y * 100}%`;
       };
       draw();
       let holding = false;
+      // A key held down counts as steering, the same as a finger held down -
+      // otherwise a keyboard player fought the drift between every key repeat
+      // and the box could not be held at all.
+      let keyHeldUntil = 0;
       const stop = onDrag(rig, {
         start: (p) => { holding = true; x = clamp(p.x / p.box.width, 0, 1); y = clamp(p.y / p.box.height, 0, 1); draw(); },
         move: (p) => { if (holding) { x = clamp(p.x / p.box.width, 0, 1); y = clamp(p.y / p.box.height, 0, 1); draw(); } },
         end: () => { holding = false; }
       });
+      const stopKeys = onArrowKeys(rig, {
+        step: 0.03,
+        onNudge: (dx, dy) => {
+          x = clamp(x + dx, 0, 1);
+          y = clamp(y + dy, 0, 1);
+          // Steering counts for a moment after the last repeat, so the gaps
+          // between repeats do not read as letting go.
+          keyHeldUntil = performance.now() + 260;
+          draw();
+        }
+      });
       let last = performance.now();
       const tick = (now) => {
         const delta = Math.min(0.06, (now - last) / 1000); last = now;
-        if (!holding) {
+        const steering = holding || now < keyHeldUntil;
+        if (!steering) {
           // The ship wanders when you let go, so it has to be actively held.
           x = clamp(x + driftX * delta, 0, 1);
           y = clamp(y + driftY * delta, 0, 1);
@@ -723,17 +1062,17 @@ export const MINIGAMES = {
         if (inBox) {
           settled += delta;
           target.classList.add("is-locked");
-          ctx.status(`Holding… ${Math.min(1.4, settled).toFixed(1)}s`);
-          if (settled >= 1.4 && !done) { done = true; ctx.complete(); return; }
+          say(`Holding… ${Math.min(HOLD_SECONDS, settled).toFixed(1)}s of ${HOLD_SECONDS.toFixed(1)}s`);
+          if (settled >= HOLD_SECONDS && !done) { done = true; ctx.complete(); return; }
         } else {
           settled = 0;
           target.classList.remove("is-locked");
-          ctx.status("Bring it into the box.");
+          say("Bring it into the box.");
         }
         raf = requestAnimationFrame(tick);
       };
       raf = requestAnimationFrame(tick);
-      return () => { stop(); cancelAnimationFrame(raf); };
+      return () => { stop(); stopKeys(); cancelAnimationFrame(raf); };
     }
   },
 
@@ -746,18 +1085,22 @@ export const MINIGAMES = {
       const body = el("div", "tg-scan-body");
       const beam = el("i", "tg-scan-beam");
       const readout = el("p", "tg-scan-readout", "AWAITING SUBJECT");
+      readout.setAttribute("role", "status");
       rig.append(body, beam, readout);
       ctx.root.append(rig);
 
       const SECONDS = 10;
       const started = performance.now();
+      const say = throttleStatus(ctx);
       let raf = 0;
       const tick = (now) => {
         const elapsed = (now - started) / 1000;
         const ratio = clamp(elapsed / SECONDS, 0, 1);
         beam.style.top = `${(Math.sin(elapsed * 2.2) * 0.5 + 0.5) * 82}%`;
         readout.textContent = `SCANNING ${Math.round(ratio * 100)}%`;
-        ctx.status(`${(SECONDS - elapsed).toFixed(1)}s remaining`);
+        // A tenth-of-a-second countdown re-announced itself to a screen reader
+        // ten times a second. Whole seconds say the same thing.
+        say(`${Math.ceil(SECONDS - elapsed)}s remaining`);
         if (ratio >= 1) { readout.textContent = "SCAN COMPLETE"; ctx.complete(); return; }
         raf = requestAnimationFrame(tick);
       };
@@ -781,6 +1124,8 @@ export const MINIGAMES = {
         const vial = el("button", "tg-vial");
         vial.type = "button";
         vial.dataset.index = String(i);
+        vial.disabled = true;
+        vial.setAttribute("aria-label", `Sample ${i + 1}`);
         vial.append(el("i"));
         rack.append(vial);
         vials.push(vial);
@@ -790,27 +1135,38 @@ export const MINIGAMES = {
       rig.append(rack, button);
       ctx.root.append(rig);
 
-      let raf = 0;
       // Kept across closing the modal, so you can start it and walk away as in
       // the real task rather than being made to stand and watch a minute pass.
       const key = `${ctx.taskId}:${ctx.site}`;
+      let timer = 0;
       const reveal = () => {
         rack.classList.add("is-ready");
         vials[odd].classList.add("is-odd");
+        // Only the odd vial is named as different; the others still have to be
+        // told apart. Marking it up this way is what lets it be told apart at all
+        // by anyone using a screen reader.
+        vials.forEach((vial, index) => {
+          vial.disabled = false;
+          vial.setAttribute("aria-label", index === odd ? `Sample ${index + 1}, discoloured` : `Sample ${index + 1}, normal`);
+        });
         button.remove();
         ctx.status("Take the sample that differs.");
       };
       const run = () => {
-        const startedAt = SAMPLE_TIMERS.get(key);
-        const tick = () => {
+        // Once a second, not once a frame. This was a full sixty-per-second
+        // animation loop whose only job was to rewrite a countdown in seconds.
+        const paint = () => {
+          const startedAt = SAMPLE_TIMERS.get(key);
+          if (startedAt === undefined) return;
           const left = SECONDS - (Date.now() - startedAt) / 1000;
-          if (left <= 0) { reveal(); return; }
+          if (left <= 0) { clearInterval(timer); reveal(); return; }
           button.disabled = true;
           button.textContent = `Analysing… ${Math.ceil(left)}s`;
           ctx.status("You can leave and come back.");
-          raf = requestAnimationFrame(tick);
         };
-        tick();
+        clearInterval(timer);
+        timer = setInterval(paint, 250);
+        paint();
       };
       if (SAMPLE_TIMERS.has(key)) run();
       else {
@@ -830,14 +1186,14 @@ export const MINIGAMES = {
           ctx.status("That one matches the others.");
         }
       });
-      return () => cancelAnimationFrame(raf);
+      return () => clearInterval(timer);
     }
   },
 
   // Drag the debris out of the filter.
   o2filter: {
     label: "Clean O2 Filter",
-    instruction: "Drag the leaves out through the opening at the bottom.",
+    instruction: "Drag the leaves out through the opening at the bottom, or tab to one and use the arrow keys.",
     build(ctx) {
       const TOTAL = 7;
       const rig = el("div", "tg-o2");
@@ -846,16 +1202,41 @@ export const MINIGAMES = {
       rig.append(chamber, chute);
       ctx.root.append(rig);
 
+      // Buttons rather than decoration, so each piece of debris is a real control
+      // that can be tabbed to and moved. As bare <i> elements they could only ever
+      // be dragged, which made this task impossible without a pointer.
       const leaves = [];
       for (let i = 0; i < TOTAL; i++) {
-        const leaf = el("i", "tg-leaf");
-        leaf.style.left = `${12 + Math.random() * 68}%`;
-        leaf.style.top = `${10 + Math.random() * 60}%`;
-        leaf.style.transform = `rotate(${Math.random() * 360}deg)`;
+        const leaf = el("button", "tg-leaf");
+        leaf.type = "button";
+        leaf.setAttribute("aria-label", `Debris ${i + 1} of ${TOTAL}. Use the arrow keys to move it down and out.`);
+        leaf.dataset.left = String(12 + Math.random() * 68);
+        leaf.dataset.top = String(10 + Math.random() * 60);
+        leaf.style.left = `${leaf.dataset.left}%`;
+        leaf.style.top = `${leaf.dataset.top}%`;
+        leaf.style.rotate = `${Math.random() * 360}deg`;
         chamber.append(leaf);
         leaves.push(leaf);
       }
       let cleared = 0;
+      const OUT_BELOW = 92;
+      const clear = (leaf) => {
+        // Move focus on before the element goes, or the keyboard is dumped back
+        // at the top of the document mid-task.
+        const next = leaves.find((other) => other !== leaf && other.isConnected);
+        leaf.remove();
+        cleared += 1;
+        ctx.status(`${cleared} of ${TOTAL} cleared.`);
+        if (cleared >= TOTAL) { ctx.complete(); return; }
+        next?.focus();
+      };
+      const place = (leaf, left, top) => {
+        leaf.dataset.left = String(clamp(left, -8, 108));
+        leaf.dataset.top = String(clamp(top, -8, 118));
+        leaf.style.left = `${leaf.dataset.left}%`;
+        leaf.style.top = `${leaf.dataset.top}%`;
+      };
+
       let held = null;
       const stop = onDrag(rig, {
         start: (p, event) => {
@@ -866,25 +1247,31 @@ export const MINIGAMES = {
           if (!held) return;
           const box = chamber.getBoundingClientRect();
           const rigBox = rig.getBoundingClientRect();
-          held.style.left = `${clamp((p.x - (box.left - rigBox.left)) / box.width * 100, -8, 108)}%`;
-          held.style.top = `${clamp((p.y - (box.top - rigBox.top)) / box.height * 100, -8, 118)}%`;
+          place(held,
+            (p.x - (box.left - rigBox.left)) / box.width * 100,
+            (p.y - (box.top - rigBox.top)) / box.height * 100);
         },
         end: () => {
           if (!held) return;
           // Anything dragged past the bottom of the chamber is out.
-          if (parseFloat(held.style.top) > 92) {
-            held.remove();
-            cleared += 1;
-            ctx.status(`${cleared} of ${TOTAL} cleared.`);
-            if (cleared >= TOTAL) ctx.complete();
-          } else {
-            held.classList.remove("is-held");
-          }
+          if (Number(held.dataset.top) > OUT_BELOW) clear(held);
+          else held.classList.remove("is-held");
           held = null;
         }
       });
+      const keys = (event) => {
+        const leaf = event.target.closest(".tg-leaf");
+        if (!leaf) return;
+        const DIRECTIONS = { ArrowLeft: [-4, 0], ArrowRight: [4, 0], ArrowUp: [0, -4], ArrowDown: [0, 4] };
+        const direction = DIRECTIONS[event.key];
+        if (!direction) return;
+        event.preventDefault();
+        place(leaf, Number(leaf.dataset.left) + direction[0], Number(leaf.dataset.top) + direction[1]);
+        if (Number(leaf.dataset.top) > OUT_BELOW) clear(leaf);
+      };
+      chamber.addEventListener("keydown", keys);
       ctx.status(`${TOTAL} pieces of debris.`);
-      return stop;
+      return () => { stop(); chamber.removeEventListener("keydown", keys); };
     }
   },
 
@@ -933,7 +1320,14 @@ export const MINIGAMES = {
         }
       };
       button.addEventListener("click", press);
-      const key = (event) => { if (event.code === "Space") { event.preventDefault(); press(); } };
+      const key = (event) => {
+        if (event.code !== "Space") return;
+        // The button already answers Space when it has focus; taking the key
+        // again here would stop it twice on one press.
+        if (event.target === button) return;
+        event.preventDefault();
+        press();
+      };
       window.addEventListener("keydown", key);
       ctx.status(`Round ${ctx.step + 1} of ${ctx.steps}.`);
       return () => {

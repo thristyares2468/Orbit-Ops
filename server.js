@@ -118,7 +118,22 @@ app.get("/health", async (_request, response) => {
   });
 });
 
-app.get("/*path", (_request, response) => {
+// The single-page shell, for routes the client handles itself.
+//
+// It used to answer every unmatched path, which meant a missing image did not
+// 404 - it came back as 200 with index.html in the body and a text/html content
+// type. The browser then failed to decode it and dropped the picture silently,
+// so a mistyped or absent asset looked exactly like an asset that had loaded and
+// rendered as nothing. Anything that names a file, or sits under a directory we
+// serve statically, gets a real 404 instead.
+const STATIC_PREFIXES = ["/assets/", "/src/", "/vendor/", "/socket.io/"];
+app.get("/*path", (request, response) => {
+  const path = request.path;
+  const looksLikeAFile = /\.[a-z0-9]{2,5}$/iu.test(path);
+  if (looksLikeAFile || STATIC_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+    response.status(404).type("text/plain").send("Not found");
+    return;
+  }
   response.sendFile(join(here, "public", "index.html"));
 });
 
