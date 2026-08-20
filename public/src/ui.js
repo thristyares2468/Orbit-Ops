@@ -6,7 +6,6 @@ import { DEFAULT_ROLE_SETTINGS, enabledRoleCount, normaliseRoleSettings } from "
 import { getMapDefinition } from "./shipData.js";
 import { pauseCopy, progressLabels, roleAbilityStatus } from "./hudState.js";
 import { randomCallsign } from "./callsign.js";
-import { SecretDoor, codeOpensDoor } from "./secretDoor.js";
 
 const FIRST_RUN_KEY = "orbitOps.firstRunHint.v1";
 const COLOURS = Object.freeze({ cyan: "#27bad8", amber: "#e2a238", violet: "#805bd0", lime: "#54b86a", coral: "#d9575f", white: "#c8d8dd", blue: "#3f67c9", rose: "#c74f87" });
@@ -273,17 +272,12 @@ export class GameUI {
     byId("results-lobby").addEventListener("click", () => this.invoke("returnLobby"));
     byId("results-menu").addEventListener("click", () => this.invoke("leaveRoom"));
     byId("save-settings").addEventListener("click", () => this.invoke("saveSettings", this.readSettingsForm()));
-    // The hidden game's door. The card carries no link, no destination and no
-    // label saying what it is, so nothing about it reads as clickable: the only
-    // way through is pressing the word Ghosts itself, repeatedly and quickly.
-    // Silent by design - showing progress would advertise that it is a door.
-    const ghostsHeading = byId("manual-ghosts");
-    if (ghostsHeading) {
-      const door = new SecretDoor();
-      ghostsHeading.addEventListener("click", () => {
-        if (door.press()) this.openAccessCodePrompt();
-      });
-    }
+    // The way into OOSD. It used to be hidden behind five quick presses on the
+    // Ghosts heading and then an access code; it is an ordinary labelled button
+    // in the menu now, so nothing has to be discovered or remembered.
+    byId("oosd-button")?.addEventListener("click", () => {
+      window.location.assign("/easter-egg/jims-launch");
+    });
     document.querySelectorAll("[data-open-modal]").forEach((button) => button.addEventListener("click", () => this.openModal(button.dataset.openModal)));
     document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", () => this.closeModal(button.dataset.closeModal)));
     for (const id of ["setting-max-players", "setting-operatives", "setting-tasks", "setting-discussion", "setting-voting"]) {
@@ -931,56 +925,6 @@ export class GameUI {
 
   setSaveStatus(payload) { byId("results-save").textContent = payload.saved ? "Neon match record saved." : "Guest/local result only — database record unavailable."; }
 
-  // The second gate. Built here rather than in index.html so the page source
-  // gives no sign it exists - the same reason the card carries no link.
-  openAccessCodePrompt() {
-    if (this.accessCodePrompt) return;
-    const panel = document.createElement("section");
-    panel.className = "modal compact-modal";
-    const heading = document.createElement("h3");
-    heading.textContent = "Access code";
-    const field = document.createElement("input");
-    field.type = "text";
-    field.maxLength = 16;
-    field.autocomplete = "off";
-    field.spellcheck = false;
-    field.setAttribute("aria-label", "Access code");
-    const submit = document.createElement("button");
-    submit.type = "submit";
-    submit.className = "button button-primary";
-    submit.textContent = "Enter";
-    const form = document.createElement("form");
-    form.className = "auth-form";
-    form.append(field, submit);
-    panel.append(heading, form);
-    document.body.append(panel);
-    this.accessCodePrompt = panel;
-    field.focus();
-
-    const dismiss = () => {
-      panel.remove();
-      this.accessCodePrompt = null;
-      document.removeEventListener("keydown", onKey);
-    };
-    // Escape backs out quietly. Only a wrong answer is punished, so someone who
-    // opened this by accident is not thrown out of what they were doing.
-    const onKey = (event) => { if (event.key === "Escape") dismiss(); };
-    document.addEventListener("keydown", onKey);
-
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const opens = codeOpensDoor(field.value);
-      dismiss();
-      if (opens) {
-        window.location.assign("/easter-egg/jims-launch");
-        return;
-      }
-      // No "wrong code" message: saying so would confirm there is a right one.
-      this.closeGameplayModals();
-      this.closeModal("howto");
-      this.showScreen(this.elements.menu?.classList.contains("is-hidden") ? "auth" : "menu");
-    });
-  }
 
   showCommunityTab(tab) {
     document.querySelectorAll("[data-community-tab]").forEach((button) =>

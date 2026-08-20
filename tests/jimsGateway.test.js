@@ -31,21 +31,27 @@ test("Orbit Ops declares its own favicon for both the game and embedded-game rou
   assert.match(index, /rel="icon" type="image\/svg\+xml" href="\/orbit-ops-favicon\.svg"/);
 });
 
-test("the Ghosts card gives nothing away", async () => {
-  const styles = await readFile(new URL("../public/style.css", import.meta.url), "utf8");
+test("OOSD is an ordinary labelled button in the menu", async () => {
   const index = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
-  // No hover cue, and nothing styled as a link, or the card reads as clickable.
-  assert.doesNotMatch(styles, /\.manual-card-link/u);
-  // The destination must not appear in the document: an href would show it in
-  // the status bar on hover, which defeats the whole thing.
-  assert.doesNotMatch(index, /jims-launch/u);
-  assert.doesNotMatch(index, /easter-egg/u);
-  assert.doesNotMatch(index, /hidden transmission/u);
-  // The card has to be structurally identical to the four beside it - a lone
-  // <a> among <article>s is a tell even without a visible difference.
-  const manual = index.match(/<div class="reading-grid">([\s\S]*?)<\/section>/u)[1];
-  assert.doesNotMatch(manual, /<a\b/u, "no anchor among the manual cards");
-  assert.match(manual, /<h3 id="manual-ghosts">Ghosts<\/h3>/u, "only the heading carries a hook");
+  const ui = await readFile(new URL("../public/src/ui.js", import.meta.url), "utf8");
+  // It sits in the row along the bottom of the menu with the other utilities.
+  const nav = index.match(/<nav class="utility-nav">([\s\S]*?)<\/nav>/u)[1];
+  assert.match(nav, /<button id="oosd-button" type="button">OOSD<\/button>/u);
+  // One click, straight to the launch route. No press count, no code.
+  assert.match(ui, /byId\("oosd-button"\)\?\.addEventListener\("click", \(\) => \{\s*window\.location\.assign\("\/easter-egg\/jims-launch"\);/u);
+});
+
+test("the old hidden door is gone entirely", async () => {
+  const index = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  const ui = await readFile(new URL("../public/src/ui.js", import.meta.url), "utf8");
+  // The press-counting door, its access code and the module behind them were
+  // removed rather than left unreferenced - a dead second way in is worse than
+  // no second way in, because nothing tells you when it stops matching the door.
+  for (const gone of [/SecretDoor/u, /codeOpensDoor/u, /openAccessCodePrompt/u, /accessCodePrompt/u]) {
+    assert.doesNotMatch(ui, gone, `${gone} should no longer appear in ui.js`);
+  }
+  assert.doesNotMatch(index, /manual-ghosts/u, "the Ghosts heading no longer carries a hook");
+  await assert.rejects(readFile(new URL("../public/src/secretDoor.js", import.meta.url), "utf8"));
 });
 
 test("the embedded game uses bounded Railway connection settings and restarts after transient boot failures", async () => {
