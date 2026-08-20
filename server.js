@@ -27,11 +27,22 @@ const io = new SocketIOServer(server, {
 attachTrustedClientIp(io, app);
 
 app.disable("x-powered-by");
-// The embedded game decodes its map meshes with meshopt, which compiles a
-// WebAssembly module. That needs an explicit grant: 'wasm-unsafe-eval' allows
-// exactly that and nothing else, where the 'unsafe-eval' this replaced also
-// permitted eval() and new Function(). The client uses neither - checked - so
-// the narrower token is enough. Removing it blanks the hidden game entirely.
+// The embedded game needs 'unsafe-eval', and narrowing it to 'wasm-unsafe-eval'
+// was a mistake that this restores.
+//
+// Every weapon GLB lists KHR_texture_basisu in extensionsRequired, and about
+// half of them also list KHR_draco_mesh_compression. GLTFLoader refuses to parse
+// a file whose required extensions it cannot handle, so both decoders have to
+// load. Both are emscripten builds whose JavaScript glue instantiates the module
+// through new Function - 'wasm-unsafe-eval' covers compiling the WebAssembly but
+// not the glue that reaches it.
+//
+// What that looked like: four EvalErrors at startup, and every weapon load stuck
+// pending forever - never resolved, never rejected, because the throw happened
+// where neither GLTFLoader callback could see it. The game fell back to its old
+// procedural weapon models and stayed there.
+//
+// Scoped to /tips only. Orbit Ops itself keeps the strict policy below.
 app.use((request, response, next) => {
   const jimsRequest = request.path === "/tips" || request.path.startsWith("/tips/");
   response.setHeader("X-Content-Type-Options", "nosniff");
@@ -41,7 +52,7 @@ app.use((request, response, next) => {
   response.setHeader(
     "Content-Security-Policy",
     jimsRequest
-      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' blob: https://cdn.jsdelivr.net ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' blob: https://cdn.jsdelivr.net ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
       : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
   );
   next();
