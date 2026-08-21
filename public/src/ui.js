@@ -332,7 +332,7 @@ export class GameUI {
     element.style.color = error ? "#ff9ba6" : "#69efb2";
   }
 
-  setLoading({ progress, category, asset, error, assetsReady, serverReady, databaseConnected, databaseConfigured }) {
+  setLoading({ progress, category, asset, error, assetsReady, serverReady, databaseConnected, databaseConfigured, jimsGameAvailable, jimsGameRunning }) {
     if (Number.isFinite(progress)) {
       byId("loading-bar").style.width = `${Math.round(progress * 100)}%`;
       byId("loading-percent").textContent = `${Math.round(progress * 100)}%`;
@@ -351,6 +351,17 @@ export class GameUI {
     }
     if (error) { byId("loading-error").textContent = error; setVisible(byId("loading-error"), true); setVisible(byId("loading-retry"), true); }
     byId("loading-continue").disabled = !(assetsReady && serverReady);
+    // Orbit Ops needs its own assets and socket; the other game needs neither,
+    // only the gateway that fronts it. /health reports whether that child process
+    // is up, so an offline Subdivision says so here rather than sending the player
+    // through the door to find out.
+    if (jimsGameAvailable !== undefined || jimsGameRunning !== undefined) {
+      const up = jimsGameRunning === true;
+      byId("loading-subdivision").disabled = !up;
+      byId("loading-subdivision-note").textContent = up
+        ? "Orbit Ops Subdivision — the first-person shooter."
+        : "Orbit Ops Subdivision — currently offline.";
+    }
   }
 
   enterApp() { setVisible(this.elements.loading, false); setVisible(this.elements.app, true); this.showScreen("auth"); }

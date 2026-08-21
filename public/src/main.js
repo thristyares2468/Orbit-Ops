@@ -83,6 +83,11 @@ document.getElementById("loading-continue").addEventListener("click", async () =
   const restored = await game.restoreIdentity();
   if (!restored) ui.showScreen("auth");
 });
+// The other destination. The launch route mints the access cookie and redirects,
+// so nothing here needs to know where the embedded game actually lives.
+document.getElementById("loading-subdivision").addEventListener("click", () => {
+  window.location.assign("/easter-egg/jims-launch");
+});
 
 await Promise.all([loadAssets(), checkHealth()]);
 if (network.serverInfo) {

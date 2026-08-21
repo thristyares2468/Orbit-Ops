@@ -175,6 +175,15 @@ input[type="range"] { min-height: 24px; padding: 0; accent-color: var(--cyan); }
 .mission-card b { margin-bottom: 2px; color: #f5fbff; font-size: .88rem; text-transform: uppercase; letter-spacing: .11em; }
 .mission-card span { color: #8fa4ae; font-size: .62rem; line-height: 1.35; }
 .mission-card-accent { border-color: rgba(116,229,255,.78); }
+/* A destination that cannot be reached yet. Both the hover lift and the red
+   corner tick are suppressed, or a dead card still answers the pointer as though
+   it were live. */
+.mission-card:disabled { cursor: default; opacity: .45; }
+.mission-card:disabled:hover { transform: none; border-color: rgba(245,251,255,.8); background: rgba(0,0,0,.76); }
+.mission-card:disabled:hover::after { opacity: 0; width: 34%; }
+/* The two games, offered side by side before either has been entered. */
+.launch-choice-label { margin-top: 26px; }
+.launch-choice { margin-top: 10px; }
 .join-code { display: flex; gap: 8px; max-width: 360px; margin: 12px auto 0; text-align: left; }
 .join-code label { flex: 1; }
 .utility-nav { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 20px; }
