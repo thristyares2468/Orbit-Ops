@@ -33,11 +33,29 @@
       </div>
       <p id="loading-tip" class="loading-tip">Tip: evidence narrows possibilities; it rarely names an Operative outright.</p>
       <p id="loading-error" class="error-text is-hidden"></p>
-      <p class="eyebrow launch-choice-label">Choose a destination</p>
-      <div class="menu-actions launch-choice">
-        <button id="loading-continue" class="mission-card mission-card-accent" type="button" disabled><b>Orbit Ops</b><span>Board the Meridian. Assignments, sabotage and the hunt for the Operatives.</span></button>
-        <button id="loading-subdivision" class="mission-card" type="button"><b>OOSD</b><span id="loading-subdivision-note">Orbit Ops Subdivision — the first-person shooter.</span></button>
+      <!-- Art is applied as a CSS background over a themed gradient, not as an
+           <img>. A missing or not-yet-added poster then falls back to the gradient
+           silently, instead of leaving a broken-image icon in the middle of the
+           card. Drop the files in and they simply appear. -->
+      <div class="launch-choice">
+        <button id="loading-continue" class="launch-card launch-card-orbit" type="button" disabled>
+          <span class="launch-card-art" aria-hidden="true"></span>
+          <span class="launch-card-body">
+            <b>Orbit Ops</b>
+            <span class="launch-card-sub">Social deduction</span>
+            <span class="launch-card-play">Play</span>
+          </span>
+        </button>
+        <button id="loading-subdivision" class="launch-card launch-card-oosd" type="button">
+          <span class="launch-card-art" aria-hidden="true"></span>
+          <span class="launch-card-body">
+            <b>OOSD</b>
+            <span class="launch-card-sub" id="loading-subdivision-note">First-person shooter</span>
+            <span class="launch-card-play">Play</span>
+          </span>
+        </button>
       </div>
+      <p class="eyebrow launch-choice-label">Select a game mode</p>
       <div class="button-row">
         <button id="loading-retry" class="button button-ghost is-hidden" type="button">Retry assets</button>
         <button id="loading-reconnect" class="button button-ghost is-hidden" type="button">Reconnect</button>

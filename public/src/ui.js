@@ -358,9 +358,7 @@ export class GameUI {
     if (jimsGameAvailable !== undefined || jimsGameRunning !== undefined) {
       const up = jimsGameRunning === true;
       byId("loading-subdivision").disabled = !up;
-      byId("loading-subdivision-note").textContent = up
-        ? "Orbit Ops Subdivision — the first-person shooter."
-        : "Orbit Ops Subdivision — currently offline.";
+      byId("loading-subdivision-note").textContent = up ? "First-person shooter" : "Currently offline";
     }
   }
 

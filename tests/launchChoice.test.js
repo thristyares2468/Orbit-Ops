@@ -6,14 +6,36 @@ const index = await readFile(new URL("../public/index.html", import.meta.url), "
 const ui = await readFile(new URL("../public/src/ui.js", import.meta.url), "utf8");
 const main = await readFile(new URL("../public/src/main.js", import.meta.url), "utf8");
 
-test("the loading screen offers both games", () => {
-  const choice = index.match(/<div class="menu-actions launch-choice">([\s\S]*?)<\/div>/u);
+const style = await readFile(new URL("../public/style.css", import.meta.url), "utf8");
+const choice = index.match(/<div class="launch-choice">([\s\S]*?)\n {6}<\/div>/u);
+
+test("the loading screen offers both games as posters", () => {
   assert.ok(choice, "the launch choice block exists");
   // Two destinations, and no third thing quietly added to the same row.
   const buttons = [...choice[1].matchAll(/<button[^>]*id="([^"]+)"/gu)].map((m) => m[1]);
   assert.deepEqual(buttons, ["loading-continue", "loading-subdivision"]);
   assert.match(choice[1], /<b>Orbit Ops<\/b>/u);
   assert.match(choice[1], /<b>OOSD<\/b>/u);
+  assert.match(choice[1], /class="launch-card-play">Play<\/span>/u);
+});
+
+test("missing poster art degrades to a gradient rather than a broken image", () => {
+  // The art is a CSS background, not an <img>, precisely so a file that has not
+  // been added yet fails silently instead of leaving a broken-image icon in the
+  // middle of the card.
+  assert.doesNotMatch(choice[1], /<img/u, "no <img> inside the cards");
+  for (const [selector, file] of [["launch-card-orbit", "orbit-ops"], ["launch-card-oosd", "oosd"]]) {
+    const rule = new RegExp(
+      `\\.${selector} \\.launch-card-art \\{ background-image: url\\("/assets/art/launch/${file}\\.jpg"\\), linear-gradient`,
+      "u"
+    );
+    assert.match(style, rule, `${file} art layers over a gradient fallback`);
+  }
+});
+
+test("the title stays readable over whatever art is dropped in", () => {
+  // A bright poster and white type fight each other without this.
+  assert.match(style, /\.launch-card::after \{ content: ""[^}]*linear-gradient\(180deg, transparent/u);
 });
 
 test("choosing Orbit Ops still boots the game rather than navigating", () => {
@@ -39,7 +61,9 @@ test("the OOSD option reflects whether the embedded game is up", () => {
   const branch = ui.match(/if \(jimsGameAvailable !== undefined \|\| jimsGameRunning !== undefined\) \{[\s\S]*?\n    \}/u);
   assert.ok(branch, "there is a branch driving the OOSD option");
   assert.match(branch[0], /byId\("loading-subdivision"\)\.disabled = !up/u);
-  assert.match(branch[0], /currently offline/u);
+  assert.match(branch[0], /Currently offline/u);
+  // A dead card must not answer the pointer as though it were live.
+  assert.match(style, /\.launch-card:disabled:hover \{ transform: none;/u);
 });
 
 test("Orbit Ops still waits for its own assets and socket", () => {
