@@ -351,6 +351,10 @@ export class GameUI {
     }
     if (error) { byId("loading-error").textContent = error; setVisible(byId("loading-error"), true); setVisible(byId("loading-retry"), true); }
     byId("loading-continue").disabled = !(assetsReady && serverReady);
+    // Once there is nothing left to wait for, the progress bar, the byte counter
+    // and the tip have done their job. Folding them away hands their height to
+    // the posters, which is the only thing still being asked for.
+    document.querySelector(".loading-card")?.classList.toggle("is-ready", Boolean(assetsReady && serverReady));
     // Orbit Ops needs its own assets and socket; the other game needs neither,
     // only the gateway that fronts it. /health reports whether that child process
     // is up, so an offline Subdivision says so here rather than sending the player
@@ -358,7 +362,8 @@ export class GameUI {
     if (jimsGameAvailable !== undefined || jimsGameRunning !== undefined) {
       const up = jimsGameRunning === true;
       byId("loading-subdivision").disabled = !up;
-      byId("loading-subdivision-note").textContent = up ? "First-person shooter" : "Currently offline";
+      // Blank when it is up: the poster should be art and a title, nothing else.
+      byId("loading-subdivision-note").textContent = up ? "" : "Offline";
     }
   }
 

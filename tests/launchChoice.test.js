@@ -16,7 +16,28 @@ test("the loading screen offers both games as posters", () => {
   assert.deepEqual(buttons, ["loading-continue", "loading-subdivision"]);
   assert.match(choice[1], /<b>Orbit Ops<\/b>/u);
   assert.match(choice[1], /<b>OOSD<\/b>/u);
-  assert.match(choice[1], /class="launch-card-play">Play<\/span>/u);
+  // Art and a title, nothing else. The poster is the button, so a separate Play
+  // control would be a second thing to aim at for the same result.
+  assert.doesNotMatch(choice[1], /launch-card-play|launch-card-sub/u);
+});
+
+test("a poster's width drives its height, never the other way round", () => {
+  // Fixing the height and letting width fall out of the ratio meant that once
+  // the computed width passed the grid column, both posters overflowed their
+  // tracks and sat edge to edge with the gap gone.
+  const rule = style.match(/\.launch-card \{[\s\S]*?\n\}/u)[0];
+  assert.match(rule, /width: 100%;/u);
+  assert.match(rule, /height: auto;/u);
+  assert.match(rule, /aspect-ratio: 7 \/ 10;/u);
+  assert.match(style, /\.launch-choice \{[^}]*max-width: 560px/u, "the row is what caps the size");
+});
+
+test("the loading chrome folds away once there is nothing left to wait for", () => {
+  assert.match(ui, /classList\.toggle\("is-ready", Boolean\(assetsReady && serverReady\)\)/u);
+  assert.match(style, /\.loading-card\.is-ready \.loading-track,[\s\S]*?display: none;/u);
+  // The status row stays: whether the archive is reachable still decides what a
+  // session can save, which is worth knowing before picking a mode.
+  assert.doesNotMatch(style, /\.loading-card\.is-ready \.status-grid/u);
 });
 
 test("missing poster art degrades to a gradient rather than a broken image", () => {

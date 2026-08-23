@@ -40,22 +40,19 @@
       <div class="launch-choice">
         <button id="loading-continue" class="launch-card launch-card-orbit" type="button" disabled>
           <span class="launch-card-art" aria-hidden="true"></span>
-          <span class="launch-card-body">
-            <b>Orbit Ops</b>
-            <span class="launch-card-sub">Social deduction</span>
-            <span class="launch-card-play">Play</span>
-          </span>
+          <b>Orbit Ops</b>
+          <span class="launch-card-state"></span>
         </button>
         <button id="loading-subdivision" class="launch-card launch-card-oosd" type="button">
           <span class="launch-card-art" aria-hidden="true"></span>
-          <span class="launch-card-body">
-            <b>OOSD</b>
-            <span class="launch-card-sub" id="loading-subdivision-note">First-person shooter</span>
-            <span class="launch-card-play">Play</span>
-          </span>
+          <b>OOSD</b>
+          <!-- Empty while the game is up, and hidden by :empty, so a healthy
+               screen is nothing but art and a title. It only speaks when there is
+               something wrong to say. -->
+          <span class="launch-card-state" id="loading-subdivision-note"></span>
         </button>
       </div>
-      <p class="eyebrow launch-choice-label">Select a game mode</p>
+      <p class="launch-choice-label">Select a game mode</p>
       <div class="button-row">
         <button id="loading-retry" class="button button-ghost is-hidden" type="button">Retry assets</button>
         <button id="loading-reconnect" class="button button-ghost is-hidden" type="button">Reconnect</button>
