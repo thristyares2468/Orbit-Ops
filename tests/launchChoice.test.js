@@ -76,8 +76,17 @@ test("the aurora sky paints, and respects reduced motion", () => {
   for (const declaration of [/content: "";/u, /position: absolute;/u, /inset: 0;/u]) {
     assert.match(sky, declaration, "the sky needs its own box");
   }
-  assert.match(sky, /radial-gradient\(ellipse[^)]*\) *,?/u, "aurora bands");
-  assert.match(sky, /Stars-sharedassets0/u, "star field");
+  assert.match(sky, /url\("\/assets\/art\/launch\/sky\.jpg"\)/u, "the painted sky");
+  // The gradients sit ABOVE the photograph, so they are also what shows while it
+  // is still downloading - the screen is never a flat black rectangle waiting on
+  // a 650KB image. That is also why the sky is not preloaded: the posters are,
+  // and the two would compete for the same first connections.
+  const layers = sky.match(/background-image:([\s\S]*?);/u)[1];
+  assert.ok(
+    layers.indexOf("radial-gradient") < layers.indexOf("sky.jpg"),
+    "the darkening gradient must be painted over the photograph, not under it"
+  );
+  assert.doesNotMatch(index, /rel="preload"[^>]*sky\.jpg/u, "the sky must not outrank the posters");
   assert.match(style, /@media \(prefers-reduced-motion: reduce\) \{ \.loading-screen::after \{ animation: none; \} \}/u);
 });
 

@@ -30,10 +30,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .scanlines { position: fixed; inset: 0; pointer-events: none; opacity: 0.16; background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(121,226,255,.03) 3px 4px); mix-blend-mode: screen; }
 
 .loading-screen, .menu-screen { background: #000; isolation: isolate; }
-/* The select screen's own sky: deep night, an aurora veil drawn across the upper
-   third, and a faint wash of space dust. Built from gradients rather than a
-   photograph so it costs nothing to load and scales to any window - the poster
-   art is the only image this screen waits on. */
+/* The select screen's own sky: the painted aurora, with a soft darkening over the
+   middle so the two posters sit against something quiet.
+
+   The gradients are layered ABOVE the photograph rather than replacing it, which
+   also means they are what shows if the image is slow or missing - the screen is
+   never a flat black rectangle waiting for a 650KB download. That is why the sky
+   is deliberately not preloaded: the posters are, and the two would otherwise
+   compete for the same first few connections. */
 .loading-screen::before {
   /* These four were inherited from the rule this split off from; without them
      the pseudo-element has no box and paints nothing at all. */
@@ -42,14 +46,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   inset: 0;
   z-index: 0;
   background-image:
-    radial-gradient(ellipse 120% 55% at 50% -8%, rgba(64,224,180,.20), transparent 60%),
-    radial-gradient(ellipse 90% 42% at 22% 2%, rgba(96,170,255,.16), transparent 62%),
-    radial-gradient(ellipse 80% 38% at 80% 6%, rgba(150,110,235,.15), transparent 64%),
-    radial-gradient(ellipse 60% 30% at 50% 100%, rgba(38,120,150,.12), transparent 66%),
-    url("/assets/art/Background/Stars-sharedassets0.assets-56.png"),
+    radial-gradient(ellipse 62% 54% at 50% 52%, rgba(2,5,11,.72), transparent 72%),
+    radial-gradient(ellipse 120% 50% at 50% -6%, rgba(64,224,180,.10), transparent 62%),
+    url("/assets/art/launch/sky.jpg"),
     linear-gradient(180deg, #04070f, #060b16 45%, #03060c);
-  background-position: center, center, center, center, center, center;
-  background-size: cover, cover, cover, cover, 680px auto, cover;
+  background-position: center, center, center center, center;
+  background-size: cover, cover, cover, cover;
+  background-repeat: no-repeat;
 }
 /* A slow drift across the aurora, so the sky is not a still image. Disabled for
    anyone who has asked the system for reduced motion. */
@@ -59,10 +62,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   inset: -10%;
   z-index: 0;
   pointer-events: none;
+  /* Kept faint: the painted sky already carries the aurora, so this only has to
+     make it breathe rather than supply it. */
   background-image:
-    radial-gradient(ellipse 70% 26% at 30% 12%, rgba(72,232,196,.13), transparent 70%),
-    radial-gradient(ellipse 55% 22% at 72% 8%, rgba(128,148,255,.11), transparent 72%);
-  filter: blur(22px);
+    radial-gradient(ellipse 70% 26% at 22% 14%, rgba(72,232,196,.09), transparent 70%),
+    radial-gradient(ellipse 55% 22% at 78% 10%, rgba(128,148,255,.07), transparent 72%);
+  filter: blur(26px);
   animation: aurora-drift 42s ease-in-out infinite alternate;
 }
 @keyframes aurora-drift {
