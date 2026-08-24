@@ -272,11 +272,8 @@ export class GameUI {
     byId("results-lobby").addEventListener("click", () => this.invoke("returnLobby"));
     byId("results-menu").addEventListener("click", () => this.invoke("leaveRoom"));
     byId("save-settings").addEventListener("click", () => this.invoke("saveSettings", this.readSettingsForm()));
-    // The way into OOSD. It used to be hidden behind five quick presses on the
-    // Ghosts heading and then an access code; it is an ordinary labelled button
-    // in the menu now, so nothing has to be discovered or remembered.
-    byId("oosd-button")?.addEventListener("click", () => {
-      window.location.assign("/easter-egg/jims-launch");
+    byId("return-game-select")?.addEventListener("click", () => {
+      window.location.assign("/");
     });
     document.querySelectorAll("[data-open-modal]").forEach((button) => button.addEventListener("click", () => this.openModal(button.dataset.openModal)));
     document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", () => this.closeModal(button.dataset.closeModal)));
