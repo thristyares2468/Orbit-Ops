@@ -22,24 +22,46 @@ export class AssetLoader {
     this.totalCount = 0;
   }
 
+  // All at once, not one after another.
+  //
+  // This used to await each asset in turn, so the group cost the sum of every
+  // round trip rather than the longest one - and on a cold instance, where the
+  // round trip is the expensive part rather than the bytes, that is most of the
+  // wait before anything is playable. The browser already opens several
+  // connections; there is no reason to use one of them at a time.
+  //
+  // Progress still counts completions, so the bar advances as each lands. It no
+  // longer reports which asset is in flight, because several are.
   async loadGroup(groupName = "essential") {
     const keys = ASSET_GROUPS[groupName] ?? [];
     this.loadedCount = 0;
     this.totalCount = keys.length;
     const failures = [];
-    for (const key of keys) {
+    const report = (key, definition) => this.onProgress({
+      key, definition, loaded: this.loadedCount, total: this.totalCount, category: definition.category
+    });
+    if (keys.length) report(keys[0], ASSET_MANIFEST[keys[0]]);
+
+    const settled = await Promise.all(keys.map(async (key) => {
       const definition = ASSET_MANIFEST[key];
-      this.onProgress({ key, definition, loaded: this.loadedCount, total: this.totalCount, category: definition.category });
       try {
         await this.load(key, definition.required ? 2 : 0);
+        return null;
       } catch (error) {
-        failures.push({ key, error });
         this.onError({ key, definition, error });
-        if (definition.required) throw error;
+        return { key, error, required: Boolean(definition.required) };
       } finally {
         this.loadedCount += 1;
-        this.onProgress({ key, definition, loaded: this.loadedCount, total: this.totalCount, category: definition.category });
+        report(key, definition);
       }
+    }));
+
+    for (const failure of settled) {
+      if (!failure) continue;
+      failures.push({ key: failure.key, error: failure.error });
+      // A required asset is still fatal - but only after the rest have finished,
+      // so one bad file cannot cancel the others mid-flight.
+      if (failure.required) throw failure.error;
     }
     return { loaded: this.totalCount - failures.length, total: this.totalCount, failures };
   }

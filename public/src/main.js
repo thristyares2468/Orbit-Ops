@@ -1,16 +1,7 @@
 import { AssetLoader } from "./assetLoader.js";
-import { OrbitOpsGame } from "./game.js";
 import { NetworkClient } from "./network.js";
 import { applyDocumentSettings, loadSettings } from "./settings.js";
 import { GameUI } from "./ui.js";
-
-const tips = [
-  "Evidence narrows possibilities; it rarely names an Operative outright.",
-  "Door logs are delayed and can be corrupted during Security Interference.",
-  "Operatives receive believable fake assignments at real task stations.",
-  "Critical sabotage must be repaired before an incident meeting can begin.",
-  "Dead players become orbital echoes and cannot contact living crew."
-];
 
 const settings = loadSettings();
 applyDocumentSettings(settings);
@@ -75,13 +66,28 @@ async function loadAssets() {
   }
 }
 
-document.getElementById("loading-tip").textContent = tips[Math.floor(Math.random() * tips.length)];
 document.getElementById("loading-retry").addEventListener("click", loadAssets);
+// game.js pulls in the whole Phaser scene graph, and evaluating that module needs
+// the Phaser global. Importing it here rather than at the top means the menu is
+// built and interactive without any of it - the cost is paid by the player who
+// chooses Orbit Ops, at the moment they choose it, not by everyone on arrival.
 document.getElementById("loading-continue").addEventListener("click", async () => {
-  if (!game) game = new OrbitOpsGame({ canvas: document.getElementById("game-canvas"), assets: loader, network, ui, settings });
-  ui.enterApp();
-  const restored = await game.restoreIdentity();
-  if (!restored) ui.showScreen("auth");
+  const button = document.getElementById("loading-continue");
+  if (button.dataset.busy) return;
+  button.dataset.busy = "1";
+  try {
+    if (!game) {
+      const { OrbitOpsGame } = await import("./game.js");
+      game = new OrbitOpsGame({ canvas: document.getElementById("game-canvas"), assets: loader, network, ui, settings });
+    }
+    ui.enterApp();
+    const restored = await game.restoreIdentity();
+    if (!restored) ui.showScreen("auth");
+  } catch (error) {
+    ui.setLoading({ error: `Could not start Orbit Ops: ${error.message}`, assetsReady, serverReady, ...health });
+  } finally {
+    delete button.dataset.busy;
+  }
 });
 // The other destination. The launch route mints the access cookie and redirects,
 // so nothing here needs to know where the embedded game actually lives.

@@ -8,6 +8,12 @@
   <title>Orbit Ops</title>
   <link rel="icon" type="image/svg+xml" href="/orbit-ops-favicon.svg">
   <link rel="stylesheet" href="/style.css">
+  <!-- The two posters are the first thing anyone sees, and as CSS backgrounds
+       they are not discovered until the stylesheet has been fetched and parsed.
+       Naming them here starts both downloads alongside the stylesheet instead of
+       after it. -->
+  <link rel="preload" as="image" href="/assets/art/launch/orbit-ops.jpg">
+  <link rel="preload" as="image" href="/assets/art/launch/oosd.jpg">
 </head>
 <body>
   <div id="loading-screen" class="screen loading-screen">
@@ -17,22 +23,8 @@
       <canvas class="menu-drifter drifter-left-bottom" width="165" height="211" data-colour="blue" data-visor="#b8f4ff"></canvas>
     </div>
     <main class="loading-card" aria-live="polite">
-      <div class="brand-lockup brand-lockup-large space-menu-brand" aria-label="Orbit Ops">
-        <span class="brand-orbit">ORBIT</span><span class="brand-ops">OPS</span>
-        <span class="brand-kicker">O.S.V. MERIDIAN // KX-71</span>
-      </div>
-      <p id="loading-category" class="eyebrow">Initialising operations link</p>
-      <div class="loading-track"><div id="loading-bar" class="loading-bar"></div></div>
-      <div class="loading-meta">
-        <strong id="loading-percent">0%</strong>
-        <span id="loading-asset">Preparing manifest…</span>
-      </div>
-      <div class="status-grid">
-        <span><i id="loading-server-dot" class="status-dot is-pending"></i> Render link <b id="loading-server">Connecting</b></span>
-        <span><i id="loading-db-dot" class="status-dot is-pending"></i> Neon archive <b id="loading-db">Checking</b></span>
-      </div>
-      <p id="loading-tip" class="loading-tip">Tip: evidence narrows possibilities; it rarely names an Operative outright.</p>
-      <p id="loading-error" class="error-text is-hidden"></p>
+      <!-- No branding here on purpose: this screen belongs to both games, so
+           putting one of their names above the choice would be picking a side. -->
       <!-- Art is applied as a CSS background over a themed gradient, not as an
            <img>. A missing or not-yet-added poster then falls back to the gradient
            silently, instead of leaving a broken-image icon in the middle of the
@@ -45,7 +37,7 @@
         </button>
         <button id="loading-subdivision" class="launch-card launch-card-oosd" type="button">
           <span class="launch-card-art" aria-hidden="true"></span>
-          <b>OOSD</b>
+          <b>Subdivision</b>
           <!-- Empty while the game is up, and hidden by :empty, so a healthy
                screen is nothing but art and a title. It only speaks when there is
                something wrong to say. -->
@@ -53,11 +45,23 @@
         </button>
       </div>
       <p class="launch-choice-label">Select a game mode</p>
+      <p id="loading-error" class="error-text is-hidden"></p>
       <div class="button-row">
         <button id="loading-retry" class="button button-ghost is-hidden" type="button">Retry assets</button>
         <button id="loading-reconnect" class="button button-ghost is-hidden" type="button">Reconnect</button>
       </div>
     </main>
+    <!-- Progress and service state live along the bottom of the screen rather
+         than above the choice: they report on the machinery, and the machinery is
+         not what anyone came here to look at. -->
+    <footer class="loading-status" aria-live="polite">
+      <div class="loading-track"><div id="loading-bar" class="loading-bar"></div></div>
+      <div class="loading-status-row">
+        <span class="loading-status-item"><i id="loading-server-dot" class="status-dot is-pending"></i> Render link <b id="loading-server">Connecting</b></span>
+        <span class="loading-status-item"><i id="loading-db-dot" class="status-dot is-pending"></i> Neon archive <b id="loading-db">Checking</b></span>
+        <span class="loading-status-item"><strong id="loading-percent">0%</strong> <span id="loading-category">Initialising</span> <span id="loading-asset" class="loading-status-asset">Preparing manifest…</span></span>
+      </div>
+    </footer>
   </div>
 
   <div id="app" class="app is-hidden">
@@ -397,8 +401,13 @@
     <div id="toast-region" class="toast-region" aria-live="polite"></div>
   </div>
 
-  <script src="/vendor/phaser/dist/phaser.min.js"></script>
-  <script src="/socket.io/socket.io.js"></script>
+  <!-- Deferred, so neither blocks the parser. Phaser alone is 1.4MB, and it used
+       to have to arrive and evaluate before main.js ran at all - which meant the
+       game-select menu, which needs no Phaser whatsoever, waited on it. Deferred
+       classic scripts still execute in document order ahead of the module below,
+       so game.js finds both globals where it expects them. -->
+  <script defer src="/vendor/phaser/dist/phaser.min.js"></script>
+  <script defer src="/socket.io/socket.io.js"></script>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
