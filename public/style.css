@@ -266,8 +266,18 @@ input[type="range"] { min-height: 24px; padding: 0; accent-color: var(--cyan); }
    whose art has not been added yet still reads as that game rather than as a
    hole. A background cannot 404 visibly the way an <img> can. */
 .launch-card-art { position: absolute; inset: 0; background-position: center; background-size: cover; background-repeat: no-repeat; transition: transform .3s ease; }
-.launch-card-orbit .launch-card-art { background-image: url("/assets/art/launch/orbit-ops.jpg"), linear-gradient(165deg, #123a5c, #2b1350 62%, #06101c); }
-.launch-card-oosd .launch-card-art { background-image: url("/assets/art/launch/oosd.jpg"), linear-gradient(165deg, #1d4b2c, #0d2f3f 58%, #06101c); }
+.launch-card-orbit .launch-card-art {
+  background-image: url("/assets/art/launch/orbit-ops.jpg"), linear-gradient(165deg, #123a5c, #2b1350 62%, #06101c);
+  /* The source art is deliberately midnight-dark; lifting it here makes the
+     central operative readable at card size while the title scrim stays dark. */
+  filter: brightness(1.24) contrast(1.04);
+}
+.launch-card-oosd .launch-card-art {
+  background-image: url("/assets/art/launch/oosd.jpg"), linear-gradient(165deg, #1d4b2c, #0d2f3f 58%, #06101c);
+  /* Bring the operative out of the night scene without changing the shared
+     art file or losing the deep lower-third title treatment. */
+  filter: brightness(1.3) contrast(1.05);
+}
 /* A soft darkening under the title only. The reference leans on artwork that is
    already dark at the bottom; this cannot assume that, and white type over an
    unknown poster needs something to sit on. */
@@ -294,7 +304,7 @@ input[type="range"] { min-height: 24px; padding: 0; accent-color: var(--cyan); }
 /* A destination that cannot be reached yet: no lift, and the art drops back, so
    a dead card never answers the pointer as though it were live. */
 .launch-card:disabled { cursor: default; border-color: rgba(140,205,255,.24); }
-.launch-card:disabled .launch-card-art { filter: grayscale(.7) brightness(.5); }
+.launch-card:disabled .launch-card-art { filter: grayscale(.55) brightness(1.12) contrast(1.03); }
 .launch-card:disabled b { opacity: .5; }
 .launch-card:disabled:hover { transform: none; box-shadow: none; }
 .launch-card:disabled:hover .launch-card-art { transform: none; }
