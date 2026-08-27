@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<!-- Last updated: 13 August 2026 -->
+<!-- Lightweight static legal page. Keep this separate from the game renderer so
+     legal/privacy links work quickly on school devices and weak connections. -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Legal Information - Orbit Ops Subdivision</title>
+    <link rel="icon" type="image/png" href="/orbit-ops-subdivision-badge-simple.png">
+    <style>
+        :root {
+            --jim-green: #2e7d32;
+            --jim-green-dark: #1b5e20;
+            --jim-green-lite: #8bc34a;
+            --page-bg: #0d130f;
+            --page-panel: #151b16;
+            --page-panel-soft: #1c231d;
+            --page-text: #e8eee0;
+            --page-muted: #aeb8aa;
+            --page-line: rgba(139, 195, 74, 0.24);
+            --gold: #ffaa00;
+        }
+
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--page-bg);
+            color: var(--page-text);
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.58;
+        }
+
+        .legal-shell {
+            width: min(960px, calc(100% - 28px));
+            margin: 0 auto;
+            padding: 34px 0 56px;
+        }
+
+        .legal-card {
+            background: var(--page-panel);
+            border: 1px solid var(--page-line);
+            border-radius: 8px;
+            box-shadow: 0 18px 44px rgba(0, 0, 0, 0.34);
+            overflow: hidden;
+        }
+
+        .legal-header {
+            padding: clamp(24px, 4vw, 42px);
+            border-bottom: 1px solid var(--page-line);
+            background: #111812;
+        }
+
+        .eyebrow {
+            margin: 0 0 10px;
+            color: var(--jim-green-lite);
+            font: 900 12px "Courier New", Courier, monospace;
+            text-transform: uppercase;
+        }
+
+        h1, h2, h3 {
+            margin: 0;
+            line-height: 1.18;
+        }
+
+        h1 {
+            max-width: 820px;
+            color: #fff;
+            font: 900 clamp(28px, 5vw, 46px) "Courier New", Courier, monospace;
+        }
+
+        .updated {
+            margin: 16px 0 0;
+            color: var(--page-muted);
+            font: 800 13px "Courier New", Courier, monospace;
+            text-transform: uppercase;
+        }
+
+        .legal-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 22px;
+        }
+
+        .back-link,
+        .legal-actions a {
+            display: inline-flex;
+            align-items: center;
+            min-height: 40px;
+            padding: 0 14px;
+            border: 1px solid var(--page-line);
+            border-radius: 4px;
+            color: var(--page-text);
+            background: rgba(255, 255, 255, 0.035);
+            font: 900 12px "Courier New", Courier, monospace;
+            text-decoration: none;
+            text-transform: uppercase;
+        }
+
+        .back-link {
+            background: var(--jim-green);
+            border-color: var(--jim-green-lite);
+            color: #fff;
+        }
+
+        .back-link:hover,
+        .back-link:focus-visible,
+        .legal-actions a:hover,
+        .legal-actions a:focus-visible {
+            outline: none;
+            background: var(--jim-green-lite);
+            border-color: var(--jim-green-lite);
+            color: #071009;
+        }
+
+        .legal-body {
+            padding: clamp(22px, 4vw, 42px);
+        }
+
+        .intro {
+            margin-bottom: 30px;
+            color: #dfe6dc;
+            font-size: 16px;
+        }
+
+        .intro p:first-child { margin-top: 0; }
+        .intro p:last-child { margin-bottom: 0; }
+
+        .legal-section {
+            scroll-margin-top: 18px;
+            padding-top: 24px;
+            margin-top: 24px;
+            border-top: 1px solid rgba(255, 255, 255, 0.09);
+        }
+
+        .legal-section:first-of-type {
+            border-top: 0;
+            margin-top: 0;
+            padding-top: 0;
+        }
+
+        h2 {
+            margin-bottom: 18px;
+            color: var(--jim-green-lite);
+            font: 900 clamp(20px, 3vw, 28px) "Courier New", Courier, monospace;
+            text-transform: uppercase;
+        }
+
+        .legal-block {
+            margin-top: 18px;
+            padding: 18px;
+            background: var(--page-panel-soft);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+        }
+
+        .legal-block:first-of-type { margin-top: 0; }
+
+        h3 {
+            margin-bottom: 10px;
+            color: #fff;
+            font: 900 17px "Courier New", Courier, monospace;
+        }
+
+        p {
+            margin: 0 0 12px;
+            color: #d8dfd5;
+        }
+
+        p:last-child { margin-bottom: 0; }
+
+        ul {
+            margin: 10px 0 12px;
+            padding-left: 22px;
+            color: #d8dfd5;
+        }
+
+        li { margin: 4px 0; }
+
+        .legal-footer-actions {
+            display: flex;
+            justify-content: center;
+            padding-top: 28px;
+        }
+
+        @media (max-width: 620px) {
+            .legal-shell {
+                width: min(100% - 18px, 960px);
+                padding: 12px 0 34px;
+            }
+
+            h1 { font-size: 24px; }
+
+            .legal-header,
+            .legal-body {
+                padding: 20px;
+            }
+
+            .legal-actions a,
+            .back-link {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .legal-block {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="legal-shell">
+        <article class="legal-card">
+            <header class="legal-header">
+                <p class="eyebrow">Legal Information</p>
+                <h1>Orbit Ops Subdivision &mdash; Legal Information, Privacy Policy, Terms of Use, and Rules of Play</h1>
+                <p class="updated">Last updated: 13 August 2026</p>
+                <nav class="legal-actions" aria-label="Legal page sections">
+                    <a class="back-link" href="/">Back to game</a>
+                    <a href="#privacy">Privacy Policy</a>
+                    <a href="#terms">Terms of Use</a>
+                    <a href="#rules">Rules &amp; Moderation</a>
+                </nav>
+            </header>
+
+            <div class="legal-body">
+                <section class="intro" aria-label="Introduction">
+                    <p>Welcome to Orbit Ops Subdivision, also known as "the Game", "the Website", "the Service", "we", "us", or "our". This page explains the privacy practices, rules, moderation powers, and terms that apply when a person accesses, loads, registers for, logs into, plays, chats through, spectates, or otherwise uses the Service.</p>
+                    <p>The Service is a browser-based multiplayer game intended only for people who are 18 years of age or older. People under 18 must not access, register for, log into, or play the Service.</p>
+                    <p>The Service is an independent parody inspired by multiplayer tactical games such as Counter-Strike. Its jokes, fictional presentation, characters, items, brands, events, and gameplay are not intended to be taken seriously or treated as factual claims, professional advice, or representations of real people or organisations.</p>
+                    <p>This policy is designed around the Privacy Act 1988 (Cth) and Australian Privacy Principles where they apply to the Service. Legal applicability depends on the operator and its actual practices, and this document is not a substitute for independent Australian legal advice.</p>
+                    <p>By using the Service, you agree to follow these terms and rules. If you do not agree, do not use the Service.</p>
+                    <p>By selecting the agreement button or continuing to access or play Orbit Ops Subdivision, you confirm that you are 18 or older and acknowledge and, where consent applies, allow the Service to keep the email address linked to your account, chat logs, moderation and security records, and other account and gameplay records described below.</p>
+                </section>
+
+                <section id="privacy" class="legal-section">
+                    <h2>Privacy Policy</h2>
+
+                    <div class="legal-block">
+                        <h3>Acceptance and Stored Records</h3>
+                        <p>Accepting these terms or playing Orbit Ops Subdivision acknowledges that the Service may collect, store, and retain your account email address, chat logs, account records, security and moderation logs, gameplay statistics, progression, inventories, transactions, sessions, device signals, and other registered information described in this policy.</p>
+                        <p>Records are kept only for as long as reasonably needed for the purposes described in this policy, including operating accounts and gameplay, security, moderation, fraud and abuse prevention, debugging, and legal obligations.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>4. School, Workplace, and Shared-Network Use</h3>
+                        <p>The Service is restricted to users who are at least 18 years old. The age requirement still applies when the Service is reached through a school, workplace, household, shared device, or shared network.</p>
+                        <p>Users must not share sensitive personal information through the game. This includes home addresses, phone numbers, passwords, private school information, government identification, medical information, financial information, or other private details.</p>
+                        <p>Users should not use their real full name as a username unless they are comfortable with other users seeing it.</p>
+                        <p>Where the Service is accessed from a school network, shared device, classroom device, public device, or household device, technical information such as IP addresses and device/browser information may not uniquely identify one individual. Moderation decisions may consider multiple signals, including account activity, chat logs, device information, session information, and gameplay behaviour.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>5. Account Information</h3>
+                        <p>The Service may allow users to create or use accounts. Account information may include:</p>
+                        <ul>
+                            <li>account ID;</li>
+                            <li>email address;</li>
+                            <li>username;</li>
+                            <li>password hash;</li>
+                            <li>account creation time;</li>
+                            <li>last login time;</li>
+                            <li>account status;</li>
+                            <li>strike count;</li>
+                            <li>session information;</li>
+                            <li>device information;</li>
+                            <li>security and moderation information;</li>
+                            <li>gameplay progression and statistics.</li>
+                        </ul>
+                        <p>Passwords should not be stored as plain text. Passwords should be stored using a password hashing system.</p>
+                        <p>Users are responsible for keeping their login details private.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>6. Sessions, Device Tokens, and Browser Storage</h3>
+                        <p>The Service may use browser storage such as localStorage and Cache Storage to keep users logged in, remember device tokens, settings, and the current Terms acceptance version, and cache game assets such as models, textures, sounds, and generated skin previews so they load faster on later visits.</p>
+                        <p>The Service may use session tokens and device tokens for:</p>
+                        <ul>
+                            <li>account login;</li>
+                            <li>keeping users signed in;</li>
+                            <li>account security;</li>
+                            <li>moderation;</li>
+                            <li>anti-cheat;</li>
+                            <li>ban evasion prevention;</li>
+                            <li>rate limiting;</li>
+                            <li>abuse prevention.</li>
+                        </ul>
+                        <p>Clearing browser storage may log a user out, reset local settings, or make game assets download again. Clearing browser storage does not necessarily delete server-side records.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>7. Device Fingerprints and Technical Signals</h3>
+                        <p>The Service may process technical browser or device signals for security, anti-cheat, moderation, and abuse-prevention purposes.</p>
+                        <p>This may include things like:</p>
+                        <ul>
+                            <li>browser type;</li>
+                            <li>user agent;</li>
+                            <li>language;</li>
+                            <li>screen size;</li>
+                            <li>colour depth;</li>
+                            <li>time zone;</li>
+                            <li>hardware concurrency;</li>
+                            <li>canvas/browser rendering signals;</li>
+                            <li>generated device identifiers;</li>
+                            <li>hashed device fingerprints.</li>
+                        </ul>
+                        <p>These signals are used to help protect the Service, prevent cheating, reduce ban evasion, detect suspicious behaviour, and support moderation. They are not intended for advertising.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>8. IP Addresses and Security Logs</h3>
+                        <p>The Service may process IP addresses, request information, connection information, subnet information, timestamps, and other technical logs.</p>
+                        <p>This information may be used to:</p>
+                        <ul>
+                            <li>operate the game;</li>
+                            <li>connect users to rooms;</li>
+                            <li>protect the server;</li>
+                            <li>prevent flooding;</li>
+                            <li>apply rate limits;</li>
+                            <li>detect suspicious bursts of traffic;</li>
+                            <li>investigate cheating or abuse;</li>
+                            <li>enforce bans;</li>
+                            <li>prevent ban evasion;</li>
+                            <li>debug technical issues;</li>
+                            <li>protect other users.</li>
+                        </ul>
+                        <p>The Service may store security logs, login logs, signup logs, rate-limit logs, moderation logs, and anti-cheat-related records.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>9. Gameplay Data and Statistics</h3>
+                        <p>The Service may collect and store gameplay information, including:</p>
+                        <ul>
+                            <li>kills;</li>
+                            <li>deaths;</li>
+                            <li>assists;</li>
+                            <li>wins;</li>
+                            <li>games played;</li>
+                            <li>playtime;</li>
+                            <li>kill streaks;</li>
+                            <li>weapon kills;</li>
+                            <li>shots fired;</li>
+                            <li>shots hit;</li>
+                            <li>XP;</li>
+                            <li>ranks;</li>
+                            <li>leaderboard data;</li>
+                            <li>daily statistics;</li>
+                            <li>weekly statistics;</li>
+                            <li>all-time statistics;</li>
+                            <li>challenge progress;</li>
+                            <li>inventory data;</li>
+                            <li>loadouts;</li>
+                            <li>cosmetic data;</li>
+                            <li>room participation;</li>
+                            <li>recent player encounters.</li>
+                        </ul>
+                        <p>This data is used to operate gameplay features, leaderboards, progression, balancing, debugging, moderation, and player-facing UI.</p>
+                        <p>Usernames and gameplay statistics may be visible to other players through leaderboards, rooms, scoreboards, and other game interfaces.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>10. Chat and User Content</h3>
+                        <p>The Service may include chat messages, usernames, admin announcements, news posts, and other user-visible content.</p>
+                        <p>Chat messages may be logged and reviewed by admins or moderators.</p>
+                        <p>Chat logs may include:</p>
+                        <ul>
+                            <li>account ID;</li>
+                            <li>username;</li>
+                            <li>message content;</li>
+                            <li>room code;</li>
+                            <li>IP address;</li>
+                            <li>timestamp.</li>
+                        </ul>
+                        <p>Users should not treat in-game chat as private, confidential, or suitable for sensitive personal information.</p>
+                        <p>Users must not send chat messages, usernames, or content that is:</p>
+                        <ul>
+                            <li>threatening towards anything that is not game specific;</li>
+                            <li>discriminatory;</li>
+                            <li>spam;</li>
+                            <li>scams;</li>
+                            <li>phishing;</li>
+                            <li>malware;</li>
+                            <li>private information about another person;</li>
+                            <li>instructions to cheat, exploit, or attack the Service.</li>
+                        </ul>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>11. Friends, Parties, and Recent Players</h3>
+                        <p>The Service may include friends, friend requests, parties, party invites, party membership, recent players, and online presence features.</p>
+                        <p>To support these features, the Service may store:</p>
+                        <ul>
+                            <li>account relationships;</li>
+                            <li>friend request status;</li>
+                            <li>accepted friendships;</li>
+                            <li>party membership;</li>
+                            <li>party invitations;</li>
+                            <li>recent player encounters;</li>
+                            <li>usernames;</li>
+                            <li>account IDs;</li>
+                            <li>timestamps.</li>
+                        </ul>
+                        <p>Accepted friends may view each other's cosmetic skin inventories and inspect those cosmetic appearances. Inventory ownership and account-management details are not exposed through this view.</p>
+                        <p>These features are provided for gameplay convenience and may be changed, reset, disabled, or removed at any time.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>14. Data Retention</h3>
+                        <p>The Service retains personal information only while it is reasonably needed for the purpose for which it was collected, a permitted related purpose, dispute resolution, fraud or abuse prevention, security, or a legal obligation.</p>
+                        <p>Short-lived verification and reset codes expire automatically. Sessions, transient network data, and routine logs should be removed or de-identified on operational schedules. Account records, chat and moderation evidence, bans, stats, inventories, friends, transactions, and leaderboard data may be kept while an account or integrity purpose remains active. When information is no longer required and no legal exception applies, reasonable steps will be taken to destroy or de-identify it.</p>
+                        <p>Deleting local browser storage does not necessarily delete server-side records.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>15. Security</h3>
+                        <p>The Service uses reasonable technical measures for a small browser game project, such as password hashing, session-token handling, server-side records, rate limiting, anti-abuse systems, and admin controls.</p>
+                        <p>However, no online service can be guaranteed to be perfectly secure. Users use the Service at their own risk.</p>
+                        <p>Users should not submit highly sensitive information through the Service.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>16. Disclosure of Information</h3>
+                        <p>The Service does not sell personal information.</p>
+                        <p>Certain information may be visible to other users as part of normal gameplay, including:</p>
+                        <ul>
+                            <li>usernames;</li>
+                            <li>chat messages;</li>
+                            <li>leaderboard statistics;</li>
+                            <li>scoreboard statistics;</li>
+                            <li>room participation;</li>
+                            <li>party/friend/presence information where applicable.</li>
+                        </ul>
+                        <p>Information may also be processed by hosting providers, database providers, infrastructure providers, and technical services used to operate the Website.</p>
+                        <p>Information may be disclosed where reasonably necessary to investigate abuse, enforce rules, protect the Service, comply with legal obligations, or protect users, admins, developers, or third parties.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>17. Third-Party Services and Infrastructure</h3>
+                        <p>The Service may rely on third-party hosting, databases, server infrastructure, Node.js packages, browser APIs, WebSocket libraries, and other technical services.</p>
+                        <p>These providers may process technical information as part of hosting, routing, storing, logging, and operating the Service.</p>
+                        <p>Service providers may operate in Australia, the United States, Europe, or other countries where their infrastructure is located. Before disclosing personal information overseas, the Service will take reasonable steps required by Australian Privacy Principle 8, subject to applicable exceptions. Overseas recipients may be subject to different privacy laws.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>18. Access, Correction, Deletion, and Complaints</h3>
+                        <p>You may request access to personal information held about you or ask for inaccurate, out-of-date, incomplete, irrelevant, or misleading information to be corrected. We may need to verify your identity. Access may be refused only where permitted by law, and any refusal will include reasons and available complaint options where required.</p>
+                        <p>You may also ask for account deletion. Some information may need to be retained or de-identified where reasonably necessary for security, moderation, dispute resolution, fraud prevention, or legal obligations. Deleting an account can permanently remove access to progression and virtual items.</p>
+                        <p>Privacy complaints should describe the issue and the requested outcome. The Service will acknowledge and investigate complaints within a reasonable time and explain its response. If you are not satisfied, you may complain to the Office of the Australian Information Commissioner at <a href="https://www.oaic.gov.au/privacy/privacy-complaints" target="_blank" rel="noopener">oaic.gov.au/privacy/privacy-complaints</a>.</p>
+                    </div>
+                </section>
+
+                <section id="terms" class="legal-section">
+                    <h2>Terms of Use</h2>
+
+                    <div class="legal-block">
+                        <h3>1. Nature of the Service</h3>
+                        <p>The Service is a casual browser-based multiplayer game. It may include accounts, usernames, login sessions, gameplay rooms, chat, leaderboards, statistics, friends, parties, recent players, cosmetic skins, inventory items, progression, moderation tools, admin tools, and anti-cheat or abuse-prevention systems.</p>
+                        <p>The Service is not a commercial product, gambling product, betting product, financial product, marketplace, paid service, subscription service, or payment platform.</p>
+                        <p>The Service is an independent parody inspired by tactical multiplayer games including Counter-Strike. Nothing in its humorous, fictional, exaggerated, or game-like presentation is intended to be taken seriously, relied on as factual, or understood as a statement about any real person, business, brand, event, profession, or activity.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>2. Age Requirement</h3>
+                        <p>You must be at least 18 years old to access, create an account for, log into, or use the Service. By using the Service or selecting the agreement button, you confirm that you are 18 years of age or older.</p>
+                        <p>If you are under 18, you must not use the Service. An account may be restricted, banned, or deleted if the project maintainers reasonably believe that its user does not meet this requirement.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>3. No Payments or Monetisation</h3>
+                        <p>There is currently no monetisation on the Website.</p>
+                        <p>The Service does not:</p>
+                        <ul>
+                            <li>sell items;</li>
+                            <li>sell skins;</li>
+                            <li>sell cases;</li>
+                            <li>sell accounts;</li>
+                            <li>sell currency;</li>
+                            <li>charge subscription fees;</li>
+                            <li>process payments;</li>
+                            <li>request payment details;</li>
+                            <li>provide paid upgrades;</li>
+                            <li>allow real-money trading;</li>
+                            <li>allow cashing out;</li>
+                            <li>allow withdrawing or redeeming anything for money.</li>
+                        </ul>
+                        <p>No debit card, credit card, bank account, PayPal account, cryptocurrency wallet, billing address, or other payment information is required to use the Service.</p>
+                        <p>Because there are no payments, there are no refunds.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>4. Virtual Items Have No Real-World Value</h3>
+                        <p>Any skins, cases, inventory items, rewards, XP, levels, achievements, ranks, statistics, loadouts, cosmetics, or other in-game items are provided only for gameplay, entertainment, testing, progression, or cosmetic purposes.</p>
+                        <p>All virtual items:</p>
+                        <ul>
+                            <li>have no cash value;</li>
+                            <li>have no real-world monetary value;</li>
+                            <li>are not owned property of the user;</li>
+                            <li>cannot be sold through the Service;</li>
+                            <li>cannot be redeemed for money, goods, credit, gift cards, cryptocurrency, or anything else of value;</li>
+                            <li>are not guaranteed to remain available;</li>
+                            <li>may be changed, reset, removed, wiped, revoked, or discontinued at any time.</li>
+                        </ul>
+                        <p>Admins or project maintainers may wipe an inventory, reset XP or statistics, delete an account, restrict an account, or apply a temporary or permanent ban. If an account is banned, reset, deleted, corrupted, or restricted, virtual items, stats, ranks, and progression may be lost.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>5. No Affiliation With Third-Party Brands</h3>
+                        <p>Orbit Ops Subdivision is not affiliated with, endorsed by, sponsored by, approved by, or officially connected with Jim's Group, Jim's Mowing, Valve, Counter-Strike, Steam, or any other third-party brand, company, game, trademark owner, platform, or rights holder unless expressly stated otherwise.</p>
+                        <p>References or similarities used for parody, commentary, humour, or game inspiration do not claim ownership, approval, or official status.</p>
+                        <p>All third-party names, brands, assets, logos, and trademarks belong to their respective owners.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>6. Availability, Changes, and Resets</h3>
+                        <p>The Service is provided on an "as is" and "as available" basis.</p>
+                        <p>The Service may be changed, updated, patched, broken, restored, reset, migrated, deleted, disabled, discontinued, or made unavailable at any time.</p>
+                        <p>The project maintainers may:</p>
+                        <ul>
+                            <li>reset XP or other stats;</li>
+                            <li>reset leaderboards;</li>
+                            <li>reset inventories;</li>
+                            <li>delete rooms;</li>
+                            <li>delete, ban, restrict, or alter accounts;</li>
+                            <li>change weapons;</li>
+                            <li>change maps;</li>
+                            <li>change progression;</li>
+                            <li>change skins or cases;</li>
+                            <li>disable chat;</li>
+                            <li>disable accounts;</li>
+                            <li>disable social features;</li>
+                            <li>take the Service offline.</li>
+                        </ul>
+                        <p>Users are not entitled to compensation, refunds, restored statistics, restored inventories, restored rankings, replacement items, or account reinstatement if data is lost, changed, removed, reset, or discontinued.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>7. User Responsibility at School, Work, and Other Locations</h3>
+                        <p>Each user is solely responsible for deciding when, where, and whether to access or use the Website. Users must make sure that their use is permitted by any school, workplace, network owner, parent or guardian, device owner, policy, agreement, instruction, or law that applies to them.</p>
+                        <p>Using the Website during class, study, work, meetings, supervised activities, or on a restricted device or network is entirely the user's decision and responsibility.</p>
+                        <p>To the maximum extent permitted by law, Orbit Ops Subdivision, the Service, its admins, and its project maintainers are not responsible or liable for detention, discipline, academic penalties, failed work, lost study time, device confiscation, loss of network access, employment action, dismissal, lost income, complaints, disputes, or any other trouble, loss, or consequence resulting from a user's decision to access or use the Website at school, work, or anywhere else.</p>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>8. Changes to This Page</h3>
+                        <p>This page may be updated from time to time as the Service changes.</p>
+                        <p>The "Last updated" date should be changed whenever this page is materially updated.</p>
+                        <p>The game may require a user to select an agreement button before continuing. Selecting that button records the accepted Terms version in that browser and confirms agreement to the current Terms of Use, Privacy Policy, and Rules &amp; Moderation.</p>
+                        <p>Continued use of the Service after changes are made, and any required renewed acceptance, means the user accepts the updated version.</p>
+                    </div>
+                </section>
+
+                <section id="rules" class="legal-section">
+                    <h2>Rules &amp; Moderation</h2>
+
+                    <div class="legal-block">
+                        <h3>12. Anti-Cheat, Moderation, and Admin Tools</h3>
+                        <p>The Service may include anti-cheat checks, admin tools, moderation tools, bans, strikes, violation logs, chat review, live-room inspection, leaderboard controls, and abuse-prevention systems.</p>
+                        <p>Admins may review information reasonably connected to security, moderation, or game operation, including:</p>
+                        <ul>
+                            <li>usernames;</li>
+                            <li>account IDs;</li>
+                            <li>chat logs;</li>
+                            <li>room codes;</li>
+                            <li>IP-related logs;</li>
+                            <li>device-related signals;</li>
+                            <li>session records;</li>
+                            <li>violation records;</li>
+                            <li>ban records;</li>
+                            <li>gameplay statistics;</li>
+                            <li>leaderboard records;</li>
+                            <li>live-room/player information.</li>
+                        </ul>
+                        <p>Users must not:</p>
+                        <ul>
+                            <li>cheat in any form, including aim assistance, wall information, movement assistance, or other unfair modifications;</li>
+                            <li>exploit bugs or knowingly retain benefits produced by an exploit;</li>
+                            <li>use modified clients, injected scripts, browser-console commands, or external tools to gain an unfair advantage;</li>
+                            <li>use bots or gameplay automation in any form, including macros, autoclickers, AFK farming, scripted inputs, or automated account activity;</li>
+                            <li>spam the server;</li>
+                            <li>flood WebSocket messages;</li>
+                            <li>bypass bans;</li>
+                            <li>bypass mutes;</li>
+                            <li>evade moderation;</li>
+                            <li>impersonate admins;</li>
+                            <li>access admin-only tools;</li>
+                            <li>scrape private data;</li>
+                            <li>attack the server;</li>
+                            <li>attempt to access database credentials, tokens, or restricted systems.</li>
+                        </ul>
+                    </div>
+
+                    <div class="legal-block">
+                        <h3>13. Bans and Enforcement</h3>
+                        <p>The Service may issue warnings, kicks, mutes, XP or stat resets, complete or partial inventory wipes, leaderboard removals, temporary bans, permanent bans, account restrictions, device restrictions, session terminations, or account deletions.</p>
+                        <p>Bans may apply to:</p>
+                        <ul>
+                            <li>an account;</li>
+                            <li>a device;</li>
+                            <li>a session;</li>
+                            <li>a username;</li>
+                            <li>related accounts;</li>
+                            <li>other technical or moderation-linked identifiers.</li>
+                        </ul>
+                        <p>Enforcement may happen with or without warning.</p>
+                        <p>The Service is not required to provide an appeal process, but bans or restrictions may be reviewed at the discretion of the project maintainers or admins.</p>
+                    </div>
+                </section>
+
+                <div class="legal-footer-actions">
+                    <a class="back-link" href="/">Back to game</a>
+                </div>
+            </div>
+        </article>
+    </main>
+</body>
+</html>

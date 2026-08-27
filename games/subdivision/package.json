@@ -1,0 +1,14 @@
+{
+  "name": "cs-web-fps-multiplayer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@gltf-transform/core": "^4.1.0",
+    "pg": "^8.13.0",
+    "ws": "^8.18.0"
+  }
+}

@@ -56,9 +56,10 @@ test("the old hidden door is gone entirely", async () => {
 
 test("the embedded game uses bounded Railway connection settings and restarts after transient boot failures", async () => {
   const source = await readFile(new URL("../server/jimsGateway.js", import.meta.url), "utf8");
-  assert.match(source, /DATABASE_POOL_MAX: process\.env\.JIMS_DATABASE_POOL_MAX \|\| "6"/);
-  assert.match(source, /DATABASE_CONNECT_TIMEOUT_MS: process\.env\.JIMS_DATABASE_CONNECT_TIMEOUT_MS \|\| "15000"/);
-  assert.match(source, /DATABASE_APPLICATION_NAME: "orbit-ops-embedded"/);
+  assert.match(source, /DATABASE_POOL_MAX: process\.env\.SUBDIVISION_DATABASE_POOL_MAX/);
+  assert.match(source, /DATABASE_CONNECT_TIMEOUT_MS: process\.env\.SUBDIVISION_DATABASE_CONNECT_TIMEOUT_MS/);
+  assert.match(source, /DATABASE_APPLICATION_NAME: "orbit-ops-subdivision-embedded"/);
+  assert.match(source, /DATABASE_URL: configuration\.databaseUrl/);
   assert.match(source, /restarting child in \$\{delay\}ms/);
   assert.match(source, /scheduleRestart\(\)/);
 });

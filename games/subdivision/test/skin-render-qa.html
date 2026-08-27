@@ -1,0 +1,177 @@
+<!doctype html>
+<!-- Last updated: 15 July 2026 -->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Skin Render QA</title>
+  <style>
+    body { margin: 0; background: #111; color: #e8efe3; font: 13px Arial, sans-serif; }
+    #status { position: sticky; top: 0; z-index: 2; padding: 10px 14px; background: #1b221b; border-bottom: 1px solid #3a4b36; }
+    canvas { display: block; margin: 0 auto; background: #151915; }
+  </style>
+</head>
+<body>
+  <div id="status">Loading...</div>
+  <canvas id="sheet" width="1800" height="3600"></canvas>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/utils/WorkerPool.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/DRACOLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/KTX2Loader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/libs/meshopt_decoder.js"></script>
+  <script>
+    const assets = [
+      ['AK Ice Coaled', '/assets/skins/ak47/ice_coaled.glb'],
+      ['AK Nightwish', '/assets/skins/ak47/nightwish_akwrap.glb'],
+      ['AK Anubis', '/assets/skins/ak47/anubis_akwrap.glb'],
+      ['AK Asiimov', '/assets/skins/ak47/asiimov_akwrap.glb'],
+      ['AK Crossfade', '/assets/skins/ak47/crossfade_akwrap.glb'],
+      ['AK Inheritence', '/assets/skins/ak47/inheritence_akwrap.glb'],
+      ['AK Phantom Disruptor', '/assets/skins/ak47/phantom_disruptor_akwrap.glb'],
+      ['AK Point Disarray', '/assets/skins/ak47/point_disarray_akwrap.glb'],
+      ['AK The Empress', '/assets/skins/ak47/the_empress_akwrap.glb'],
+      ['AK Wild Lotus', '/assets/skins/ak47/wild_lotus_akwrap.glb'],
+      ['AWP Asiimov', '/assets/skins/awp/asiimov.glb'],
+      ['AWP Crakow', '/assets/skins/awp/crakow.glb'],
+      ['AWP Bingle', '/assets/skins/awp/bingle.glb'],
+      ['AWP Desert Hydra', '/assets/skins/awp/desert_hydra.glb'],
+      ['AWP Dragon Lore', '/assets/skins/awp/dragon_lore.glb'],
+      ['AWP Gungnir', '/assets/skins/awp/gungnir.glb'],
+      ['AWP Jog', '/assets/skins/awp/jog.glb'],
+      ['AWP Neo-Noir', '/assets/skins/awp/neo_noir.glb'],
+      ['AWP Oni Taiji', '/assets/skins/awp/oni_taiji.glb'],
+      ['AWP The Prince', '/assets/skins/awp/the_prince.glb'],
+      ['AWP Wildfire', '/assets/skins/awp/wildfire.glb']
+    ];
+
+    const statusEl = document.getElementById('status');
+    const sheet = document.getElementById('sheet');
+    const ctx = sheet.getContext('2d');
+    const cellH = 170;
+    const pad = 20;
+    const renderCanvas = document.createElement('canvas');
+    renderCanvas.width = 256;
+    renderCanvas.height = 128;
+    const renderer = new THREE.WebGLRenderer({ canvas: renderCanvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(renderCanvas.width, renderCanvas.height, false);
+    renderer.setPixelRatio(1);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.9;
+
+    const loader = new THREE.GLTFLoader();
+    if (THREE.DRACOLoader) loader.setDRACOLoader(new THREE.DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/libs/draco/'));
+    if (THREE.KTX2Loader) loader.setKTX2Loader(new THREE.KTX2Loader().setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/libs/basis/').detectSupport(renderer));
+    if (typeof loader.setMeshoptDecoder === 'function' && window.MeshoptDecoder) loader.setMeshoptDecoder(window.MeshoptDecoder);
+
+    function loadGltf(path) {
+      return new Promise((resolve, reject) => loader.load(path, resolve, undefined, reject));
+    }
+
+    function normalize(scene) {
+      const root = scene.clone(true);
+      root.traverse(obj => {
+        if (!obj.isMesh) return;
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        mats.forEach(mat => {
+          if (!mat) return;
+          mat.side = THREE.FrontSide;
+          if (typeof mat.metalness === 'number') mat.metalness = Math.min(mat.metalness, 0.45);
+          if (typeof mat.roughness === 'number') mat.roughness = Math.max(mat.roughness, 0.35);
+          mat.needsUpdate = true;
+        });
+      });
+      root.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(root);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const scale = 2.55 / (Math.max(size.x, size.y, size.z) || 1);
+      root.scale.setScalar(scale);
+      root.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+      return root;
+    }
+
+    function renderModel(model, yaw) {
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(34, renderCanvas.width / renderCanvas.height, 0.01, 100);
+      camera.position.set(0, 0.1, 4.5);
+      camera.lookAt(0, 0, 0);
+      scene.add(new THREE.HemisphereLight(0xf6fff0, 0x222822, 1.2));
+      const key = new THREE.DirectionalLight(0xffffff, 1.9);
+      key.position.set(3, 4, 5);
+      scene.add(key);
+      const fill = new THREE.DirectionalLight(0xbad9ff, 0.55);
+      fill.position.set(-4, 2, 3);
+      scene.add(fill);
+      const holder = new THREE.Group();
+      holder.rotation.set(-Math.PI / 2, yaw, 0);
+      holder.add(model.clone(true));
+      scene.add(holder);
+      renderer.clear();
+      renderer.render(scene, camera);
+      return renderCanvas;
+    }
+
+    function countVisiblePixels() {
+      const gl = renderer.getContext();
+      const pixels = new Uint8Array(renderCanvas.width * renderCanvas.height * 4);
+      gl.readPixels(0, 0, renderCanvas.width, renderCanvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      let count = 0;
+      for (let i = 3; i < pixels.length; i += 4) if (pixels[i] > 16) count++;
+      return count;
+    }
+
+    function recordMetric(name, path, view, visiblePixels) {
+      window.skinRenderQaMetrics.push({ name, path, view, visiblePixels });
+      if (visiblePixels < 250) throw new Error(`${name} ${view} rendered too few visible pixels (${visiblePixels})`);
+    }
+
+    async function main() {
+      window.skinRenderQaMetrics = [];
+      ctx.fillStyle = '#151915';
+      ctx.fillRect(0, 0, sheet.width, sheet.height);
+      ctx.font = 'bold 18px Arial';
+      ctx.fillStyle = '#e8efe3';
+      ctx.fillText('AK/AWP regenerated skin GLB render QA', pad, 30);
+      let minPixels = Infinity;
+      for (let i = 0; i < assets.length; i++) {
+        const [name, path] = assets[i];
+        statusEl.textContent = `Rendering ${i + 1}/${assets.length}: ${name}`;
+        const gltf = await loadGltf(path);
+        const model = normalize(gltf.scene);
+        const y = 55 + i * cellH;
+        ctx.fillStyle = '#202820';
+        ctx.fillRect(pad, y, sheet.width - pad * 2, cellH - 12);
+        ctx.fillStyle = '#dbe7d6';
+        ctx.font = 'bold 17px Arial';
+        ctx.fillText(name, pad + 12, y + 26);
+        ctx.font = '12px monospace';
+        ctx.fillStyle = '#95a88f';
+        ctx.fillText(path, pad + 12, y + 45);
+        [0, Math.PI / 2, Math.PI].forEach((yaw, viewIndex) => {
+          const view = ['sideA', 'topSide', 'sideB'][viewIndex];
+          const image = renderModel(model, yaw);
+          const visiblePixels = countVisiblePixels();
+          minPixels = Math.min(minPixels, visiblePixels);
+          recordMetric(name, path, view, visiblePixels);
+          ctx.drawImage(image, pad + 190 + viewIndex * 290, y + 24, 256, 128);
+          ctx.fillStyle = '#97a98f';
+          ctx.fillText(`${view} ${visiblePixels}px`, pad + 190 + viewIndex * 290, y + 160);
+        });
+      }
+      statusEl.textContent = `Done. ${assets.length} assets rendered. minVisiblePixels=${minPixels}`;
+      document.body.dataset.qaDone = 'true';
+      document.body.dataset.minVisiblePixels = String(minPixels);
+    }
+
+    window.addEventListener('error', event => {
+      statusEl.textContent = `ERROR: ${event.message}`;
+      document.body.dataset.qaError = event.message || 'unknown error';
+    });
+    main().catch(error => {
+      statusEl.textContent = `ERROR: ${error.message}`;
+      document.body.dataset.qaError = error.message || String(error);
+    });
+  </script>
+</body>
+</html>

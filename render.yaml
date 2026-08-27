@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: pnpm install --frozen-lockfile && pnpm run jims:sync && pnpm run db:migrate
+    buildCommand: pnpm install --frozen-lockfile && pnpm run subdivision:install && pnpm run db:migrate
     startCommand: pnpm start
     healthCheckPath: /health
     envVars:
@@ -23,22 +23,9 @@ services:
         generateValue: true
       - key: TRUST_PROXY_HOPS
         value: "1"
-      - key: JIMS_DATABASE_URL
+      - key: SUBDIVISION_DATABASE_URL
         sync: false
-      - key: JIMS_ADMIN_TOKEN
+      - key: SUBDIVISION_ADMIN_TOKEN
         sync: false
-      - key: JIMS_DEVICE_SECRET
-        sync: false
-      - key: JIMS_GITHUB_TOKEN
-        sync: false
-      # Cross-server play with the standalone deployment. Both instances publish
-      # their live room codes to the SHARED database and route a join to whichever
-      # one hosts the room, so these must be set on both sides or the directory
-      # stays empty and every remote code reads as "room not found".
-      # PUBLIC_URL may be either the launch route or /tips itself: an arriving
-      # invite carries a one-time room handoff, and the gateway mints the access
-      # cookie for it at whichever of the two doors it knocks on.
-      - key: CROSS_SERVER_INSTANCE_ID
-        value: orbit-embedded
-      - key: CROSS_SERVER_PUBLIC_URL
+      - key: SUBDIVISION_DEVICE_SECRET
         sync: false

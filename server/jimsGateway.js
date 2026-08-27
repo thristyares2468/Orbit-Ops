@@ -38,9 +38,29 @@ function cookieValue(request, name) {
   return item ? decodeURIComponent(item.slice(name.length + 1)) : "";
 }
 
-export function resolveJimsGameRoot(orbitRoot, configuredRoot = process.env.JIMS_GAME_ROOT) {
+function firstConfigured(environment, primary, legacy) {
+  return String(environment[primary] || environment[legacy] || "").trim();
+}
+
+export function resolveSubdivisionConfiguration(environment = process.env) {
+  return {
+    databaseUrl: firstConfigured(environment, "SUBDIVISION_DATABASE_URL", "JIMS_DATABASE_URL"),
+    adminToken: firstConfigured(environment, "SUBDIVISION_ADMIN_TOKEN", "JIMS_ADMIN_TOKEN"),
+    deviceSecret: firstConfigured(environment, "SUBDIVISION_DEVICE_SECRET", "JIMS_DEVICE_SECRET"),
+    mailProvider: firstConfigured(environment, "SUBDIVISION_MAIL_PROVIDER", "JIMS_MAIL_PROVIDER"),
+    brevoApiKey: firstConfigured(environment, "SUBDIVISION_BREVO_API_KEY", "JIMS_BREVO_API_KEY"),
+    brevoFrom: firstConfigured(environment, "SUBDIVISION_BREVO_FROM", "JIMS_BREVO_FROM"),
+    emailReplyTo: firstConfigured(environment, "SUBDIVISION_EMAIL_REPLY_TO", "JIMS_EMAIL_REPLY_TO")
+  };
+}
+
+export function resolveJimsGameRoot(
+  orbitRoot,
+  configuredRoot = process.env.SUBDIVISION_GAME_ROOT || process.env.JIMS_GAME_ROOT
+) {
   const candidates = [
     configuredRoot,
+    join(orbitRoot, "games", "subdivision"),
     join(orbitRoot, ".render", "jims-mowing"),
     join(dirname(orbitRoot), "James-Garden-Care"),
     join(dirname(orbitRoot), "fpsshooterserver", "fpsshooterserver")
@@ -48,7 +68,12 @@ export function resolveJimsGameRoot(orbitRoot, configuredRoot = process.env.JIMS
   return candidates.find((candidate) => existsSync(join(candidate, "server.js"))) ?? candidates[0];
 }
 
-export function createJimsGateway({ server, secret, orbitRoot, childPort = Number(process.env.JIMS_GAME_PORT || 3101) }) {
+export function createJimsGateway({
+  server,
+  secret,
+  orbitRoot,
+  childPort = Number(process.env.SUBDIVISION_GAME_PORT || process.env.JIMS_GAME_PORT || 3101)
+}) {
   const publicPath = JIMS_PUBLIC_PATH;
   const target = `http://127.0.0.1:${childPort}`;
   const gameRoot = resolveJimsGameRoot(orbitRoot);
@@ -66,17 +91,24 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
   let lastExit = null;
   let lastStderr = "";
 
-  const readiness = () => ({
-    available: Boolean(gameRoot && existsSync(join(gameRoot, "server.js"))),
-    running,
-    productionSecretsReady: Boolean(process.env.JIMS_DATABASE_URL && process.env.JIMS_ADMIN_TOKEN && process.env.JIMS_DEVICE_SECRET),
-    requiredVariables: ["JIMS_DATABASE_URL", "JIMS_ADMIN_TOKEN", "JIMS_DEVICE_SECRET"].filter((name) => !process.env[name]),
-    restartAttempt,
-    // Diagnostics only: the child's own last words and how it died. No secret is
-    // echoed here - the child prints connection errors, not connection strings.
-    lastExit,
-    lastError: lastStderr
-  });
+  const readiness = () => {
+    const configuration = resolveSubdivisionConfiguration();
+    return ({
+      available: Boolean(gameRoot && existsSync(join(gameRoot, "server.js"))),
+      running,
+      productionSecretsReady: Boolean(configuration.databaseUrl && configuration.adminToken && configuration.deviceSecret),
+      requiredVariables: [
+        ["SUBDIVISION_DATABASE_URL", configuration.databaseUrl],
+        ["SUBDIVISION_ADMIN_TOKEN", configuration.adminToken],
+        ["SUBDIVISION_DEVICE_SECRET", configuration.deviceSecret]
+      ].filter(([, value]) => !value).map(([name]) => name),
+      restartAttempt,
+      // Diagnostics only: the child's own last words and how it died. No secret is
+      // echoed here - the child prints connection errors, not connection strings.
+      lastExit,
+      lastError: lastStderr
+    });
+  };
 
   const authorized = (request) => verifyJimsAccessToken(cookieValue(request, JIMS_ACCESS_COOKIE), secret);
   const unavailable = (response) => response.status(503).json({ error: "The hidden transmission is currently offline." });
@@ -178,17 +210,18 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
       if (!gameRoot || !existsSync(join(gameRoot, "server.js"))) {
         // A refusal to spawn leaves no child to report its own death, so the
         // reason has to be recorded here or readiness() says nothing at all.
-        lastExit = "not-started: game source is unavailable; run npm run jims:sync";
-        console.warn("[jims-gateway] Jim's game source is unavailable; run npm run jims:sync.");
+        lastExit = "not-started: bundled Subdivision source is unavailable";
+        console.warn("[subdivision-gateway] Bundled Subdivision source is unavailable.");
       }
       return;
     }
+    const configuration = resolveSubdivisionConfiguration();
     const productionSecretsReady = Boolean(
-      process.env.JIMS_DATABASE_URL && process.env.JIMS_ADMIN_TOKEN && process.env.JIMS_DEVICE_SECRET
+      configuration.databaseUrl && configuration.adminToken && configuration.deviceSecret
     );
     if (process.env.NODE_ENV === "production" && !productionSecretsReady) {
-      lastExit = "not-started: missing JIMS_* secrets";
-      console.warn("[jims-gateway] Jim's game is disabled until its three JIMS_* secrets are configured.");
+      lastExit = "not-started: missing SUBDIVISION_* secrets";
+      console.warn("[subdivision-gateway] Subdivision is disabled until its database, admin, and device secrets are configured.");
       return;
     }
     stopping = false;
@@ -198,19 +231,24 @@ export function createJimsGateway({ server, secret, orbitRoot, childPort = Numbe
         ...process.env,
         PORT: String(childPort),
         PUBLIC_BASE_PATH: publicPath,
-        DATABASE_URL: process.env.JIMS_DATABASE_URL || "",
-        DATABASE_POOL_MAX: process.env.JIMS_DATABASE_POOL_MAX || "6",
-        DATABASE_CONNECT_TIMEOUT_MS: process.env.JIMS_DATABASE_CONNECT_TIMEOUT_MS || "15000",
-        DATABASE_IDLE_TIMEOUT_MS: process.env.JIMS_DATABASE_IDLE_TIMEOUT_MS || "60000",
-        DATABASE_QUERY_TIMEOUT_MS: process.env.JIMS_DATABASE_QUERY_TIMEOUT_MS || "12000",
-        DATABASE_MAX_LIFETIME_SECONDS: process.env.JIMS_DATABASE_MAX_LIFETIME_SECONDS || "900",
-        DATABASE_APPLICATION_NAME: "orbit-ops-embedded",
-        ADMIN_TOKEN: process.env.JIMS_ADMIN_TOKEN || "local-jims-admin-token",
-        DEVICE_SECRET: process.env.JIMS_DEVICE_SECRET || "local-jims-device-secret",
-        MAIL_PROVIDER: process.env.JIMS_MAIL_PROVIDER || "",
-        BREVO_API_KEY: process.env.JIMS_BREVO_API_KEY || "",
-        BREVO_FROM: process.env.JIMS_BREVO_FROM || "",
-        EMAIL_REPLY_TO: process.env.JIMS_EMAIL_REPLY_TO || "",
+        DATABASE_URL: configuration.databaseUrl,
+        DATABASE_POOL_MAX: process.env.SUBDIVISION_DATABASE_POOL_MAX || process.env.JIMS_DATABASE_POOL_MAX || "6",
+        DATABASE_CONNECT_TIMEOUT_MS: process.env.SUBDIVISION_DATABASE_CONNECT_TIMEOUT_MS || process.env.JIMS_DATABASE_CONNECT_TIMEOUT_MS || "15000",
+        DATABASE_IDLE_TIMEOUT_MS: process.env.SUBDIVISION_DATABASE_IDLE_TIMEOUT_MS || process.env.JIMS_DATABASE_IDLE_TIMEOUT_MS || "60000",
+        DATABASE_QUERY_TIMEOUT_MS: process.env.SUBDIVISION_DATABASE_QUERY_TIMEOUT_MS || process.env.JIMS_DATABASE_QUERY_TIMEOUT_MS || "12000",
+        DATABASE_MAX_LIFETIME_SECONDS: process.env.SUBDIVISION_DATABASE_MAX_LIFETIME_SECONDS || process.env.JIMS_DATABASE_MAX_LIFETIME_SECONDS || "900",
+        DATABASE_APPLICATION_NAME: "orbit-ops-subdivision-embedded",
+        ADMIN_TOKEN: configuration.adminToken || "local-subdivision-admin-token",
+        DEVICE_SECRET: configuration.deviceSecret || "local-subdivision-device-secret",
+        MAIL_PROVIDER: configuration.mailProvider,
+        BREVO_API_KEY: configuration.brevoApiKey,
+        BREVO_FROM: configuration.brevoFrom,
+        EMAIL_REPLY_TO: configuration.emailReplyTo,
+        // Both games now run behind this process. Do not let Render's inherited
+        // public URL turn the retired cross-host lobby directory back on inside
+        // the child process.
+        CROSS_SERVER_PUBLIC_URL: "",
+        RENDER_EXTERNAL_URL: "",
         NODE_ENV: process.env.NODE_ENV === "production" ? "production" : "development"
       },
       stdio: ["ignore", "pipe", "pipe"]

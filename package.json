@@ -14,10 +14,11 @@
     "dev": "NODE_ENV=development node --watch server.js",
     "db:migrate": "node database/migrate.js",
     "db:seed": "node database/seed.js",
-    "jims:sync": "node scripts/syncJimsMowing.mjs",
+    "subdivision:install": "npm ci --omit=dev --prefix games/subdivision",
+    "subdivision:check": "node --check games/subdivision/server.js",
     "assets:inventory": "node scripts/generateAssetCatalog.mjs",
     "test": "node --test tests/*.test.js",
-    "check": "node --check server.js && find server public/src database scripts -type f -name '*.js' -exec node --check {} ';' && find scripts -type f -name '*.mjs' -exec node --check {} ';'"
+    "check": "node --check server.js && find server public/src database scripts -type f -name '*.js' -exec node --check {} ';' && find scripts -type f -name '*.mjs' -exec node --check {} ';' && pnpm run subdivision:check"
   },
   "dependencies": {
     "bcryptjs": "3.0.3",

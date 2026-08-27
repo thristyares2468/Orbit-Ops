@@ -186,16 +186,18 @@ application never exposes the connection string to the browser.
 
 ## Render deployment
 
-The included `render.yaml` creates one free-plan Web Service; no separate static site or hardcoded host is needed. Its build also downloads the Jim's Mowing game into a private build directory and installs that game's production dependencies. Orbit Ops starts it on an internal-only port and exposes it solely through the signed `/tips/` gateway. The URL is not listed in the UI: the intended entrance is the **Ghosts** card on **How to Play**.
+The included `render.yaml` creates one Web Service containing both games. Subdivision is versioned directly under `games/subdivision`, so a deploy no longer clones a second private repository or requires a GitHub token. The build installs both sets of production dependencies. Orbit Ops starts Subdivision on an internal-only port and exposes it through the signed `/tips/` gateway.
+
+The games share source control and a deployment, but not account storage. The Orbit Ops process receives `DATABASE_URL`; the child Subdivision process receives `SUBDIVISION_DATABASE_URL` as its private `DATABASE_URL`. Never point those variables at the same database.
 
 1. Review the changes, then push this repository to GitHub when ready.
 2. Create a Render Web Service or apply the repository Blueprint.
-3. Use build command `pnpm install --frozen-lockfile && pnpm run jims:sync && pnpm run db:migrate` and start command `pnpm start`.
+3. Use build command `pnpm install --frozen-lockfile && pnpm run subdivision:install && pnpm run db:migrate` and start command `pnpm start`.
 4. Add the Neon connection string as `DATABASE_URL`.
 5. Add a strong `SESSION_SECRET`; the Blueprint can generate one.
 6. Set `DATABASE_SSL_MODE=verify-full`, `TRUST_PROXY_HOPS=1`, and `NODE_ENV=production`.
 7. The build applies pending numbered migrations before the new service starts. Run `pnpm run db:seed` separately if starter cosmetics are wanted.
-8. Add the four required private embedded-game variables listed below. They use its existing Railway database and are deliberately separate from Orbit Ops account data.
+8. Add the three required private Subdivision variables listed below. They point to its existing database and are deliberately separate from Orbit Ops account data.
 9. Set the health-check path to `/health` and deploy.
 10. Open the public Render URL, then confirm the client loads, Socket.IO connects on the same origin, and `/health` reports `"databaseConnected": true` and `"jimsGameRunning": true`.
 11. Test guest mode, registration/login, two-browser room joining, and one complete match in each game. In the embedded game, room code `ORBIT OPS` returns to the Orbit Ops menu.
@@ -210,16 +212,13 @@ Required production variables:
 | `ORBIT_OWNER_ACCOUNT_ID` | Immutable UUID of the single account provisioned as owner; required instead of email in production |
 | `TRUST_PROXY_HOPS=1` | Trusts Render's one proxy hop for client-IP rate limits |
 | `NODE_ENV=production` | Production caching and secret validation |
-| `JIMS_DATABASE_URL` | Jim's Mowing Railway PostgreSQL URL; never expose it to the client or reuse Orbit's database |
-| `JIMS_ADMIN_TOKEN` | A new strong admin token used only by Jim's Mowing |
-| `JIMS_DEVICE_SECRET` | A new strong device/session secret used only by Jim's Mowing |
-| `JIMS_GITHUB_TOKEN` | Fine-grained GitHub token with read-only Contents access to the private Jim's Mowing repository |
+| `SUBDIVISION_DATABASE_URL` | Subdivision PostgreSQL URL; never expose it to the client or reuse Orbit's database |
+| `SUBDIVISION_ADMIN_TOKEN` | A strong admin token used only by Subdivision |
+| `SUBDIVISION_DEVICE_SECRET` | A strong device/session secret used only by Subdivision |
 
-Optional Jim's Mowing mail variables are `JIMS_MAIL_PROVIDER`, `JIMS_BREVO_API_KEY`, `JIMS_BREVO_FROM`, and `JIMS_EMAIL_REPLY_TO`; they are used only for registration verification and email-address changes, because password recovery uses the account recovery code. Existing Jim's Mowing accounts continue to work when `JIMS_DATABASE_URL` points to the same Railway database and the database schema is already current. Rotate any connection string that has ever been pasted into chat or committed, then enter only the replacement in Render's secret environment-variable UI.
+Optional Subdivision mail variables are `SUBDIVISION_MAIL_PROVIDER`, `SUBDIVISION_BREVO_API_KEY`, `SUBDIVISION_BREVO_FROM`, and `SUBDIVISION_EMAIL_REPLY_TO`. Existing Subdivision accounts continue to work when `SUBDIVISION_DATABASE_URL` points to the same database as the former standalone deployment. Rotate any connection string that has ever been pasted into chat or committed, then enter only the replacement in Render's secret environment-variable UI.
 
-`pnpm run jims:sync` fetches the latest `main` branch of the Jim's Mowing repository whenever Orbit Ops is built. A Jim-only commit does not by itself trigger Render to rebuild Orbit Ops: use **Manual Deploy → Deploy latest commit**, or add a Jim-repository workflow that calls a private Render deploy hook. `JIMS_GAME_REPOSITORY` and `JIMS_GAME_REF` may override the source repository and branch during a build.
-
-For `JIMS_GITHUB_TOKEN`, create a fine-grained personal access token restricted to the `Orbit-Ops-Subdivision` repository with **Contents: Read-only** permission. Add it only through Render's secret environment-variable UI. The sync script passes it to Git through an in-memory authorization header, so the token is not written into the clone URL, `.git/config`, build output, or repository files.
+Legacy `JIMS_*` variables are still accepted so an existing deployment can move without downtime. New deployments should use `SUBDIVISION_*`. No GitHub token is needed because all game source is now in this repository.
 
 Render supplies `PORT`; the server binds `0.0.0.0` and defaults to port 3000 locally.
 
