@@ -408,6 +408,7 @@ function voteToSkipPreparation(match, playerId, eligiblePlayerIds, now) {
 
 function createEnemy(match, budget, spawn, now) {
   const id = `z${match.nextEnemyId++}`;
+  const serial = match.nextEnemyId - 1;
   const enemy = {
     id,
     kind: budget.boss ? 'heavy' : 'walker',
@@ -419,6 +420,15 @@ function createEnemy(match, budget, spawn, now) {
     targetId: null,
     lastAttackAt: 0,
     spawnedAt: now,
+    // Small deterministic differences stop a whole wave occupying one exact
+    // line while keeping movement server-authoritative and reproducible.
+    movementScale: 0.92 + ((serial * 37) % 17) / 100,
+    steeringPhase: ((serial * 2.399963229728653) % (Math.PI * 2)),
+    navPath: [],
+    navTargetId: null,
+    navTargetX: null,
+    navTargetZ: null,
+    navPlannedAt: 0,
     // Set when the enemy has not moved for a while; the caller uses it to
     // teleport a stuck enemy back to a spawn rather than leaving it wedged.
     stuckSince: 0,
@@ -474,7 +484,7 @@ function stepEnemy(enemy, target, deltaSeconds, now, tuning = DEFAULT_TUNING) {
     return { moved: false, attacked: false };
   }
 
-  const stride = enemy.speed * Math.max(0, deltaSeconds);
+  const stride = enemy.speed * (Number(enemy.movementScale) || 1) * Math.max(0, deltaSeconds);
   if (stride <= 0 || distance <= 0) return { moved: false, attacked: false };
   const ratio = Math.min(1, stride / distance);
   enemy.x += dx * ratio;
@@ -492,6 +502,99 @@ function stepEnemy(enemy, target, deltaSeconds, now, tuning = DEFAULT_TUNING) {
   enemy.lastZ = enemy.z;
 
   return { moved: true, attacked: false, distance };
+}
+
+// A compact grid A* used by the authoritative server when a wall blocks the
+// straight chase. The map-specific collision and ground queries are injected,
+// keeping this module pure and making the planner independently testable.
+function findPath(start, goal, options = {}) {
+  if (!start || !goal) return [];
+  const gridSize = clamp(Number(options.gridSize) || 10, 4, 32);
+  const maxVisited = clamp(Math.floor(Number(options.maxVisited) || 1200), 32, 5000);
+  const directDistance = Math.hypot(goal.x - start.x, goal.z - start.z);
+  const maxDistance = Math.max(gridSize * 8, Number(options.maxDistance) || directDistance + gridSize * 14);
+  const resolvePoint = typeof options.resolvePoint === 'function'
+    ? options.resolvePoint
+    : (x, z, from) => ({ x, y: Number(from?.y) || Number(start.y) || 0, z });
+  const isBlocked = typeof options.isBlocked === 'function' ? options.isBlocked : () => false;
+
+  const resolvedGoal = resolvePoint(Number(goal.x), Number(goal.z), start) || goal;
+  if (!isBlocked(start, resolvedGoal)) return [{ ...resolvedGoal }];
+
+  const keyOf = (ix, iz) => `${ix}:${iz}`;
+  const nodes = new Map();
+  const closed = new Set();
+  const open = [];
+  const startNode = {
+    ix: 0, iz: 0, x: Number(start.x), y: Number(start.y) || 0, z: Number(start.z),
+    g: 0, f: directDistance, parent: null
+  };
+  nodes.set(keyOf(0, 0), startNode);
+  open.push(startNode);
+  const directions = [
+    [1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
+    [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]
+  ];
+  let reached = null;
+  let visited = 0;
+
+  while (open.length && visited < maxVisited) {
+    let bestIndex = 0;
+    for (let i = 1; i < open.length; i += 1) if (open[i].f < open[bestIndex].f) bestIndex = i;
+    const current = open.splice(bestIndex, 1)[0];
+    const currentKey = keyOf(current.ix, current.iz);
+    if (closed.has(currentKey)) continue;
+    closed.add(currentKey);
+    visited += 1;
+
+    if (Math.hypot(resolvedGoal.x - current.x, resolvedGoal.z - current.z) <= gridSize * 1.6
+      && !isBlocked(current, resolvedGoal)) {
+      reached = { ...resolvedGoal, parent: current };
+      break;
+    }
+
+    for (const [dx, dz, stepCost] of directions) {
+      const ix = current.ix + dx;
+      const iz = current.iz + dz;
+      if (Math.hypot(ix * gridSize, iz * gridSize) > maxDistance) continue;
+      const key = keyOf(ix, iz);
+      if (closed.has(key)) continue;
+      const point = resolvePoint(start.x + ix * gridSize, start.z + iz * gridSize, current);
+      if (!point || isBlocked(current, point)) continue;
+      const verticalCost = Math.abs((Number(point.y) || 0) - current.y) * 0.35;
+      const g = current.g + stepCost * gridSize + verticalCost;
+      const previous = nodes.get(key);
+      if (previous && previous.g <= g) continue;
+      const node = {
+        ix, iz, x: Number(point.x), y: Number(point.y) || 0, z: Number(point.z),
+        g,
+        f: g + Math.hypot(resolvedGoal.x - point.x, resolvedGoal.z - point.z),
+        parent: current
+      };
+      nodes.set(key, node);
+      open.push(node);
+    }
+  }
+
+  if (!reached) return [];
+  const reversed = [];
+  for (let node = reached; node?.parent; node = node.parent) reversed.push({ x: node.x, y: node.y, z: node.z });
+  reversed.reverse();
+
+  // Visibility simplification removes grid zig-zags and gives the shortest
+  // collision-safe set of waypoints the sampled route can support.
+  const simplified = [];
+  let anchor = start;
+  for (let index = 0; index < reversed.length;) {
+    let furthest = index;
+    for (let candidate = reversed.length - 1; candidate > index; candidate -= 1) {
+      if (!isBlocked(anchor, reversed[candidate])) { furthest = candidate; break; }
+    }
+    simplified.push(reversed[furthest]);
+    anchor = reversed[furthest];
+    index = furthest + 1;
+  }
+  return simplified;
 }
 
 // Damage is applied here so health can never go negative or be revived by a
@@ -648,6 +751,7 @@ module.exports = {
   createEnemy,
   chooseTarget,
   stepEnemy,
+  findPath,
   damageEnemy,
   credits,
   grant,

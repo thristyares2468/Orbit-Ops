@@ -26,6 +26,7 @@ const {
   createEnemy,
   chooseTarget,
   stepEnemy,
+  findPath,
   damageEnemy,
   credits,
   grant,
@@ -75,6 +76,50 @@ test('zombies start at a chase pace and continue accelerating by wave', () => {
   assert.ok(DEFAULT_TUNING.baseSpeed >= 20, 'wave one zombies move meaningfully against a 35 u/s walking player');
   assert.ok(waveBudget(10, 1).speed > waveBudget(1, 1).speed, 'later waves move faster');
   assert.ok(DEFAULT_TUNING.maxSpeed >= 40, 'the late-wave pursuit cap remains threatening without outrunning every player');
+});
+
+test('zombie movement varies slightly without changing the wave budget', () => {
+  const match = createMatch();
+  match.pending = 2;
+  const budget = waveBudget(1, 1);
+  const first = createEnemy(match, budget, { x: 0, y: 18, z: 0 }, 0);
+  const second = createEnemy(match, budget, { x: 0, y: 18, z: 0 }, 0);
+  assert.notEqual(first.movementScale, second.movementScale);
+  assert.ok(first.movementScale >= 0.92 && first.movementScale <= 1.08);
+  assert.ok(second.movementScale >= 0.92 && second.movementScale <= 1.08);
+});
+
+test('basic pathfinding routes around a wall instead of crossing it', () => {
+  const wallBlocked = (from, to) => {
+    const dx = to.x - from.x;
+    if (Math.abs(dx) < 1e-9) return false;
+    const t = (20 - from.x) / dx;
+    if (t < 0 || t > 1) return false;
+    const z = from.z + (to.z - from.z) * t;
+    return z > -24 && z < 24;
+  };
+  const route = findPath(
+    { x: 0, y: 18, z: 0 },
+    { x: 40, y: 18, z: 0 },
+    {
+      gridSize: 8,
+      maxVisited: 500,
+      resolvePoint: (x, z) => ({ x, y: 18, z }),
+      isBlocked: wallBlocked
+    }
+  );
+  assert.ok(route.length >= 2, 'the wall requires at least one detour waypoint');
+  assert.ok(route.some(point => Math.abs(point.z) >= 24), 'the route reaches a wall opening');
+  let previous = { x: 0, y: 18, z: 0 };
+  for (const point of route) {
+    assert.equal(wallBlocked(previous, point), false, 'every route edge is collision-safe');
+    previous = point;
+  }
+});
+
+test('basic pathfinding keeps a direct route when no wall blocks it', () => {
+  const goal = { x: 30, y: 18, z: 5 };
+  assert.deepEqual(findPath({ x: 0, y: 18, z: 0 }, goal, { isBlocked: () => false }), [goal]);
 });
 
 // --- team scaling ----------------------------------------------------------

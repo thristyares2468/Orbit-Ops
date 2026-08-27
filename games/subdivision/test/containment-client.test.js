@@ -39,7 +39,11 @@ test('server-owned enemies are rendered, interpolated, and shootable', () => {
   assert.match(html, /actor\.scale\.setScalar\(1\)/u, 'network origin and zombie targets are not separated by actor scaling');
   assert.match(html, /joints\.hitHead\.geometry = new THREE\.BoxGeometry/u, 'zombies replace player targets with fitted head/body/leg volumes');
   assert.match(html, /actor\.userData\.zombieVisualBaseY = wrapper\.position\.y/u,
-    'walk bob preserves the feet-alignment offset');
+    'the imported model stores its grounded visual origin');
+  assert.match(html, /targetBounds\.min\.y - bounds\.min\.y - floorSink/u,
+    'every imported variant is sunk onto the authoritative leg hitbox');
+  assert.doesNotMatch(html, /zombieVisualBaseY \|\| 0\)\s*\+\s*Math\.abs/u,
+    'walking never lifts the whole zombie model above its hitbox');
   assert.match(html, /using procedural fallback/u, 'a failed asset request cannot prevent enemies spawning');
 });
 

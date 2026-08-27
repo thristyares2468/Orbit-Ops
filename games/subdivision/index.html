@@ -11608,9 +11608,14 @@
                 const bounds = localBounds(model);
                 const center = bounds.getCenter(new THREE.Vector3());
                 const targetCenter = targetBounds.getCenter(new THREE.Vector3());
+                // The supplied variants have differently posed feet and their
+                // skinned bounds sit slightly above the collision floor. Sink
+                // each fitted model a little after scaling so boots overlap the
+                // bottom of the authoritative leg hitbox instead of hovering.
+                const floorSink = actor.userData.kind === 'heavy' ? 1.15 : 0.85;
                 wrapper.position.set(
                     targetCenter.x - center.x,
-                    targetBounds.min.y - bounds.min.y,
+                    targetBounds.min.y - bounds.min.y - floorSink,
                     targetCenter.z - center.z
                 );
                 actor.updateMatrixWorld(true);
@@ -11739,9 +11744,9 @@
                 actor.userData.isMoving = Math.hypot(dx, dz) > 0.005;
                 if (actor.userData.isMoving) actor.rotation.y = Math.atan2(-dx, -dz);
                 if (actor.userData.zombieVisual) {
-                    const effort = actor.userData.isMoving ? 1 : 0.2;
-                    actor.userData.zombieVisual.position.y = (actor.userData.zombieVisualBaseY || 0)
-                        + Math.abs(Math.sin(time * 0.014 + actor.userData.animPhase)) * 0.22 * effort;
+                    // Foot height is fixed. The previous positive-only bob made
+                    // every stride visibly lift the whole GLB off its hitbox.
+                    actor.userData.zombieVisual.position.y = actor.userData.zombieVisualBaseY || 0;
                     actor.userData.zombieVisual.rotation.z = Math.sin(time * 0.007 + actor.userData.animPhase) * 0.035;
                     actor.userData.zombieVisual.rotation.x = actor.userData.isMoving ? -0.08 : 0;
                 }

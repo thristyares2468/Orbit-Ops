@@ -4057,7 +4057,8 @@ function handlePlayerState(client, room, player, data) {
     ac.pendingCorrection = true;
     send(client, 'positionCorrection', { position: nextPos });
   }
-  if (isContainment(room) && closedContainmentGateBlocks(room, player.position, nextPos, crouching)) {
+  if (isContainment(room) && (closedContainmentGateBlocks(room, player.position, nextPos, crouching)
+    || containmentNavigationBlocked(room, player.position, nextPos, crouching ? 1.7 : 2.1))) {
     nextPos = { ...player.position };
     ac.pendingCorrection = true;
     send(client, 'positionCorrection', { position: nextPos });
@@ -7684,6 +7685,38 @@ function containmentSpawnPoints(room) {
   return room.containmentSpawns;
 }
 
+function spreadContainmentSpawn(room, point, enemies) {
+  if (!point) return null;
+  const occupied = Array.from(enemies?.values?.() || []);
+  const clearance = 5.5;
+  const candidateAt = (radius, angle) => {
+    const x = Number(point.x) + Math.cos(angle) * radius;
+    const z = Number(point.z) + Math.sin(angle) * radius;
+    const ground = groundYForRoom(room, x, z, Number(point.y) + 12);
+    if (!Number.isFinite(ground)) return null;
+    const candidate = { ...point, x, y: ground + SPAWN_EYE_OFFSET, z };
+    if (containmentNavigationBlocked(room, point, candidate, 1.7)) return null;
+    const nearest = occupied.reduce((best, enemy) => (
+      Math.min(best, Math.hypot(enemy.x - x, enemy.z - z))
+    ), Infinity);
+    return { candidate, nearest };
+  };
+  // A golden-angle sequence spreads repeated spawns without forming visible
+  // rows. Random rotation means separate waves do not reuse the same footprints.
+  const rotation = Math.random() * Math.PI * 2;
+  let best = null;
+  for (let sample = 0; sample < 32; sample += 1) {
+    const radius = 3.5 + (sample % 6) * 2.25;
+    const result = candidateAt(radius, rotation + sample * 2.399963229728653);
+    if (!result) continue;
+    if (result.nearest >= clearance) return result.candidate;
+    if (!best || result.nearest > best.nearest) best = result;
+  }
+  // A very crowded or narrow breach may not offer full clearance. Choose the
+  // safest valid sample instead of stacking the overflow at one exact point.
+  return best?.candidate || { ...point };
+}
+
 function broadcastContainment(roomCode, room) {
   for (const [id, player] of room.players.entries()) {
     const client = clients.get(player.clientId || id);
@@ -7710,7 +7743,8 @@ function containmentTick() {
           pick: (n) => Math.floor(Math.random() * n)
         });
         if (point) {
-          const enemy = containment.createEnemy(match, event.budget, point, now);
+          const spawn = spreadContainmentSpawn(room, point, match.enemies);
+          const enemy = containment.createEnemy(match, event.budget, spawn, now);
           broadcastRaw(roomCode, JSON.stringify({ type: 'containmentSpawn', data: {
             id: enemy.id, kind: enemy.kind, x: enemy.x, y: enemy.y, z: enemy.z, health: enemy.maxHealth
           } }));
@@ -7750,6 +7784,108 @@ function respawnContainmentPlayers(roomCode, room) {
   }
 }
 
+function containmentNavigationBlocked(room, from, to, radius = 2) {
+  if (!from || !to) return true;
+  if (halfMapSegmentBlocked(room, from, to) || closedContainmentGateBlocks(room, from, to, false, radius)) return true;
+  const collision = getMapCollision(room);
+  if (!collision || typeof collision.blocked !== 'function') return false;
+  const dx = Number(to.x) - Number(from.x);
+  const dz = Number(to.z) - Number(from.z);
+  const length = Math.hypot(dx, dz);
+  const nx = length > 0.001 ? -dz / length : 0;
+  const nz = length > 0.001 ? dx / length : 0;
+  const offsets = radius > 0 ? [-radius, 0, radius] : [0];
+  try {
+    for (const offset of offsets) {
+      // Two body-height probes stop the horde walking through waist-high props
+      // while avoiding the floor triangles beneath their feet.
+      for (const belowEye of [13, 6]) {
+        if (collision.blocked(
+          Number(from.x) + nx * offset, Number(from.y) - belowEye, Number(from.z) + nz * offset,
+          Number(to.x) + nx * offset, Number(to.y) - belowEye, Number(to.z) + nz * offset,
+          {
+            ignoredGlassPanes: room.brokenGlassPanes,
+            ignoredDoors: room.openDoors,
+            ignoredVents: room.brokenVentIds
+          }
+        )) return true;
+      }
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
+
+function containmentNavigationPoint(room, x, z, from) {
+  const sourceY = Number(from?.y) || SPAWN_EYE_OFFSET;
+  const ground = groundYForRoom(room, x, z, sourceY + 10);
+  if (!Number.isFinite(ground)) return null;
+  const y = ground + SPAWN_EYE_OFFSET;
+  // A grid edge may climb stairs or a ramp, but it may not teleport between
+  // stacked floors or jump onto scenery.
+  if (Math.abs(y - sourceY) > 8.5) return null;
+  return { x, y, z };
+}
+
+function containmentRouteWaypoint(room, enemy, target, now) {
+  if (!target) return null;
+  const directBlocked = containmentNavigationBlocked(room, enemy, target, 2.1);
+  if (!directBlocked) {
+    enemy.navPath = [];
+    return target;
+  }
+
+  const targetMoved = !Number.isFinite(enemy.navTargetX)
+    || Math.hypot(target.x - enemy.navTargetX, target.z - enemy.navTargetZ) > 12;
+  const needsPlan = enemy.navTargetId !== target.id || targetMoved
+    || !Array.isArray(enemy.navPath) || enemy.navPath.length === 0
+    || now - (enemy.navPlannedAt || 0) > 900;
+  if (needsPlan) {
+    enemy.navPath = containment.findPath(enemy, target, {
+      gridSize: 10,
+      maxVisited: 1500,
+      resolvePoint: (x, z, from) => containmentNavigationPoint(room, x, z, from),
+      isBlocked: (from, to) => containmentNavigationBlocked(room, from, to, 2.1)
+    });
+    enemy.navTargetId = target.id;
+    enemy.navTargetX = target.x;
+    enemy.navTargetZ = target.z;
+    enemy.navPlannedAt = now;
+  }
+  while (enemy.navPath?.length && Math.hypot(enemy.navPath[0].x - enemy.x, enemy.navPath[0].z - enemy.z) < 3.2) {
+    enemy.navPath.shift();
+  }
+  return enemy.navPath?.[0] || null;
+}
+
+function separatedContainmentWaypoint(enemy, waypoint, enemies, now) {
+  if (!waypoint) return null;
+  // Do not steer the attack target itself sideways. Separation is useful on
+  // the approach, but close to a player it must not distort melee range.
+  if (Math.hypot(waypoint.x - enemy.x, waypoint.z - enemy.z) < 10) return waypoint;
+  let repelX = 0, repelZ = 0;
+  for (const other of enemies.values()) {
+    if (other === enemy) continue;
+    const dx = enemy.x - other.x;
+    const dz = enemy.z - other.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance <= 0.001 || distance >= 7.5) continue;
+    const strength = (7.5 - distance) / 7.5;
+    repelX += (dx / distance) * strength * 4;
+    repelZ += (dz / distance) * strength * 4;
+  }
+  const dx = waypoint.x - enemy.x;
+  const dz = waypoint.z - enemy.z;
+  const distance = Math.hypot(dx, dz) || 1;
+  const weave = Math.sin(now * 0.0017 + (enemy.steeringPhase || 0)) * 0.8;
+  return {
+    ...waypoint,
+    x: waypoint.x + repelX + (-dz / distance) * weave,
+    z: waypoint.z + repelZ + (dx / distance) * weave
+  };
+}
+
 // Enemy motion and attacks. Separate from the director so the pacing of the two
 // can differ without one starving the other.
 function containmentEnemyTick() {
@@ -7772,21 +7908,27 @@ function containmentEnemyTick() {
       if (targetId) assignments.set(targetId, (assignments.get(targetId) || 0) + 1);
       const target = view.players.find((p) => p.id === targetId) || null;
       const before = { x: enemy.x, y: enemy.y, z: enemy.z };
-      const result = containment.stepEnemy(enemy, target, delta, now, match.tuning);
+      const routeWaypoint = containmentRouteWaypoint(room, enemy, target, now);
+      const waypoint = separatedContainmentWaypoint(enemy, routeWaypoint || target, match.enemies, now);
+      const chasingPlayerDirectly = routeWaypoint === target;
+      const result = containment.stepEnemy(
+        enemy,
+        waypoint ? { ...waypoint, id: chasingPlayerDirectly ? targetId : null } : null,
+        delta,
+        now,
+        match.tuning
+      );
 
       // Keep the horde on the authored map. Try the full stride first, then
       // slide along either axis; if every route is blocked the existing stuck
       // recovery moves it back to a player spawn after four seconds.
-      if (result.moved && (segmentBlockedForRoom(room, before, enemy)
-        || closedContainmentGateBlocks(room, before, enemy, false, 1.5))) {
+      if (result.moved && containmentNavigationBlocked(room, before, enemy, 2.1)) {
         const desired = { x: enemy.x, y: enemy.y, z: enemy.z };
         const slideX = { x: desired.x, y: before.y, z: before.z };
         const slideZ = { x: before.x, y: before.y, z: desired.z };
-        if (!segmentBlockedForRoom(room, before, slideX)
-          && !closedContainmentGateBlocks(room, before, slideX, false, 1.5)) {
+        if (!containmentNavigationBlocked(room, before, slideX, 2.1)) {
           enemy.x = slideX.x; enemy.z = slideX.z;
-        } else if (!segmentBlockedForRoom(room, before, slideZ)
-          && !closedContainmentGateBlocks(room, before, slideZ, false, 1.5)) {
+        } else if (!containmentNavigationBlocked(room, before, slideZ, 2.1)) {
           enemy.x = slideZ.x; enemy.z = slideZ.z;
         } else {
           enemy.x = before.x; enemy.z = before.z;
@@ -7814,7 +7956,8 @@ function containmentEnemyTick() {
         const point = containment.pickSpawn(containmentSpawnPoints(room), view.players, {
           isVisible: () => false, pick: (n) => Math.floor(Math.random() * n)
         });
-        if (point) { enemy.x = point.x; enemy.y = point.y; enemy.z = point.z; }
+        const recovery = spreadContainmentSpawn(room, point, match.enemies);
+        if (recovery) { enemy.x = recovery.x; enemy.y = recovery.y; enemy.z = recovery.z; }
         enemy.stuckSince = 0;
       }
     }
@@ -7837,12 +7980,22 @@ function containmentEnemyTick() {
 // Returns true when something is in the way, which is what makes an unseen
 // breach point preferable to a watched one.
 function segmentBlockedForRoom(room, from, to) {
-  const collision = room.collision || null;
-  if (!collision || typeof collision.segmentBlocked !== 'function') return false;
+  const collision = getMapCollision(room);
+  if (!collision || typeof collision.blocked !== 'function') return false;
   try {
-    return collision.segmentBlocked(from.x, (from.y || 0) + 1.5, from.z, to.x, (to.y || 0) + 1.5, to.z);
+    return halfMapSegmentBlocked(room, from, to)
+      || closedContainmentGateBlocks(room, from, to, false, 0)
+      || collision.blocked(
+        from.x, from.y || 0, from.z,
+        to.x, to.y || 0, to.z,
+        {
+          ignoredGlassPanes: room.brokenGlassPanes,
+          ignoredDoors: room.openDoors,
+          ignoredVents: room.brokenVentIds
+        }
+      );
   } catch {
-    return false;
+    return true;
   }
 }
 

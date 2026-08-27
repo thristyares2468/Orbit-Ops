@@ -67,8 +67,8 @@ test('closed authored gates are authoritative for players and zombies', () => {
     'gate positions come from per-map choke metadata rather than spawn points');
   assert.match(server, /closedContainmentGateBlocks\(room, player\.position, nextPos, crouching\)/u,
     'a player cannot client-predict through a closed gate');
-  assert.match(section, /closedContainmentGateBlocks\(room, before, enemy, false, 1\.5\)/u,
-    'the authoritative horde simulation cannot walk through one either');
+  assert.match(section, /containmentNavigationBlocked\(room, before, enemy, 2\.1\)/u,
+    'the authoritative horde simulation uses wall and gate collision together');
 });
 
 test('Containment players always begin in the map staging location', () => {
@@ -138,8 +138,27 @@ test('a wave clear rewards the squad and respawns downed players', () => {
 test('enemy line of sight uses the map mesh, not a guess', () => {
   assert.match(section, /isVisible: \(spawn, player\) => !segmentBlockedForRoom\(room, spawn, player\)/u);
   // And a missing collision mesh must not throw inside the director tick.
-  assert.match(server, /function segmentBlockedForRoom\(room, from, to\) \{[\s\S]*?if \(!collision \|\| typeof collision\.segmentBlocked !== 'function'\) return false;/u);
-  assert.match(server, /function segmentBlockedForRoom\(room, from, to\) \{[\s\S]*?\} catch \{\s*\n\s*return false;/u);
+  assert.match(server, /function segmentBlockedForRoom\(room, from, to\) \{[\s\S]*?const collision = getMapCollision\(room\);/u);
+  assert.match(server, /function segmentBlockedForRoom\(room, from, to\) \{[\s\S]*?typeof collision\.blocked !== 'function'/u);
+  assert.match(server, /function segmentBlockedForRoom\(room, from, to\) \{[\s\S]*?collision\.blocked\(/u);
+});
+
+test('zombies use cached A-star routes and body-width map collision', () => {
+  assert.match(section, /function containmentRouteWaypoint\(room, enemy, target, now\)/u);
+  assert.match(section, /containment\.findPath\(enemy, target/u);
+  assert.match(section, /maxVisited: 1500/u);
+  assert.match(section, /function containmentNavigationBlocked\(room, from, to, radius = 2\)/u);
+  assert.match(section, /ignoredDoors: room\.openDoors/u);
+  assert.match(section, /separatedContainmentWaypoint\(enemy, routeWaypoint \|\| target, match\.enemies, now\)/u);
+});
+
+test('spawn placement spreads a wave across grounded collision-safe positions', () => {
+  assert.match(section, /function spreadContainmentSpawn\(room, point, enemies\)/u);
+  assert.match(section, /groundYForRoom\(room, x, z/u);
+  assert.match(section, /Math\.min\(best, Math\.hypot\(enemy\.x - x, enemy\.z - z\)\)/u);
+  assert.match(section, /best\?\.candidate \|\| \{ \.\.\.point \}/u);
+  assert.match(section, /containment\.createEnemy\(match, event\.budget, spawn, now\)/u);
+  assert.match(section, /const recovery = spreadContainmentSpawn\(room, point, match\.enemies\)/u);
 });
 
 test('a wedged enemy is recovered rather than left grinding into a wall', () => {
