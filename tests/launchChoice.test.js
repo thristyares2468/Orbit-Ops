@@ -97,7 +97,7 @@ test("missing poster art degrades to a gradient rather than a broken image", () 
   assert.doesNotMatch(choice[1], /<img/u, "no <img> inside the cards");
   for (const [selector, file] of [["launch-card-orbit", "orbit-ops"], ["launch-card-oosd", "oosd"]]) {
     const rule = new RegExp(
-      `\\.${selector} \\.launch-card-art \\{ background-image: url\\("/assets/art/launch/${file}\\.jpg"\\), linear-gradient`,
+      `\\.${selector} \\.launch-card-art \\{[\\s\\S]*?background-image: url\\("/assets/art/launch/${file}\\.jpg"\\), linear-gradient`,
       "u"
     );
     assert.match(style, rule, `${file} art layers over a gradient fallback`);

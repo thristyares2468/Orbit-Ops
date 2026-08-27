@@ -16,11 +16,15 @@ test("Jim's gateway access tokens expire and reject tampering", () => {
   assert.equal(verifyJimsAccessToken(token, "test-secret", now + (7 * 60 * 60 * 1000)), false);
 });
 
-test("Jim's embedded CSP permits GLB blob texture decoding", async () => {
+test("the embedded Subdivision CSP permits its GLB decoder runtime", async () => {
   const source = await readFile(new URL("../server.js", import.meta.url), "utf8");
-  assert.match(source, /script-src 'self' 'unsafe-inline' https:\/\/cdn\.jsdelivr\.net/);
+  // The Subdivision loader needs the emscripten glue used by the Draco and Basis
+  // decoders. Keep this exception scoped to /tips; Orbit Ops retains its strict
+  // no-eval CSP.
+  assert.match(source, /request\.path === "\/tips" \|\| request\.path\.startsWith\("\/tips\/"\)/u);
+  assert.match(source, /script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https:\/\/cdn\.jsdelivr\.net/u);
   assert.match(source, /connect-src 'self' blob: https:\/\/cdn\.jsdelivr\.net ws: wss:/);
-  assert.doesNotMatch(source, /'unsafe-eval'/);
+  assert.match(source, /: "default-src 'self'; script-src 'self';/u, "Orbit Ops keeps the stricter policy");
 });
 
 test("Orbit Ops declares its own favicon for both the game and embedded-game route", async () => {
@@ -31,14 +35,14 @@ test("Orbit Ops declares its own favicon for both the game and embedded-game rou
   assert.match(index, /rel="icon" type="image\/svg\+xml" href="\/orbit-ops-favicon\.svg"/);
 });
 
-test("OOSD is an ordinary labelled button in the menu", async () => {
+test("Subdivision is an ordinary labelled launch card in the shared selector", async () => {
   const index = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
-  const ui = await readFile(new URL("../public/src/ui.js", import.meta.url), "utf8");
-  // It sits in the row along the bottom of the menu with the other utilities.
-  const nav = index.match(/<nav class="utility-nav">([\s\S]*?)<\/nav>/u)[1];
-  assert.match(nav, /<button id="oosd-button" type="button">OOSD<\/button>/u);
-  // One click, straight to the launch route. No press count, no code.
-  assert.match(ui, /byId\("oosd-button"\)\?\.addEventListener\("click", \(\) => \{\s*window\.location\.assign\("\/easter-egg\/jims-launch"\);/u);
+  const main = await readFile(new URL("../public/src/main.js", import.meta.url), "utf8");
+  assert.match(index, /<button id="loading-subdivision" class="launch-card launch-card-oosd" type="button">/u);
+  assert.match(index, /<b>Subdivision<\/b>/u);
+  // One click, straight to the signed launch route. No repository URL, secret
+  // code, or standalone deployment is involved.
+  assert.match(main, /getElementById\("loading-subdivision"\)\.addEventListener\("click", \(\) => \{\s*window\.location\.assign\("\/easter-egg\/jims-launch"\);/u);
 });
 
 test("the old hidden door is gone entirely", async () => {

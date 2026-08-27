@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { JIMS_ACCESS_COOKIE, createJimsGateway } from "../server/jimsGateway.js";
 
-const ORBIT_ROOT = new URL("..", import.meta.url).pathname;
+// URL.pathname leaves spaces encoded, which points the gateway at a different
+// directory on macOS. The production caller already supplies a filesystem path.
+const ORBIT_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const VALID_HANDOFF = "abcdefghijklmnopqrstuvwxYZ012345";
 
 function responseRecorder() {
