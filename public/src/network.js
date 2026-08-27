@@ -1,8 +1,6 @@
 export class NetworkClient {
   constructor() {
-    const configuredBackend = String(window.ORBIT_OPS_CLIENT_CONFIG?.backendUrl || "").trim();
-    const backendUrl = configuredBackend || window.location.origin;
-    this.socket = window.io(backendUrl, { autoConnect: true, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelayMax: 5000 });
+    this.socket = window.io({ autoConnect: true, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelayMax: 5000 });
     this.listeners = new Map();
     this.connected = false;
     this.pingMs = null;

@@ -11,7 +11,6 @@ import { GameServer } from "./server/gameServer.js";
 import { createJimsGateway } from "./server/jimsGateway.js";
 import { createAdminRouter } from "./server/adminHttp.js";
 import { attachTrustedClientIp, configureTrustedProxy } from "./server/trustedClientIp.js";
-import { applyPublicCors, createPublicClientOriginPolicy } from "./server/publicClientOrigins.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -19,16 +18,11 @@ const app = express();
 // into its single proxy hop through render.yaml.
 configureTrustedProxy(app, process.env.TRUST_PROXY_HOPS ?? 0);
 const server = createServer(app);
-const publicClientOrigins = createPublicClientOriginPolicy();
 const io = new SocketIOServer(server, {
   maxHttpBufferSize: 64 * 1024,
   pingInterval: 10_000,
   pingTimeout: 8_000,
-  perMessageDeflate: { threshold: 1024 },
-  cors: {
-    origin: (origin, callback) => publicClientOrigins.socketIo(origin, callback),
-    methods: ["GET", "POST"]
-  }
+  perMessageDeflate: { threshold: 1024 }
 });
 attachTrustedClientIp(io, app);
 
@@ -68,8 +62,7 @@ app.use(express.json({ limit: "32kb" }));
 const jimsGateway = createJimsGateway({
   server,
   secret: process.env.SESSION_SECRET,
-  orbitRoot: here,
-  publicClientOrigins
+  orbitRoot: here
 });
 
 // Break-glass moderation. 404s entirely unless ORBIT_ADMIN_TOKEN is configured,
@@ -112,13 +105,7 @@ const gameServer = new GameServer(io);
 let databaseHealth = false;
 let lastDatabaseCheck = 0;
 
-app.options("/health", (request, response) => {
-  if (!applyPublicCors(request, response, publicClientOrigins)) return response.status(403).end();
-  response.status(204).end();
-});
-
-app.get("/health", async (request, response) => {
-  applyPublicCors(request, response, publicClientOrigins);
+app.get("/health", async (_request, response) => {
   if (Date.now() - lastDatabaseCheck > 10_000) {
     databaseHealth = await checkDatabaseHealth();
     lastDatabaseCheck = Date.now();

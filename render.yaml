@@ -23,10 +23,6 @@ services:
         generateValue: true
       - key: TRUST_PROXY_HOPS
         value: "1"
-      # Exact Cloudflare Pages origin, optionally followed by the project-scoped
-      # preview wildcard. Add this manually on existing Blueprint services.
-      - key: PUBLIC_CLIENT_ORIGINS
-        sync: false
       - key: SUBDIVISION_DATABASE_URL
         sync: false
       - key: SUBDIVISION_ADMIN_TOKEN

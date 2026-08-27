@@ -116,12 +116,12 @@ test("choosing Orbit Ops still boots the game rather than navigating", () => {
   assert.doesNotMatch(handler, /location\.assign/u, "Orbit Ops must not leave the page");
 });
 
-test("choosing Subdivision uses the deployment-specific destination", () => {
-  // Same-origin Render keeps the signed launch route, while the generated Pages
-  // configuration supplies its static /tips/ destination.
+test("choosing Subdivision goes through the launch route", () => {
+  // The launch route is what mints the access cookie; linking at /tips directly
+  // would 404 for anyone who has not been through it.
   assert.match(
     main,
-    /getElementById\("loading-subdivision"\)\.addEventListener\("click", \(\) => \{\s*window\.location\.assign\(String\(clientConfig\.subdivisionUrl \|\| "\/easter-egg\/jims-launch"\)\);/u
+    /getElementById\("loading-subdivision"\)\.addEventListener\("click", \(\) => \{\s*window\.location\.assign\("\/easter-egg\/jims-launch"\);/u
   );
 });
 

@@ -222,16 +222,6 @@ Legacy `JIMS_*` variables are still accepted so an existing deployment can move 
 
 Render supplies `PORT`; the server binds `0.0.0.0` and defaults to port 3000 locally.
 
-### Free split hosting with Cloudflare Pages
-
-To move static game bandwidth off Render without buying a domain, build the
-browser-only bundle with `PUBLIC_BACKEND_URL=https://<service>.onrender.com pnpm
-run build:cloudflare` and publish `dist-pages` through Cloudflare Pages. Add the
-assigned production and project-scoped preview `pages.dev` origins to Render's
-`PUBLIC_CLIENT_ORIGINS`. The exact dashboard fields, security boundary, and
-verification checklist are in
-[`docs/cloudflare-pages-render.md`](docs/cloudflare-pages-render.md).
-
 ## Verification
 
 ```bash
