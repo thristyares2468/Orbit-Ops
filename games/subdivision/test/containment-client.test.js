@@ -76,6 +76,15 @@ test('gates are solid map objects and use the normal interact binding', () => {
     'the displayed collider uses the complete authored wall-to-wall gate dimensions');
 });
 
+test('the coordinate capture binding copies floor coordinates for gate authoring', () => {
+  const capture = html.match(/function captureLookCoords\(\) \{[\s\S]*?\n        \}/u)?.[0] || '';
+  assert.match(capture, /const pasteReady = formatVec\(hit\.point\)/u);
+  assert.match(capture, /Ground point copied\/logged/u);
+  assert.doesNotMatch(capture, /navigator\.clipboard\.writeText\(formatVec\(spawn\)\)/u,
+    'the clipboard must not receive the player-eye position for gate yHint values');
+  assert.match(capture, /navigator\.clipboard\.writeText\(pasteReady\)/u);
+});
+
 test('preparation voting has a visible one-vote client control', () => {
   assert.match(html, /id="ct-skip-prep"/u);
   assert.match(html, /sendPacket\('containmentSkipPreparation', \{\}\)/u);

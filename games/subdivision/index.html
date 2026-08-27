@@ -19363,9 +19363,12 @@
             const hit = hits[0];
             const spawn = hit.point.clone().add(new THREE.Vector3(0, playerHeight, 0));
             const text = `Ground ${formatVec(hit.point)} | Spawn ${formatVec(spawn)}`;
-            const pasteReady = `{ x: ${spawn.x.toFixed(2)}, y: ${spawn.y.toFixed(2)}, z: ${spawn.z.toFixed(2)} }`;
-            showCoordToast(`${text}<br>Spawn point copied/logged: ${pasteReady}`);
-            console.log('Spawn point:', pasteReady);
+            // Gate yHint values describe the walkable floor, not a player's
+            // eye position. Copy the ground hit so P can be pasted directly
+            // into the Containment gate worksheet or map authoring data.
+            const pasteReady = formatVec(hit.point);
+            showCoordToast(`${text}<br>Ground point copied/logged: ${pasteReady}`);
+            console.log('Ground point:', pasteReady);
             if (navigator.clipboard?.writeText) {
                 navigator.clipboard.writeText(pasteReady).catch(() => {});
             }
