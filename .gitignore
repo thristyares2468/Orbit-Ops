@@ -5,6 +5,7 @@ node_modules/
 .DS_Store
 test-results/
 coverage/
+dist-pages/
 npm-debug.log*
 
 

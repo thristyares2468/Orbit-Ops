@@ -11,6 +11,12 @@ let game = null;
 let assetsReady = false;
 let serverReady = false;
 let health = { databaseConnected: false, databaseConfigured: false };
+const clientConfig = window.ORBIT_OPS_CLIENT_CONFIG || {};
+const backendUrl = String(clientConfig.backendUrl || "").trim().replace(/\/+$/u, "");
+
+function backendPath(path) {
+  return backendUrl ? `${backendUrl}${path}` : path;
+}
 
 function updateServiceStrip() {
   const serverStatus = document.getElementById("auth-server-status");
@@ -45,7 +51,7 @@ network.on("network:disconnected", () => { serverReady = false; ui.setLoading({ 
 
 async function checkHealth() {
   try {
-    const response = await fetch("/health", { cache: "no-store" });
+    const response = await fetch(backendPath("/health"), { cache: "no-store" });
     if (!response.ok) throw new Error(`Health endpoint returned ${response.status}.`);
     health = await response.json();
   } catch {
@@ -89,10 +95,11 @@ document.getElementById("loading-continue").addEventListener("click", async () =
     delete button.dataset.busy;
   }
 });
-// The other destination. The launch route mints the access cookie and redirects,
-// so nothing here needs to know where the embedded game actually lives.
+// Render keeps the signed same-origin launch route. A Cloudflare build replaces
+// this with its static /tips/ path; the Subdivision client then opens its socket
+// directly to the allowlisted Render backend.
 document.getElementById("loading-subdivision").addEventListener("click", () => {
-  window.location.assign("/easter-egg/jims-launch");
+  window.location.assign(String(clientConfig.subdivisionUrl || "/easter-egg/jims-launch"));
 });
 
 await Promise.all([loadAssets(), checkHealth()]);

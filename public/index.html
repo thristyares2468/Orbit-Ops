@@ -401,6 +401,7 @@
        game-select menu, which needs no Phaser whatsoever, waited on it. Deferred
        classic scripts still execute in document order ahead of the module below,
        so game.js finds both globals where it expects them. -->
+  <script defer src="/client-config.js"></script>
   <script defer src="/vendor/phaser/dist/phaser.min.js"></script>
   <script defer src="/socket.io/socket.io.js"></script>
   <script type="module" src="/src/main.js"></script>

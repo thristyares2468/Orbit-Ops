@@ -30,6 +30,11 @@ export function verifyJimsAccessToken(token, secret, now = Date.now()) {
   return expected.length === supplied.length && timingSafeEqual(expected, supplied);
 }
 
+export function isAllowedStaticClientOrigin(origin, publicClientOrigins) {
+  const browserOrigin = String(origin || "");
+  return Boolean(browserOrigin) && Boolean(publicClientOrigins?.allows(browserOrigin));
+}
+
 function cookieValue(request, name) {
   const item = String(request.headers.cookie || "")
     .split(";")
@@ -72,6 +77,7 @@ export function createJimsGateway({
   server,
   secret,
   orbitRoot,
+  publicClientOrigins = { allows: () => false },
   childPort = Number(process.env.SUBDIVISION_GAME_PORT || process.env.JIMS_GAME_PORT || 3101)
 }) {
   const publicPath = JIMS_PUBLIC_PATH;
@@ -182,7 +188,12 @@ export function createJimsGateway({
   const handleUpgrade = (request, socket, head) => {
     const url = new URL(request.url || "/", "http://localhost");
     if (url.pathname !== `${publicPath}/ws`) return;
-    if (!authorized(request) || !running) {
+    // Cloudflare Pages deliberately serves only the public client. Its browser
+    // cannot receive the same-origin /tips cookie, so an explicitly allowlisted
+    // Pages origin is the equivalent front door for WebSocket upgrades. The
+    // child still requires account or guest authentication before gameplay.
+    const allowedStaticClient = isAllowedStaticClientOrigin(request.headers.origin, publicClientOrigins);
+    if ((!authorized(request) && !allowedStaticClient) || !running) {
       socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
