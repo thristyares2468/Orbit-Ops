@@ -474,22 +474,6 @@ CREATE TABLE IF NOT EXISTS friendships (
 CREATE INDEX IF NOT EXISTS idx_friendships_requested ON friendships (requested_by, status);
 CREATE INDEX IF NOT EXISTS idx_friendships_high ON friendships (account_high, status);
 
-CREATE TABLE IF NOT EXISTS cross_server_game_invites (
-  id                   BIGSERIAL PRIMARY KEY,
-  token_hash           TEXT NOT NULL UNIQUE,
-  sender_account_id    BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  recipient_account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  destination_instance TEXT NOT NULL,
-  destination_url      TEXT NOT NULL,
-  room_code            TEXT NOT NULL,
-  status               TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'expired')),
-  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-  expires_at           TIMESTAMPTZ NOT NULL,
-  consumed_at          TIMESTAMPTZ
-);
-CREATE INDEX IF NOT EXISTS idx_cross_invites_recipient_pending
-  ON cross_server_game_invites (recipient_account_id, status, expires_at DESC);
-
 CREATE TABLE IF NOT EXISTS cross_server_auth_handoffs (
   token_hash           TEXT PRIMARY KEY,
   account_id           BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -3641,66 +3625,8 @@ async function getFriendships(accountId) {
   return rows;
 }
 
-function crossInviteTokenHash(token) {
+function crossServerTokenHash(token) {
   return crypto.createHash('sha256').update(String(token || '')).digest('hex');
-}
-
-async function getPendingCrossServerInvites(recipientAccountId, { limit = 5 } = {}) {
-  await query(
-    `UPDATE cross_server_game_invites SET status = 'expired'
-      WHERE recipient_account_id = $1 AND status = 'pending' AND expires_at <= now()`,
-    [recipientAccountId]
-  );
-  const { rows } = await query(
-    `SELECT i.id, i.destination_instance, i.destination_url, i.room_code, i.created_at, i.expires_at,
-            sender.username AS sender_name
-       FROM cross_server_game_invites i
-       JOIN accounts sender ON sender.id = i.sender_account_id
-      WHERE i.recipient_account_id = $1 AND i.status = 'pending' AND i.expires_at > now()
-      ORDER BY i.created_at DESC LIMIT $2`,
-    [recipientAccountId, Math.max(1, Math.min(10, Number(limit) || 5))]
-  );
-  return rows;
-}
-
-async function respondCrossServerInvite({ recipientAccountId, inviteId, accept }) {
-  if (!accept) {
-    const { rows } = await query(
-      `UPDATE cross_server_game_invites SET status = 'declined', consumed_at = now()
-        WHERE id = $1 AND recipient_account_id = $2 AND status = 'pending' AND expires_at > now()
-        RETURNING id`,
-      [inviteId, recipientAccountId]
-    );
-    return rows[0] || null;
-  }
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const accepted = await client.query(
-      `UPDATE cross_server_game_invites SET status = 'accepted', consumed_at = now()
-        WHERE id = $1 AND recipient_account_id = $2 AND status = 'pending' AND expires_at > now()
-        RETURNING id, destination_instance, destination_url, room_code, expires_at`,
-      [inviteId, recipientAccountId]
-    );
-    if (!accepted.rows[0]) {
-      await client.query('ROLLBACK');
-      return null;
-    }
-    const token = crypto.randomBytes(32).toString('base64url');
-    await client.query(
-      `INSERT INTO cross_server_auth_handoffs
-         (token_hash, account_id, destination_instance, room_code, expires_at)
-       VALUES ($1, $2, $3, $4, LEAST($5, now() + interval '5 minutes'))`,
-      [crossInviteTokenHash(token), recipientAccountId, accepted.rows[0].destination_instance, accepted.rows[0].room_code, accepted.rows[0].expires_at]
-    );
-    await client.query('COMMIT');
-    return { ...accepted.rows[0], token };
-  } catch (error) {
-    try { await client.query('ROLLBACK'); } catch {}
-    throw error;
-  } finally {
-    client.release();
-  }
 }
 
 async function createCrossServerHandoff({ accountId, destinationInstance, roomCode, ttlMinutes = 5 }) {
@@ -3709,7 +3635,7 @@ async function createCrossServerHandoff({ accountId, destinationInstance, roomCo
     `INSERT INTO cross_server_auth_handoffs
        (token_hash, account_id, destination_instance, room_code, expires_at)
      VALUES ($1, $2, $3, $4, now() + ($5::int * interval '1 minute'))`,
-    [crossInviteTokenHash(token), accountId, destinationInstance, roomCode, Math.max(1, Math.min(10, Number(ttlMinutes) || 5))]
+    [crossServerTokenHash(token), accountId, destinationInstance, roomCode, Math.max(1, Math.min(10, Number(ttlMinutes) || 5))]
   );
   return token;
 }
@@ -3721,7 +3647,7 @@ async function consumeCrossServerHandoff({ token, destinationInstance }) {
       WHERE token_hash = $1 AND destination_instance = $2
         AND consumed_at IS NULL AND expires_at > now()
       RETURNING account_id, room_code`,
-    [crossInviteTokenHash(token), destinationInstance]
+    [crossServerTokenHash(token), destinationInstance]
   );
   return rows[0] || null;
 }
@@ -3786,40 +3712,6 @@ async function removeActiveRoom(roomCode, instanceId, leaseId) {
 
 async function clearActiveRoomsForInstance(instanceId) {
   await query(`DELETE FROM active_game_rooms WHERE instance_id = $1`, [instanceId]);
-}
-
-async function createCrossServerInvites({ senderAccountId, destinationInstance, destinationUrl, roomCode, ttlMinutes = 10 }) {
-  const tokenRows = [];
-  const friends = await query(
-    `SELECT CASE WHEN account_low = $1 THEN account_high ELSE account_low END AS recipient_id
-       FROM friendships
-      WHERE status = 'accepted' AND (account_low = $1 OR account_high = $1)`,
-    [senderAccountId]
-  );
-  for (const friend of friends.rows) {
-    const token = crypto.randomBytes(32).toString('base64url');
-    const inserted = await query(
-      `INSERT INTO cross_server_game_invites
-         (token_hash, sender_account_id, recipient_account_id, destination_instance, destination_url, room_code, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, now() + ($7::int * interval '1 minute'))
-       RETURNING id, recipient_account_id, expires_at`,
-      [crossInviteTokenHash(token), senderAccountId, friend.recipient_id, destinationInstance, destinationUrl, roomCode, Math.max(1, Math.min(60, Number(ttlMinutes) || 10))]
-    );
-    tokenRows.push({ ...inserted.rows[0], token });
-  }
-  return tokenRows;
-}
-
-async function consumeCrossServerInvite({ recipientAccountId, token, destinationInstance }) {
-  const { rows } = await query(
-    `UPDATE cross_server_game_invites
-        SET status = 'accepted', consumed_at = now()
-      WHERE token_hash = $1 AND recipient_account_id = $2 AND destination_instance = $3
-        AND status = 'pending' AND expires_at > now()
-      RETURNING id, room_code`,
-    [crossInviteTokenHash(token), recipientAccountId, destinationInstance]
-  );
-  return rows[0] || null;
 }
 
 async function recordRecentPlayerEncounters(accountId, otherAccountIds = []) {
@@ -4100,16 +3992,12 @@ module.exports = {
   getFriendships,
   recordRecentPlayerEncounters,
   getRecentPlayerEncounters,
-  getPendingCrossServerInvites,
-  respondCrossServerInvite,
   listAccountBalances,
   setMowbucks,
   findAccountByUsername,
   grantSkinToAccount,
   getAccountSettings,
   saveAccountSettings,
-  createCrossServerInvites,
-  consumeCrossServerInvite,
   createCrossServerHandoff,
   consumeCrossServerHandoff,
   claimActiveRoom,

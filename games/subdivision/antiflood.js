@@ -78,10 +78,6 @@ const MSG_LIMITS = {
   adminListBalances: { ratePerSec: 0.5, burst: 3 },
   adminSetMowbucks: { ratePerSec: 0.5, burst: 4 },
   adminGrantSkin: { ratePerSec: 0.5, burst: 4 },
-  crossInviteList: { ratePerSec: 0.2, burst: 2 },
-  crossInviteAllFriends: { ratePerSec: 0.1, burst: 1 },
-  crossInviteRespond: { ratePerSec: 0.5, burst: 3 },
-  crossInviteConsume: { ratePerSec: 0.5, burst: 2 },
   default: { ratePerSec: 15, burst: 15 }
 };
 

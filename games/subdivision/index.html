@@ -785,11 +785,6 @@
         #party-invite-banner .pib-title { color: #fff; font: 900 13px 'Courier New', monospace; margin-bottom: 4px; }
         #party-invite-banner .pib-sub { color: #aeb6ac; font: 11px 'Courier New', monospace; margin-bottom: 10px; }
         #party-invite-banner .pib-actions { display: flex; gap: 8px; }
-        #cross-game-invite-banner { position:fixed; right:18px; bottom:18px; z-index:72; display:none; min-width:300px; max-width:390px; padding:14px 16px; background:rgba(9,14,10,.98); border:1px solid #86c663; box-shadow:0 12px 30px rgba(0,0,0,.55); font-family:'Courier New',monospace; }
-        #cross-game-invite-banner.open { display:block; }
-        #cross-game-invite-banner strong, #cross-game-invite-banner small { display:block; }
-        #cross-game-invite-banner small { margin:5px 0 11px; color:#b6c0b2; }
-        #cross-game-invite-banner .pib-actions { display:flex; gap:8px; }
 
         .inventory-toolbar { flex: 0 0 auto; display: grid; grid-template-columns: auto minmax(210px, 1fr) auto auto; gap: 12px; align-items: center; margin-bottom: 14px; padding:10px 12px; border:1px solid rgba(255,255,255,.12); background:linear-gradient(180deg,#313b36,#262d29); }
         #inventory-search, .news-editor input, .news-editor textarea { box-sizing: border-box; padding: 10px 12px; border: 1px solid rgba(255,255,255,0.18); background: rgba(5,9,6,0.7); color: #fff; font: 12px 'Courier New', monospace; }
@@ -2344,11 +2339,6 @@
                 <button class="friend-join" type="button" id="party-invite-decline">Decline</button>
             </div>
         </div>
-        <div id="cross-game-invite-banner" role="dialog" aria-live="polite">
-            <strong id="cross-game-invite-title">Game invite</strong>
-            <small id="cross-game-invite-detail"></small>
-            <div class="pib-actions"><button class="friend-join" type="button" id="cross-game-invite-accept">Join Game</button><button class="friend-remove" type="button" id="cross-game-invite-decline">Decline</button></div>
-        </div>
 
         <!-- Full-screen hub inventory. Loadout is a drawer so the default view
              shows owned skins/cases without nesting marketplace content here. -->
@@ -3195,7 +3185,6 @@
         let inventoryWeaponFilter = 'all';
         let tradeUpState = { tutorialSeen: true, items: [], selectedIds: [], activeRarity: '', ready: false, processing: false, requestKey: '', loaded: false, tutorialAutoOpened: false };
         let pendingPartyInvite = null;
-        let pendingCrossGameInvite = null;
         const initialHandoffToken = new URLSearchParams(location.search).get('handoff') || '';
         // Cross-server play keeps the player on this page and moves the socket
         // instead. The handoff therefore has to be re-issuable rather than fixed
@@ -4176,8 +4165,6 @@
         });
         document.getElementById('party-invite-accept').addEventListener('click', () => respondPartyInvite(true));
         document.getElementById('party-invite-decline').addEventListener('click', () => respondPartyInvite(false));
-        document.getElementById('cross-game-invite-accept').addEventListener('click', () => respondCrossGameInvite(true));
-        document.getElementById('cross-game-invite-decline').addEventListener('click', () => respondCrossGameInvite(false));
         document.getElementById('friend-requests').addEventListener('click', (event) => {
             const respond = event.target.closest('[data-friend-respond]');
             if (respond) sendPacket('friendRespond', { accountId: respond.dataset.friendRespond, accept: respond.dataset.friendAccept === 'true' });
@@ -10130,21 +10117,6 @@
             document.getElementById('party-invite-banner').classList.remove('open');
         }
 
-        function showCrossGameInvite(invite) {
-            pendingCrossGameInvite = invite;
-            const banner = document.getElementById('cross-game-invite-banner');
-            if (!invite) { banner.classList.remove('open'); return; }
-            document.getElementById('cross-game-invite-title').textContent = `${invite.sender_name || 'A friend'} invited you`;
-            document.getElementById('cross-game-invite-detail').textContent = `Join room ${invite.room_code} on ${invite.destination_instance || 'another server'}?`;
-            banner.classList.add('open');
-        }
-
-        function respondCrossGameInvite(accept) {
-            if (pendingCrossGameInvite) sendPacket('crossInviteRespond', { inviteId: Number(pendingCrossGameInvite.id), accept });
-            pendingCrossGameInvite = null;
-            document.getElementById('cross-game-invite-banner').classList.remove('open');
-        }
-
         function setSkinEconomyStatus(message = '') {
             const marketplaceVisible = marketplaceMenu && getComputedStyle(marketplaceMenu).display !== 'none';
             const target = document.getElementById(marketplaceVisible ? 'marketplace-status' : 'inventory-status');
@@ -11674,7 +11646,10 @@
             const pos = containmentModelPosition(row);
             const actor = spawnPlayerTarget(pos.x, pos.y, pos.z);
             actor.name = `containment-${id}`;
-            actor.scale.setScalar(row.kind === 'heavy' ? 1.28 : 0.92);
+            // Keep the network origin, feet, model and raycast targets in one
+            // coordinate frame. Heavy/walker differences live in their target
+            // geometry rather than scaling the entire actor after placement.
+            actor.scale.setScalar(1);
             actor.userData.isContainmentEnemy = true;
             actor.userData.containmentEnemyId = id;
             actor.userData.kind = row.kind === 'heavy' ? 'heavy' : 'walker';
@@ -11682,6 +11657,17 @@
             actor.userData.maxHealth = Number(row.maxHealth ?? row.health) || actor.userData.health;
             actor.userData.targetPos = pos.clone();
             actor.userData.isMoving = false;
+            const heavy = actor.userData.kind === 'heavy';
+            const joints = actor.userData.joints;
+            joints.hitHead.geometry.dispose();
+            joints.hitHead.geometry = new THREE.BoxGeometry(heavy ? 5.4 : 4.8, heavy ? 5.8 : 5.2, heavy ? 5.4 : 4.8);
+            joints.hitHead.position.y = heavy ? 20.1 : 19.6;
+            joints.hitBody.geometry.dispose();
+            joints.hitBody.geometry = new THREE.BoxGeometry(heavy ? 9 : 7.4, heavy ? 10.5 : 9.2, heavy ? 6 : 4.8);
+            joints.hitBody.position.y = heavy ? 12.2 : 11.8;
+            joints.hitLegs.geometry.dispose();
+            joints.hitLegs.geometry = new THREE.BoxGeometry(heavy ? 8.4 : 6.8, heavy ? 10 : 8.8, heavy ? 5.8 : 4.6);
+            joints.hitLegs.position.y = heavy ? 5.2 : 4.8;
             actor.userData.thirdPersonWeapon?.removeFromParent?.();
             actor.userData.joints.leftArm.rotation.x = -0.72;
             actor.userData.joints.rightArm.rotation.x = -0.72;
@@ -13557,10 +13543,6 @@
             } else if (type === 'partyNotice') {
                 const status = document.getElementById('friend-status');
                 if (status) status.textContent = data.message || '';
-            } else if (type === 'crossInviteData') {
-                showCrossGameInvite(data?.invites?.[0] || null);
-            } else if (type === 'crossInviteNotice') {
-                flashToast(data.message || 'Game invite updated.');
             } else if (type === 'adminBalances') {
                 renderBalances(data?.accounts || []);
             } else if (type === 'adminBalanceUpdated') {
@@ -13594,7 +13576,7 @@
                 } else {
                     setMenuStatus('Could not reach the server hosting that room.');
                 }
-            } else if (type === 'crossInviteRedirect') {
+            } else if (type === 'crossServerRedirect') {
                 if (data?.url) window.location.assign(data.url);
             } else if (type === 'dailyChallengeProgress') {
                 applyDailyChallengeProgress(data);
@@ -13662,6 +13644,18 @@
                 // Anti-cheat is admin-report-only. Ignore legacy warning packets.
             } else if (type === 'roomJoined') {
                 clearRoundTransition(); // never inherit a freeze from a previous room
+                // A Zombies down/death camera belongs to the room that created
+                // it. Never carry that local state into another game mode.
+                clearTimeout(localDeathRespawnTimer);
+                localDeathRespawnTimer = null;
+                isDead = false;
+                localWaitingForNextRound = false;
+                myHealth = 100;
+                if (deathOverlay) deathOverlay.style.display = 'none';
+                if (localDeathBody) removeDeathBody(localDeathBody);
+                deathSpectateTargetId = null;
+                deathSpectateFallbackPosition = null;
+                if (weaponGroup) weaponGroup.visible = !isZoomed;
                 currentRoomCode = data.roomCode;
                 currentRoomHostId = data.hostId;
                 lastAppliedServerSpawnSeq = 0;

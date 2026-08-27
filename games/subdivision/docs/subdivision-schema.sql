@@ -386,22 +386,6 @@ CREATE TABLE IF NOT EXISTS friendships (
 CREATE INDEX IF NOT EXISTS idx_friendships_requested ON friendships (requested_by, status);
 CREATE INDEX IF NOT EXISTS idx_friendships_high ON friendships (account_high, status);
 
-CREATE TABLE IF NOT EXISTS cross_server_game_invites (
-  id                   BIGSERIAL PRIMARY KEY,
-  token_hash           TEXT NOT NULL UNIQUE,
-  sender_account_id    BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  recipient_account_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  destination_instance TEXT NOT NULL,
-  destination_url      TEXT NOT NULL,
-  room_code            TEXT NOT NULL,
-  status               TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'expired')),
-  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-  expires_at           TIMESTAMPTZ NOT NULL,
-  consumed_at          TIMESTAMPTZ
-);
-CREATE INDEX IF NOT EXISTS idx_cross_invites_recipient_pending
-  ON cross_server_game_invites (recipient_account_id, status, expires_at DESC);
-
 CREATE TABLE IF NOT EXISTS cross_server_auth_handoffs (
   token_hash           TEXT PRIMARY KEY,
   account_id           BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -678,7 +662,6 @@ SELECT expected.name AS missing_table
           ('case_openings'),
           ('chat_logs'),
           ('cross_server_auth_handoffs'),
-          ('cross_server_game_invites'),
           ('custom_cases'),
           ('daily_challenge_claims'),
           ('daily_challenge_progress'),

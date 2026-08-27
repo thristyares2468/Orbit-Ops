@@ -30,9 +30,10 @@ test('the section boundary is real, or everything below is meaningless', () => {
 });
 
 test('Containment is a registered mode with its own flags', () => {
-  assert.match(server, /containment: \{ timed: false, teams: false, coop: true, fullMap: true \}/u);
-  // coop is what keeps friendly fire, team scoring and round timers away from it.
+  assert.match(server, /containment: \{ timed: false, teams: true, coop: true, fullMap: true \}/u);
+  // One team disables friendly fire; coop keeps the wave runtime distinct.
   assert.match(server, /function isContainment\(room\) \{\s*\n\s*return !!MODE_CONFIG\[room\?\.settings\?\.gamemode\]\?\.coop;/u);
+  assert.match(server, /if \(isContainment\(room\)\)[\s\S]*?player\.team = 0;/u);
 });
 
 test('the pure module is where the rules live', () => {
@@ -128,8 +129,10 @@ test('credits are only ever granted through the module', () => {
   assert.doesNotMatch(section, /\.credits\.set\(/u, 'the purse is the module\'s to write');
 });
 
-test('a wave clear only pays players who are still standing', () => {
-  assert.match(section, /if \(\(player\.health \|\| 0\) > 0\) containment\.grant\(match, id, event\.reward\);/u);
+test('a wave clear rewards the squad and respawns downed players', () => {
+  assert.match(section, /containment\.grant\(match, id, event\.reward\);/u);
+  assert.match(section, /respawnContainmentPlayers\(roomCode, room\);/u);
+  assert.match(section, /function respawnContainmentPlayers[\s\S]*?finishRespawn\(roomCode, player, spawn\);/u);
 });
 
 test('enemy line of sight uses the map mesh, not a guess', () => {

@@ -25,7 +25,6 @@ INSERT INTO public.bans SELECT * FROM railway_src.bans ON CONFLICT DO NOTHING;
 INSERT INTO public.case_inventory SELECT * FROM railway_src.case_inventory ON CONFLICT DO NOTHING;
 INSERT INTO public.chat_logs SELECT * FROM railway_src.chat_logs ON CONFLICT DO NOTHING;
 INSERT INTO public.cross_server_auth_handoffs SELECT * FROM railway_src.cross_server_auth_handoffs ON CONFLICT DO NOTHING;
-INSERT INTO public.cross_server_game_invites SELECT * FROM railway_src.cross_server_game_invites ON CONFLICT DO NOTHING;
 INSERT INTO public.custom_cases SELECT * FROM railway_src.custom_cases ON CONFLICT DO NOTHING;
 INSERT INTO public.daily_challenge_claims SELECT * FROM railway_src.daily_challenge_claims ON CONFLICT DO NOTHING;
 INSERT INTO public.daily_challenge_progress SELECT * FROM railway_src.daily_challenge_progress ON CONFLICT DO NOTHING;
@@ -64,7 +63,6 @@ SELECT setval(pg_get_serial_sequence('public.skin_market_bids', 'id'), COALESCE(
 SELECT setval(pg_get_serial_sequence('public.case_market_listings', 'id'), COALESCE((SELECT MAX(id) FROM public.case_market_listings), 0) + 1, false);
 SELECT setval(pg_get_serial_sequence('public.skin_trade_requests', 'id'), COALESCE((SELECT MAX(id) FROM public.skin_trade_requests), 0) + 1, false);
 SELECT setval(pg_get_serial_sequence('public.trade_up_transactions', 'id'), COALESCE((SELECT MAX(id) FROM public.trade_up_transactions), 0) + 1, false);
-SELECT setval(pg_get_serial_sequence('public.cross_server_game_invites', 'id'), COALESCE((SELECT MAX(id) FROM public.cross_server_game_invites), 0) + 1, false);
 SELECT setval(pg_get_serial_sequence('public.news_messages', 'id'), COALESCE((SELECT MAX(id) FROM public.news_messages), 0) + 1, false);
 SELECT setval(pg_get_serial_sequence('public.chat_logs', 'id'), COALESCE((SELECT MAX(id) FROM public.chat_logs), 0) + 1, false);
 SELECT setval(pg_get_serial_sequence('public.violations', 'id'), COALESCE((SELECT MAX(id) FROM public.violations), 0) + 1, false);
@@ -78,7 +76,6 @@ SELECT 'bans' AS table_name, (SELECT count(*) FROM railway_src.bans) AS source, 
 SELECT 'case_inventory' AS table_name, (SELECT count(*) FROM railway_src.case_inventory) AS source, (SELECT count(*) FROM public.case_inventory) AS neon UNION ALL
 SELECT 'chat_logs' AS table_name, (SELECT count(*) FROM railway_src.chat_logs) AS source, (SELECT count(*) FROM public.chat_logs) AS neon UNION ALL
 SELECT 'cross_server_auth_handoffs' AS table_name, (SELECT count(*) FROM railway_src.cross_server_auth_handoffs) AS source, (SELECT count(*) FROM public.cross_server_auth_handoffs) AS neon UNION ALL
-SELECT 'cross_server_game_invites' AS table_name, (SELECT count(*) FROM railway_src.cross_server_game_invites) AS source, (SELECT count(*) FROM public.cross_server_game_invites) AS neon UNION ALL
 SELECT 'custom_cases' AS table_name, (SELECT count(*) FROM railway_src.custom_cases) AS source, (SELECT count(*) FROM public.custom_cases) AS neon UNION ALL
 SELECT 'daily_challenge_claims' AS table_name, (SELECT count(*) FROM railway_src.daily_challenge_claims) AS source, (SELECT count(*) FROM public.daily_challenge_claims) AS neon UNION ALL
 SELECT 'daily_challenge_progress' AS table_name, (SELECT count(*) FROM railway_src.daily_challenge_progress) AS source, (SELECT count(*) FROM public.daily_challenge_progress) AS neon UNION ALL

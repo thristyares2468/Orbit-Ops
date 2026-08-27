@@ -74,7 +74,7 @@ test('every wave stays inside its ceilings', () => {
 test('zombies start at a chase pace and continue accelerating by wave', () => {
   assert.ok(DEFAULT_TUNING.baseSpeed >= 20, 'wave one zombies move meaningfully against a 35 u/s walking player');
   assert.ok(waveBudget(10, 1).speed > waveBudget(1, 1).speed, 'later waves move faster');
-  assert.ok(DEFAULT_TUNING.maxSpeed >= 45, 'the late-wave pursuit cap remains threatening');
+  assert.ok(DEFAULT_TUNING.maxSpeed >= 40, 'the late-wave pursuit cap remains threatening without outrunning every player');
 });
 
 // --- team scaling ----------------------------------------------------------

@@ -36,9 +36,19 @@ test('server-owned enemies are rendered, interpolated, and shootable', () => {
   assert.match(html, /const localBounds = \(object\) =>/u, 'the imported armature is normalized in actor-local space');
   assert.match(html, /const hitboxBounds = \(\) =>/u, 'the imported visual measures the actual actor target geometry');
   assert.match(html, /const targetBounds = hitboxBounds\(\)/u, 'the visual height follows the authoritative hitbox height');
+  assert.match(html, /actor\.scale\.setScalar\(1\)/u, 'network origin and zombie targets are not separated by actor scaling');
+  assert.match(html, /joints\.hitHead\.geometry = new THREE\.BoxGeometry/u, 'zombies replace player targets with fitted head/body/leg volumes');
   assert.match(html, /actor\.userData\.zombieVisualBaseY = wrapper\.position\.y/u,
     'walk bob preserves the feet-alignment offset');
   assert.match(html, /using procedural fallback/u, 'a failed asset request cannot prevent enemies spawning');
+});
+
+test('joining another room clears a stale Zombies death camera', () => {
+  const joined = html.match(/type === 'roomJoined'[\s\S]*?currentRoomCode = data\.roomCode/u)?.[0] || '';
+  assert.match(joined, /clearTimeout\(localDeathRespawnTimer\)/u);
+  assert.match(joined, /isDead = false/u);
+  assert.match(joined, /localWaitingForNextRound = false/u);
+  assert.match(joined, /deathOverlay\.style\.display = 'none'/u);
 });
 
 test('Containment uses the loadout menu but its own non-persistent credits', () => {

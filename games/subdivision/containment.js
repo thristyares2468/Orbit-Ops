@@ -84,14 +84,14 @@ const DEFAULT_TUNING = Object.freeze({
   // Players walk at 35 u/s and sprint at 75 u/s. The old 3.15 u/s horde
   // barely moved on these full-scale maps; this keeps early zombies kiteable
   // while making later waves an actual pursuit.
-  baseSpeed: 22,
-  speedPerWave: 0.75,
-  maxSpeed: 48,
-  baseDamage: 18,
-  damagePerWave: 1.4,
-  maxDamage: 62,
-  attackCooldownMs: 900,
-  attackRange: 1.9,
+  baseSpeed: 20,
+  speedPerWave: 0.65,
+  maxSpeed: 42,
+  baseDamage: 12,
+  damagePerWave: 0.8,
+  maxDamage: 38,
+  attackCooldownMs: 1100,
+  attackRange: 1.75,
 
   // Economy. Kept small per kill so the interesting decision is when to spend,
   // not whether you can afford everything at once.

@@ -35,10 +35,10 @@ test('a joinable remote room connects in place, and only falls back to redirecti
   const route = server.match(/async function routeRemoteRoomJoin[\s\S]*?\n}/u)[0];
   assert.match(route, /crossServerConnect/u, 'offers a connection');
   assert.ok(
-    route.indexOf('crossServerConnect') < route.indexOf('crossInviteRedirect'),
+    route.indexOf('crossServerConnect') < route.indexOf('crossServerRedirect'),
     'the redirect is the fallback, not the default'
   );
-  assert.match(route, /crossInviteRedirect/u, 'a row with no socket can still be reached');
+  assert.match(route, /crossServerRedirect/u, 'a row with no socket can still be reached');
 });
 
 test('the client moves its socket instead of navigating away', () => {

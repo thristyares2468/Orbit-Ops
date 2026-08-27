@@ -239,11 +239,11 @@ const MODE_CONFIG = {
   gunGame: { timed: false, teams: false },
   deathmatch: { timed: true, teams: false },
   tdm: { timed: true, teams: true },
-  // Containment: co-operative wave survival. `coop` marks the whole team as one
-  // side, which is what keeps the PvP paths - friendly fire, team scoring, round
-  // timers, the buy menu - from applying to it. Untimed: a run ends when the
-  // team is wiped or extracts, not on a clock.
-  containment: { timed: false, teams: false, coop: true, fullMap: true }
+  // Zombies: co-operative wave survival. `teams` places the squad on one side
+  // so normal hit validation blocks friendly fire; `coop` selects the wave
+  // runtime and its own score/economy. Untimed: a run ends when the squad is
+  // wiped or extracts, not on a clock.
+  containment: { timed: false, teams: true, coop: true, fullMap: true }
 };
 const VALID_GAMEMODES = new Set(Object.keys(MODE_CONFIG));
 // Casual still has a lot of backend code below, but it is intentionally omitted
@@ -750,14 +750,6 @@ setInterval(() => {
   }
 }, HEARTBEAT_MS);
 
-// Invite mailboxes live in shared Postgres, so each independently hosted game
-// polls its own connected users. Live movement and room state remain in memory.
-setInterval(() => {
-  for (const client of clients.values()) {
-    if (crossInviteAllowed(client)) sendCrossServerInvites(client);
-  }
-}, 15000).unref();
-
 // Room simulation remains local to each host, while this lightweight directory
 // heartbeat lets a code entered on the other host find the correct instance.
 setInterval(() => {
@@ -1121,25 +1113,6 @@ function handleMessage(client, raw) {
     return;
   }
 
-  if (type === 'crossInviteList') {
-    sendCrossServerInvites(client);
-    return;
-  }
-
-  if (type === 'crossInviteRespond') {
-    handleCrossInviteRespond(client, data);
-    return;
-  }
-
-  if (type === 'crossInviteAllFriends') {
-    handleCrossInviteAllFriends(client);
-    return;
-  }
-  if (type === 'crossInviteConsume') {
-    handleCrossInviteConsume(client, data);
-    return;
-  }
-
   if (type === 'getParty') {
     sendPartyData(client);
     return;
@@ -1265,7 +1238,6 @@ function handleMessage(client, raw) {
       createCrossServerRoom(client, settings);
     } else {
       joinRoom(client, createRoomCode(), { settings });
-      handleCrossInviteAllFriends(client);
     }
     return;
   }
@@ -1983,78 +1955,12 @@ function bindAuthenticatedClient(client, result) {
   sendFriendsData(client);
   sendPartyData(client);
   refreshFriendPresence(client.accountId);
-  sendCrossServerInvites(client);
-}
-
-function crossInviteAllowed(client) {
-  return !!(client?.accountId && !client.guest && db.isEnabled());
-}
-
-function sendCrossServerInvites(client) {
-  if (!crossInviteAllowed(client)) return;
-  db.getPendingCrossServerInvites(client.accountId)
-    .then(invites => send(client, 'crossInviteData', { invites }))
-    .catch(error => console.error('[cross-invite-list]', error.message));
-}
-
-async function handleCrossInviteRespond(client, data = {}) {
-  if (!crossInviteAllowed(client)) return;
-  const inviteId = Number(data.inviteId);
-  if (!Number.isSafeInteger(inviteId)) return;
-  try {
-    const result = await db.respondCrossServerInvite({ recipientAccountId: client.accountId, inviteId, accept: !!data.accept });
-    if (!result) {
-      send(client, 'crossInviteNotice', { ok: false, message: 'That game invite has expired.' });
-      sendCrossServerInvites(client);
-      return;
-    }
-    if (!data.accept) {
-      send(client, 'crossInviteNotice', { ok: true, message: 'Game invite declined.' });
-      sendCrossServerInvites(client);
-      return;
-    }
-    const target = new URL(result.destination_url);
-    if (!['https:', 'http:'].includes(target.protocol) || target.username || target.password) throw new Error('unsafe_destination_url');
-    target.searchParams.set('handoff', result.token);
-    send(client, 'crossInviteRedirect', { url: target.toString() });
-  } catch (error) {
-    console.error('[cross-invite-respond]', error.message);
-    send(client, 'crossInviteNotice', { ok: false, message: 'Could not accept that game invite.' });
-  }
 }
 
 function safeCrossServerDestination(value) {
   const target = new URL(value);
   if (!['https:', 'http:'].includes(target.protocol) || target.username || target.password) throw new Error('unsafe_destination_url');
   return target;
-}
-
-async function handleCrossInviteAllFriends(client) {
-  if (!crossInviteAllowed(client) || !client.roomCode) {
-    send(client, 'crossInviteNotice', { ok: false, message: 'Join or create a room before inviting friends.' });
-    return;
-  }
-  const room = rooms.get(client.roomCode);
-  if (!room || room.hostId !== client.id || !CROSS_SERVER_PUBLIC_URL) {
-    send(client, 'crossInviteNotice', { ok: false, message: !CROSS_SERVER_PUBLIC_URL ? 'Cross-server invites are not configured on this host.' : 'Only the room host can invite friends.' });
-    return;
-  }
-  try {
-    const invites = await db.createCrossServerInvites({
-      senderAccountId: client.accountId,
-      destinationInstance: CROSS_SERVER_INSTANCE_ID,
-      destinationUrl: CROSS_SERVER_PUBLIC_URL,
-      roomCode: client.roomCode
-    });
-    send(client, 'crossInviteNotice', { ok: true, message: `Invited ${invites.length} friend${invites.length === 1 ? '' : 's'} to this room.` });
-    for (const invite of invites) {
-      const recipient = onlineClientForAccount(invite.recipient_account_id);
-      if (recipient) sendCrossServerInvites(recipient);
-    }
-  } catch (error) {
-    console.error('[cross-invite-all]', error.message);
-    send(client, 'crossInviteNotice', { ok: false, message: 'Could not create cross-server invites.' });
-  }
 }
 
 // The directory is shared, so a row in it is only as trustworthy as every
@@ -2106,7 +2012,7 @@ async function routeRemoteRoomJoin(client, roomCode) {
       return;
     }
     target.searchParams.set('handoff', token);
-    send(client, 'crossInviteRedirect', { url: target.toString() });
+    send(client, 'crossServerRedirect', { url: target.toString() });
   } catch (error) {
     console.error('[cross-room-route]', error.message);
     send(client, 'roomError', { message: 'Could not connect to the server hosting that room.' });
@@ -2183,7 +2089,6 @@ async function createCrossServerRoom(client, settings) {
       await db.removeActiveRoom(roomCode, CROSS_SERVER_INSTANCE_ID, leaseId);
       return;
     }
-    handleCrossInviteAllFriends(client);
   } catch (error) {
     if (roomCode && !rooms.has(roomCode)) {
       try { await db.removeActiveRoom(roomCode, CROSS_SERVER_INSTANCE_ID, leaseId); } catch {}
@@ -2208,27 +2113,6 @@ function closeRoomAfterDirectoryLeaseLoss(roomCode, room) {
   clearRoomRoundTimer(room);
   clearRoomMapVote(room);
   rooms.delete(roomCode);
-}
-
-async function handleCrossInviteConsume(client, data = {}) {
-  if (!crossInviteAllowed(client)) return;
-  const token = String(data.token || '');
-  if (!/^[A-Za-z0-9_-]{32,128}$/.test(token)) return;
-  try {
-    const invite = await db.consumeCrossServerInvite({ recipientAccountId: client.accountId, token, destinationInstance: CROSS_SERVER_INSTANCE_ID });
-    if (!invite) {
-      send(client, 'crossInviteNotice', { ok: false, message: 'This game invite is invalid or expired.' });
-      return;
-    }
-    if (!rooms.has(invite.room_code)) {
-      send(client, 'crossInviteNotice', { ok: false, message: 'That room is no longer active.' });
-      return;
-    }
-    joinRoom(client, invite.room_code);
-  } catch (error) {
-    console.error('[cross-invite-consume]', error.message);
-    send(client, 'crossInviteNotice', { ok: false, message: 'Could not join the invited room.' });
-  }
 }
 
 function handleLogout(client) {
@@ -5009,6 +4893,9 @@ function joinRoom(client, roomCode, options = {}) {
     if (!player.containmentWeapons.includes('Knife')) player.containmentWeapons.push('Knife');
     if (!player.containmentWeapons.includes('Glock')) player.containmentWeapons.push('Glock');
     if (!player.containmentWeapons.includes(player.weapon)) player.weapon = 'Glock';
+    // Zombies is one co-operative squad. Keep every participant on the same
+    // side even when a reconnect restored a former PvP team assignment.
+    player.team = 0;
   }
   room.players.set(client.id, player);
   if (!room.hostId) room.hostId = client.id;
@@ -7543,6 +7430,7 @@ function finishRespawn(roomCode, player, spawn) {
   if (!room || !room.players.has(player.id)) return;
   player.respawningUntil = 0;
   player.respawnTimer = null;
+  player.waitingForNextRound = false;
   player.health = 100;
   clearCosmeticActionState(player);
   resetUtilityLife(player);
@@ -7831,14 +7719,35 @@ function containmentTick() {
         continue;
       }
       if (event.type === 'waveCleared') {
-        // Everyone still standing shares the clear reward.
+        // The whole squad shares the clear reward. Anyone downed during the
+        // wave returns at the staging spawn for the preparation phase.
         for (const [id, player] of room.players.entries()) {
-          if ((player.health || 0) > 0) containment.grant(match, id, event.reward);
+          containment.grant(match, id, event.reward);
         }
+        respawnContainmentPlayers(roomCode, room);
       }
       broadcastRaw(roomCode, JSON.stringify({ type: 'containmentEvent', data: event }));
     }
     if (events.length) broadcastContainment(roomCode, room);
+  }
+}
+
+function respawnContainmentPlayers(roomCode, room) {
+  const downed = Array.from(room.players.values())
+    .filter((player) => (player.health || 0) <= 0 || player.waitingForNextRound);
+  if (!downed.length) return;
+  const batchChosen = [];
+  for (const player of downed) {
+    if (player.respawnTimer) {
+      clearTimeout(player.respawnTimer);
+      player.respawnTimer = null;
+    }
+    player.respawningUntil = 0;
+    const spawn = pickSpawn(room, player, { batchChosen });
+    room.spawnSeq = (room.spawnSeq || 0) + 1;
+    spawn.seq = room.spawnSeq;
+    batchChosen.push({ id: spawn.id, x: spawn.x, y: spawn.y, z: spawn.z });
+    finishRespawn(roomCode, player, spawn);
   }
 }
 

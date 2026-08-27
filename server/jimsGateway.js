@@ -123,7 +123,7 @@ export function createJimsGateway({
     }
   });
 
-  // The room handoff a cross-server invite arrives with. Shape only: the token is
+  // The room handoff used when a player enters a lobby hosted by another instance. Shape only: the token is
   // validated and consumed by the game itself against the shared database, which
   // this gateway has no business duplicating.
   const handoffToken = (request) => {
