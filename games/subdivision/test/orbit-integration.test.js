@@ -5,14 +5,18 @@ const test = require('node:test');
 
 const root = path.resolve(__dirname, '..');
 
-test('Orbit Ops embed keeps the code return path without a persistent return button', () => {
+test('the bundled game returns every menu path to the same-origin selector', () => {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 
-  assert.match(html, /orbitReturnUrl/);
+  assert.match(html, /function returnToGameSelect\(\)/);
+  assert.match(html, /new URL\('\/', window\.location\.origin\)\.href/);
+  assert.match(html, /btn-boot-exit'\)\.addEventListener\('click', returnToGameSelect\)/);
+  assert.match(html, /btn-return-game-select-auth'\)\.addEventListener\('click', returnToGameSelect\)/);
+  assert.match(html, /btn-return-game-select-hub'\)\.addEventListener\('click', returnToGameSelect\)/);
   assert.match(html, /ORBITOPS/);
   assert.doesNotMatch(html, /id="orbit-return"/);
-  assert.doesNotMatch(html, /Return to Orbit Ops/);
+  assert.doesNotMatch(html, /returnToOrbitOps|Return to Orbit Ops/);
   assert.match(server, /PUBLIC_BASE_PATH/);
   assert.match(server, /const websocketPath = `\$\{PUBLIC_BASE_PATH \|\| ''\}\/ws`/);
   assert.match(html, /Orbit Ops Subdivision/);

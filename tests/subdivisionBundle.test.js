@@ -22,6 +22,12 @@ test("Subdivision is bundled into the Orbit Ops repository", async () => {
   assert.equal(resolveJimsGameRoot(fileURLToPath(new URL("..", import.meta.url))), fileURLToPath(root).replace(/\/$/u, ""));
 });
 
+test("the gateway cannot substitute another Subdivision checkout", async () => {
+  const gateway = await readFile(new URL("../server/jimsGateway.js", import.meta.url), "utf8");
+  assert.doesNotMatch(gateway, /SUBDIVISION_GAME_ROOT|JIMS_GAME_ROOT|James-Garden-Care|fpsshooterserver|\.render/u);
+  assert.match(gateway, /return join\(orbitRoot, "games", "subdivision"\)/u);
+});
+
 test("Subdivision has a separate database configuration with legacy migration aliases", () => {
   const current = resolveSubdivisionConfiguration({
     SUBDIVISION_DATABASE_URL: "postgresql://subdivision/current",

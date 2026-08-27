@@ -3599,12 +3599,13 @@
             return false;
         }
 
-        function returnToOrbitOps() {
-            const destination = String(window.JIMS_CLIENT_CONFIG?.orbitReturnUrl || '').trim();
-            if (!destination) return false;
+        function returnToGameSelect() {
             intentionalClose = true;
             try { if (socket) socket.close(); } catch {}
-            window.location.assign(destination);
+            // Orbit Ops and Subdivision are served by one application. Always
+            // return to its same-origin selector; never call a standalone game,
+            // external repository deployment, or configurable remote URL.
+            window.location.assign(new URL('/', window.location.origin).href);
             return true;
         }
 
@@ -3617,7 +3618,7 @@
         document.getElementById('btn-terms-agree').addEventListener('click', acceptCurrentTerms);
         document.getElementById('btn-boot-play').addEventListener('click', () => { showTitleMenu(); });
         document.getElementById('btn-boot-settings').addEventListener('click', () => { openSettings('boot'); });
-        document.getElementById('btn-boot-exit').addEventListener('click', returnToOrbitOps);
+        document.getElementById('btn-boot-exit').addEventListener('click', returnToGameSelect);
         accountMenuButton.addEventListener('click', showAccountMenu);
         document.getElementById('btn-account-back').addEventListener('click', () => showTitleMenu());
         document.getElementById('btn-account-name-save').addEventListener('click', submitUsernameChange);
@@ -4209,8 +4210,8 @@
         document.getElementById('btn-confirm-register').addEventListener('click', confirmRegisterCode);
         document.getElementById('btn-verify-back').addEventListener('click', () => setAuthMode('register'));
         document.getElementById('btn-guest').addEventListener('click', submitGuest);
-        document.getElementById('btn-return-game-select-auth').addEventListener('click', returnToOrbitOps);
-        document.getElementById('btn-return-game-select-hub').addEventListener('click', returnToOrbitOps);
+        document.getElementById('btn-return-game-select-auth').addEventListener('click', returnToGameSelect);
+        document.getElementById('btn-return-game-select-hub').addEventListener('click', returnToGameSelect);
         document.getElementById('btn-forgot-password').addEventListener('click', showForgotPassword);
         document.getElementById('btn-reset-confirm').addEventListener('click', confirmPasswordReset);
         document.getElementById('btn-reset-back').addEventListener('click', () => setAuthMode('login'));
@@ -8405,7 +8406,7 @@
 
         function joinTypedRoomCode() {
             const code = String(roomCodeInput?.value || '').trim().toUpperCase();
-            if (code.replace(/[^A-Z0-9]/g, '') === 'ORBITOPS' && returnToOrbitOps()) return;
+            if (code.replace(/[^A-Z0-9]/g, '') === 'ORBITOPS' && returnToGameSelect()) return;
             if (!requireUsername()) return;
             if (!code) {
                 setMenuStatus('Enter a room code.');

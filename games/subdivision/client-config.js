@@ -3,6 +3,5 @@
 window.JIMS_CLIENT_CONFIG = Object.freeze({
   multiplayerUrl: '',
   apiKey: '',
-  serviceWorkerEnabled: true,
-  orbitReturnUrl: ''
+  serviceWorkerEnabled: true
 });

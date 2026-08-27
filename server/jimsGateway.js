@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import httpProxy from "http-proxy";
 
 export const JIMS_PUBLIC_PATH = "/tips";
@@ -54,18 +54,11 @@ export function resolveSubdivisionConfiguration(environment = process.env) {
   };
 }
 
-export function resolveJimsGameRoot(
-  orbitRoot,
-  configuredRoot = process.env.SUBDIVISION_GAME_ROOT || process.env.JIMS_GAME_ROOT
-) {
-  const candidates = [
-    configuredRoot,
-    join(orbitRoot, "games", "subdivision"),
-    join(orbitRoot, ".render", "jims-mowing"),
-    join(dirname(orbitRoot), "James-Garden-Care"),
-    join(dirname(orbitRoot), "fpsshooterserver", "fpsshooterserver")
-  ].filter(Boolean).map((candidate) => resolve(candidate));
-  return candidates.find((candidate) => existsSync(join(candidate, "server.js"))) ?? candidates[0];
+export function resolveJimsGameRoot(orbitRoot) {
+  // Subdivision is part of this repository. Never substitute a build checkout,
+  // sibling clone, or environment-selected source tree: menu launches and the
+  // deployed child must always execute the code reviewed in this commit.
+  return join(orbitRoot, "games", "subdivision");
 }
 
 export function createJimsGateway({

@@ -518,8 +518,7 @@ function embeddedClientConfig() {
   return `window.JIMS_CLIENT_CONFIG = Object.freeze({\n` +
     `  multiplayerUrl: (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + ${JSON.stringify(websocketPath)},\n` +
     `  apiKey: '',\n` +
-    `  serviceWorkerEnabled: false,\n` +
-    `  orbitReturnUrl: '/'\n` +
+    `  serviceWorkerEnabled: false\n` +
     `});\n`;
 }
 
