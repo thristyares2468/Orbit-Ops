@@ -19,7 +19,9 @@
   #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #7fd4ff; }
   #crosshair::before { left: 8px; top: 0; width: 2px; height: 18px; }
   #crosshair::after { top: 8px; left: 0; height: 2px; width: 18px; }
-  #panel { top: 12px; right: 12px; width: 460px; max-height: calc(100vh - 24px);
+  /* Clamped rather than fixed so the panel does not eat half the viewport on a
+     narrow window - the map is the thing you are actually looking at. */
+  #panel { top: 12px; right: 12px; width: clamp(280px, 38vw, 460px); max-height: calc(100vh - 24px);
     display: flex; flex-direction: column; gap: 8px; background: rgba(6,12,16,.94);
     border: 1px solid #1e3440; padding: 12px; overflow: auto; }
   #panel h1 { margin: 0; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: #7fd4ff; }
@@ -67,12 +69,17 @@
        actually block, not at an artist's impression of it.
 
      RUN IT
-       There is no build step, but it cannot be opened as a file:// page:
-       the browser will refuse to fetch the GLBs. Serve the Subdivision
-       directory and open /tools/gate-mapper.html -
+       There is no build step, but it cannot be opened as a file:// page: the
+       browser will refuse to fetch the GLBs. Serve any directory containing
+       the Subdivision and open the tool from it. Either of these works, because
+       assets are resolved relative to this file rather than to the web root -
 
          cd games/subdivision && python3 -m http.server 8000
          open http://localhost:8000/tools/gate-mapper.html
+
+         # or from the repository root
+         python3 -m http.server 8000
+         open http://localhost:8000/games/subdivision/tools/gate-mapper.html
 
        three.js comes from the same CDN and pinned version as the game. -->
 
@@ -91,6 +98,13 @@
 
   <label for="map">Map</label>
   <select id="map"></select>
+
+  <div id="file-fallback" hidden>
+    <label for="glb">Map file (opened offline — pick the .glb yourself)</label>
+    <input type="file" id="glb" accept=".glb,.gltf">
+    <div class="note">Choose the map above first — it sets the scale — then pick the
+      matching file from <code>assets/maps/</code>. You can also drop it anywhere on the page.</div>
+  </div>
 
   <label for="mode">Capture mode</label>
   <select id="mode">
@@ -163,14 +177,36 @@
   // that number and every authored figure in maps.js is in world scale.
   // -------------------------------------------------------------------------
   var GM = window.GameMaps || {};
-  var MAPS = { dust2: { label: 'Dust2', path: '/assets/maps/de_dust_2_with_real_light.glb', scale: 20 } };
+
+  // Asset paths in maps.js are absolute ("/assets/maps/...") because the game
+  // is served with the Subdivision directory AS the web root. This tool is
+  // opened from wherever the repository happens to be served - often the repo
+  // root, where the Subdivision lives under games/subdivision - and an absolute
+  // path then 404s. Resolving against the tool's own URL instead makes it work
+  // from any root, since tools/ and assets/ are always siblings.
+  var ASSET_BASE = new URL('../', location.href);
+
+  function resolveAsset(p) {
+    var s = String(p || '');
+    return s.charAt(0) === '/' ? new URL(s.slice(1), ASSET_BASE).href : s;
+  }
+
+  var MAPS = {
+    dust2: { label: 'Dust2', path: resolveAsset('/assets/maps/de_dust_2_with_real_light.glb'), scale: 20 }
+  };
   Object.keys(GM.MAP_DEFS || {}).forEach(function (id) {
     var def = GM.MAP_DEFS[id];
-    MAPS[id] = { label: def.label || id, path: def.path, scale: def.scale || 22 };
+    MAPS[id] = { label: def.label || id, path: resolveAsset(def.path), scale: def.scale || 22 };
   });
 
   var GATES = GM.CONTAINMENT_GATES || {};
   var LAYOUTS = GM.CONTAINMENT_LAYOUTS || {};
+
+  // maps.js supplies every map but Dust2, plus the authored gates and breaches
+  // drawn as reference. If it did not load, say so - otherwise the map list
+  // silently shrinks to one entry and the reference overlay silently empties,
+  // which reads as "there is nothing authored yet".
+  var MAPS_JS_OK = !!(GM.MAP_DEFS && GM.CONTAINMENT_GATES);
 
   // Server-side clamps, repeated so the tool can warn at authoring time rather
   // than letting a silently clamped value ship. See configureGates().
@@ -515,16 +551,35 @@
   function loadMap(id) {
     var def = MAPS[id];
     if (!def) return;
+    // A file:// page cannot fetch anything, so there is nothing to try: go
+    // straight to asking for the file rather than showing a failure first.
+    if (location.protocol === 'file:') { promptForFile(id); return; }
+    loadMapFrom(id, def.path, def.label);
+  }
+
+  function promptForFile(id) {
     currentMapId = id;
     $('splash').hidden = false;
-    splashStatus.textContent = 'Loading ' + def.label + '…';
+    $('file-fallback').hidden = false;
+    splashStatus.innerHTML = 'Opened offline, so the browser will not let this page read '
+      + '<code>' + MAPS[id].label + '</code> from disk by itself.<br>'
+      + 'Pick or drop the .glb using the panel on the right — everything else works exactly the same.';
+  }
+
+  function loadMapFrom(id, url, label, revokeAfter) {
+    var def = MAPS[id];
+    if (!def) return;
+    currentMapId = id;
+    $('splash').hidden = false;
+    splashStatus.textContent = 'Loading ' + label + '…';
 
     if (mapRoot) { scene.remove(mapRoot); mapRoot = null; }
     mapMeshes = [];
     captured = [];
     pendingPost = null;
 
-    configureLoader(new THREE.GLTFLoader()).load(def.path, function (gltf) {
+    configureLoader(new THREE.GLTFLoader()).load(url, function (gltf) {
+      if (revokeAfter) URL.revokeObjectURL(url);
       mapRoot = gltf.scene;
       // The one line that has to match the game: a plain uniform scale, no
       // rotation and no offset (see the map loader in index.html). World
@@ -553,14 +608,19 @@
       gotoStart();
       redraw();
       $('splash').hidden = true;
+      $('file-fallback').hidden = location.protocol !== 'file:';
     }, function (progress) {
       if (progress.total) {
-        splashStatus.textContent = 'Loading ' + def.label + ' — ' +
+        splashStatus.textContent = 'Loading ' + label + ' — ' +
           Math.round((progress.loaded / progress.total) * 100) + '%';
       }
     }, function (err) {
-      splashStatus.textContent = 'Could not load ' + def.path + ' — ' + (err && err.message || err) +
-        '. Serve the Subdivision directory over http, not file://.';
+      if (revokeAfter) URL.revokeObjectURL(url);
+      // Falling back to the picker rather than dead-ending: a wrong web root
+      // and a file:// page both land here, and both are fixed the same way.
+      $('file-fallback').hidden = false;
+      splashStatus.textContent = 'Could not load ' + url + ' — ' + (err && err.message || err)
+        + '. Pick the .glb from disk on the right instead.';
     });
   }
 
@@ -603,6 +663,21 @@
     select.appendChild(option);
   });
   select.addEventListener('change', function () { loadMap(select.value); });
+
+  // Loading from disk. The scale still comes from the map dropdown, so picking
+  // the wrong map for the file gives coordinates that are wrong by a constant
+  // factor - which is why the label names the file that was actually loaded.
+  function loadFile(file) {
+    if (!file) return;
+    loadMapFrom(select.value, URL.createObjectURL(file), file.name, true);
+  }
+
+  $('glb').addEventListener('change', function (e) { loadFile(e.target.files[0]); });
+  addEventListener('dragover', function (e) { e.preventDefault(); });
+  addEventListener('drop', function (e) {
+    e.preventDefault();
+    loadFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+  });
 
   $('btn-capture').addEventListener('click', capture);
   $('btn-undo').addEventListener('click', undo);
@@ -648,6 +723,12 @@
   }
 
   function fmt(v) { return 'x: ' + round(v.x) + '  y: ' + round(v.y) + '  z: ' + round(v.z); }
+
+  if (!MAPS_JS_OK) {
+    $('warnings').textContent = 'maps.js did not load, so only Dust2 is listed and no authored '
+      + 'gates or breaches can be drawn. Serving over http rather than opening the file directly '
+      + 'fixes this.';
+  }
 
   select.value = 'dust2';
   loadMap('dust2');

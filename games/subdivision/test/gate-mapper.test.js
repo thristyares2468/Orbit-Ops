@@ -175,10 +175,30 @@ test('the tool loads maps at the same scale the game does', () => {
   // game ever disagree, every number it produces is wrong by a constant factor
   // - which looks plausible and is completely broken.
   assert.match(tool, /mapRoot\.scale\.set\(def\.scale, def\.scale, def\.scale\)/u);
-  assert.match(tool, /dust2: \{ label: 'Dust2', path: '\/assets\/maps\/de_dust_2_with_real_light\.glb', scale: 20 \}/u);
+  assert.match(tool, /dust2: \{ label: 'Dust2', path: resolveAsset\('\/assets\/maps\/de_dust_2_with_real_light\.glb'\), scale: 20 \}/u);
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.match(index, /path: '\/assets\/maps\/de_dust_2_with_real_light\.glb',\s*\n\s*bytes: \d+,\s*\n\s*scale: 20,/u,
     'dust2 is declared in index.html, not maps.js, so the tool repeats it - keep them equal');
   // Every other map comes from maps.js directly, so it cannot drift.
-  assert.match(tool, /MAPS\[id\] = \{ label: def\.label \|\| id, path: def\.path, scale: def\.scale \|\| 22 \}/u);
+  assert.match(tool, /MAPS\[id\] = \{ label: def\.label \|\| id, path: resolveAsset\(def\.path\), scale: def\.scale \|\| 22 \}/u);
+});
+
+test('map assets resolve relative to the tool, not to the web root', () => {
+  // maps.js paths are absolute because the game serves the Subdivision AS the
+  // web root. The tool is opened from wherever the repo is served, so an
+  // absolute path 404s from the repo root - which is exactly how this broke.
+  const resolveAsset = build('resolveAsset',
+    "var ASSET_BASE = new URL('../', 'http://x/games/subdivision/tools/gate-mapper.html');",
+    lift(tool, 'function resolveAsset(', 'resolveAsset'));
+
+  assert.equal(resolveAsset('/assets/maps/de_nuke.glb'),
+    'http://x/games/subdivision/assets/maps/de_nuke.glb',
+    'served from the repo root, assets sit beside tools/ - not at /assets');
+  // The query string maps.js appends for cache busting must survive.
+  assert.equal(resolveAsset('/assets/maps/de_nuke.glb?v=1'),
+    'http://x/games/subdivision/assets/maps/de_nuke.glb?v=1');
+  // Anything already relative is left alone.
+  assert.equal(resolveAsset('assets/maps/de_nuke.glb'), 'assets/maps/de_nuke.glb');
+
+  assert.match(tool, /var ASSET_BASE = new URL\('\.\.\/', location\.href\);/u);
 });
