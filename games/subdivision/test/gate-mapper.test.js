@@ -183,6 +183,29 @@ test('the tool loads maps at the same scale the game does', () => {
   assert.match(tool, /MAPS\[id\] = \{ label: def\.label \|\| id, path: resolveAsset\(def\.path\), scale: def\.scale \|\| 22 \}/u);
 });
 
+test('fly speed is a control, and its slider covers nudging to crossing the map', () => {
+  // Linear would be useless: dust2 spans ~24,000 units but a gate post has to
+  // be lined up to a couple, so the usable range is three orders of magnitude.
+  const speedFromSlider = build('speedFromSlider', lift(tool, 'function speedFromSlider(', 'speedFromSlider'));
+  const sliderFromSpeed = build('sliderFromSpeed', lift(tool, 'function sliderFromSpeed(', 'sliderFromSpeed'));
+
+  assert.equal(speedFromSlider(0), 20, 'slowest is fine enough to line up a post');
+  assert.equal(speedFromSlider(100), 8000, 'fastest crosses dust2 in a few seconds');
+  assert.equal(speedFromSlider(50), 400);
+  // Monotonic, and the inverse recovers the slider position it came from.
+  for (let v = 0; v <= 100; v += 5) {
+    assert.equal(sliderFromSpeed(speedFromSlider(v)), v, `round trip at ${v}`);
+    if (v) assert.ok(speedFromSlider(v) > speedFromSlider(v - 5));
+  }
+
+  // The frame loop must read the variable, not a constant - that is the whole
+  // point of the control, and a constant would still look correct in the UI.
+  assert.match(tool, /var speed = flySpeed \* \(keys\.ShiftLeft \|\| keys\.ShiftRight \? 4 : 1\) \* dt;/u);
+  assert.doesNotMatch(tool, /BASE_SPEED/u, 'the old constant is gone, not just shadowed');
+  // Persisted, so it survives the reload you do after every maps.js edit.
+  assert.match(tool, /localStorage\.setItem\(SPEED_KEY/u);
+});
+
 test('map assets resolve relative to the tool, not to the web root', () => {
   // maps.js paths are absolute because the game serves the Subdivision AS the
   // web root. The tool is opened from wherever the repo is served, so an

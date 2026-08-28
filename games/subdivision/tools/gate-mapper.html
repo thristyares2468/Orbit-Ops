@@ -29,6 +29,7 @@
   label { display: block; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #7f8f86; }
   select, input, button, textarea { width: 100%; background: #08131a; color: #dfe8e2;
     border: 1px solid #23414f; padding: 6px 7px; font: inherit; font-size: 12px; }
+  input[type="range"] { padding: 0; border: 0; background: transparent; accent-color: #7fd4ff; cursor: pointer; }
   button { cursor: pointer; text-transform: uppercase; font-weight: 700; letter-spacing: .08em; font-size: 11px; }
   button:hover, button:focus-visible { border-color: #7fd4ff; outline: none; }
   button.primary { background: #10303f; color: #d9f5ff; }
@@ -90,6 +91,7 @@
   <div><span class="k">Floor below</span> <b id="hud-floor">-</b></div>
   <div><span class="k">Crosshair</span> <b id="hud-look">-</b></div>
   <div><span class="k">Yaw</span> <b id="hud-yaw">-</b></div>
+  <div><span class="k">Speed</span> <b id="hud-speed">-</b></div>
   <div id="pending"></div>
 </div>
 
@@ -105,6 +107,9 @@
     <div class="note">Choose the map above first — it sets the scale — then pick the
       matching file from <code>assets/maps/</code>. You can also drop it anywhere on the page.</div>
   </div>
+
+  <label for="speed">Fly speed — <span id="speed-value">400</span> u/s <span class="note">(scroll to adjust)</span></label>
+  <input type="range" id="speed" min="0" max="100" step="1" value="50">
 
   <label for="mode">Capture mode</label>
   <select id="mode">
@@ -138,7 +143,8 @@
   <div id="warnings" class="warn"></div>
 
   <div class="note">
-    <kbd>WASD</kbd> fly · <kbd>Q</kbd>/<kbd>E</kbd> down/up · <kbd>Shift</kbd> boost ·
+    <kbd>WASD</kbd> fly · <kbd>Q</kbd>/<kbd>E</kbd> down/up · <kbd>Shift</kbd> boost (4x) ·
+    <kbd>scroll</kbd> speed ·
     <kbd>C</kbd> capture · <kbd>Z</kbd> undo · <kbd>Esc</kbd> release mouse
   </div>
 </div>
@@ -251,7 +257,19 @@
   // -------------------------------------------------------------------------
   var yaw = 0, pitch = 0;
   var keys = Object.create(null);
-  var BASE_SPEED = 420;
+  // Fly speed.
+  //
+  // These maps are enormous in world units - dust2 spans about 24,000 on z -
+  // but a gate post has to be lined up to a couple of units. No single speed
+  // serves both, so it is a control rather than a constant, and the slider is
+  // exponential: a linear one spends most of its travel on speeds too fast to
+  // aim with. 0 -> 20 u/s (nudging), 50 -> 400 (walking the map), 100 -> 8000
+  // (crossing it). Shift still multiplies by four on top.
+  var SPEED_KEY = 'gate-mapper-speed';
+  var flySpeed = 400;
+
+  function speedFromSlider(v) { return Math.round(20 * Math.pow(400, Number(v) / 100)); }
+  function sliderFromSpeed(s) { return Math.round(100 * Math.log(Number(s) / 20) / Math.log(400)); }
 
   renderer.domElement.addEventListener('click', function () { renderer.domElement.requestPointerLock(); });
   document.addEventListener('pointerlockchange', function () {
@@ -664,6 +682,31 @@
   });
   select.addEventListener('change', function () { loadMap(select.value); });
 
+  function applySpeed(sliderValue, remember) {
+    var slider = $('speed');
+    slider.value = Math.max(0, Math.min(100, Math.round(sliderValue)));
+    flySpeed = speedFromSlider(slider.value);
+    $('speed-value').textContent = flySpeed.toLocaleString();
+    if (remember) { try { localStorage.setItem(SPEED_KEY, String(flySpeed)); } catch (e) { /* private mode */ } }
+  }
+
+  $('speed').addEventListener('input', function () { applySpeed($('speed').value, true); });
+
+  // Scrolling is free here - there is no zoom to compete with - and adjusting
+  // speed without leaving the viewport is the whole point while flying.
+  addEventListener('wheel', function (e) {
+    if (e.target && e.target.closest && e.target.closest('#panel')) return;
+    e.preventDefault();
+    applySpeed(Number($('speed').value) + (e.deltaY < 0 ? 3 : -3), true);
+  }, { passive: false });
+
+  (function restoreSpeed() {
+    var saved = null;
+    try { saved = localStorage.getItem(SPEED_KEY); } catch (e) { /* private mode */ }
+    var speed = Number(saved);
+    applySpeed(speed > 0 ? sliderFromSpeed(speed) : 50, false);
+  })();
+
   // Loading from disk. The scale still comes from the map dropdown, so picking
   // the wrong map for the file gives coordinates that are wrong by a constant
   // factor - which is why the label names the file that was actually loaded.
@@ -699,7 +742,7 @@
     var dt = Math.min(0.1, (now - last) / 1000);
     last = now;
 
-    var speed = BASE_SPEED * (keys.ShiftLeft || keys.ShiftRight ? 4 : 1) * dt;
+    var speed = flySpeed * (keys.ShiftLeft || keys.ShiftRight ? 4 : 1) * dt;
     var forward = forwardVector();
     var right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
     if (keys.KeyW) camera.position.addScaledVector(forward, speed);
@@ -718,6 +761,9 @@
     var look = lookHit();
     $('hud-look').textContent = look ? fmt(look) : '—';
     $('hud-yaw').textContent = yawLiteral(yaw);
+    var boosting = keys.ShiftLeft || keys.ShiftRight;
+    $('hud-speed').textContent = (boosting ? flySpeed * 4 : flySpeed).toLocaleString() +
+      ' u/s' + (boosting ? ' (boost)' : '');
 
     renderer.render(scene, camera);
   }
