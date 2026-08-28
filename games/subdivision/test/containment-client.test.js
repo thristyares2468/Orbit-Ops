@@ -110,3 +110,19 @@ test('Containment has a distinct sunset sky and restores normal map lighting out
   assert.match(html, /applySceneEnvironmentForMap\(getCurrentMapDef\(\)\)/u,
     'changing mode without reloading the map still changes the atmosphere');
 });
+
+test('the spawn hold sits in Host Controls, not on the HUD', () => {
+  // Holding the horde is a lobby decision, so it belongs beside the other
+  // room-wide administration rather than on the in-game HUD.
+  const hostControls = html.match(/<div id="host-admin-actions"[\s\S]*?\n            <\/div>/u)[0];
+  assert.match(hostControls, /id="btn-host-zombie-spawns"/u);
+  assert.doesNotMatch(html, /id="ct-admin-pause"/u, 'the old HUD button is gone, not just hidden');
+  assert.match(html, /sendPacket\('containmentAdminPause', \{ paused: !containmentSpawnPaused \}\)/u);
+
+  // The flag is read by renderHostControls(), so it has to be declared above
+  // it - `let` is in a temporal dead zone until its declaration runs.
+  assert.ok(
+    html.indexOf('let containmentSpawnPaused') < html.indexOf('function renderHostControls'),
+    'containmentSpawnPaused must be declared before renderHostControls reads it'
+  );
+});

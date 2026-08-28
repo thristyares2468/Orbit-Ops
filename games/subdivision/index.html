@@ -33,6 +33,18 @@
 
         .menu-container { background: rgba(30, 35, 31, 0.96); padding: 40px; border: 1px solid #505851; border-radius: 8px; width: 400px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.72); }
         .menu-title { font-size: 32px; font-weight: bold; margin-bottom: 30px; color: #ffaa00; font-family: 'Courier New', Courier, monospace; letter-spacing: 2px; }
+        /* Inventory editor. Rows are a label plus its controls, so they stay
+           readable when an item id is long enough to wrap. */
+        .inv-editor-row { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+        .inv-editor-row > .username-input { flex: 1; }
+        .inv-editor-num { width: 84px; box-sizing: border-box; padding: 10px; background: #101010; border: 1px solid #555; color: #fff; border-radius: 4px; font: 14px 'Courier New', monospace; text-align: center; }
+        .inv-editor-item { display: flex; gap: 6px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #3a3f3b; }
+        .inv-editor-item .inv-editor-name { flex: 1; text-align: left; font: 13px 'Courier New', monospace; color: #dfe8e2; overflow-wrap: anywhere; }
+        .inv-editor-item .inv-editor-num { width: 72px; padding: 6px; }
+        .inv-editor-item button { padding: 6px 10px; font-size: 12px; }
+        /* A locked item is still shown - knowing it exists is the point - but
+           the controls that would break the commitment are disabled. */
+        .inv-editor-lock { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 3px; background: #4a3410; color: #ffc46a; font-size: 11px; letter-spacing: .04em; }
         .menu-status { min-height: 22px; margin-top: 8px; color: #cfcfcf; font-family: 'Courier New', Courier, monospace; font-size: 14px; }
         .username-input { width: 100%; box-sizing: border-box; padding: 14px; margin-bottom: 15px; background: #101010; border: 1px solid #555; color: white; border-radius: 4px; font-size: 16px; text-align: center; font-family: 'Courier New', Courier, monospace; }
         .username-input:focus { outline: none; border-color: #ffaa00; box-shadow: 0 0 0 2px rgba(255,170,0,0.2); }
@@ -498,11 +510,10 @@
         #containment-hud .ct-phase[data-phase="extraction"] { color: #6bff9d; }
         #ct-skip-prep { pointer-events: auto; display: block; width: 100%; margin-top: 8px; padding: 7px 9px; border: 1px solid rgba(127,212,255,.7); background: rgba(7,20,29,.86); color: #d9f5ff; font: 800 10px 'Courier New', monospace; letter-spacing: .07em; text-transform: uppercase; cursor: pointer; }
         #ct-skip-prep:hover:not(:disabled), #ct-skip-prep:focus-visible:not(:disabled) { border-color: #fff; background: rgba(24,84,113,.94); outline: none; }
-        /* Admin-only, and coloured unlike the player-facing button above so a
-           held horde never reads as normal play in a screenshot. */
-        #ct-admin-pause { pointer-events: auto; display: block; width: 100%; margin-top: 6px; padding: 7px 9px; border: 1px dashed rgba(255,196,106,.75); background: rgba(31,20,6,.86); color: #ffd9a0; font: 800 10px 'Courier New', monospace; letter-spacing: .07em; text-transform: uppercase; cursor: pointer; }
-        #ct-admin-pause:hover, #ct-admin-pause:focus-visible { border-color: #ffd9a0; background: rgba(66,42,10,.94); outline: none; }
-        #ct-admin-pause[aria-pressed="true"] { border-style: solid; background: rgba(122,58,10,.94); color: #fff; }
+        /* A held horde must not read as normal play, so the button stays lit
+           while it is on. It lives in Host Controls; see the toggle beside the
+           other room-wide administration. */
+        #btn-host-zombie-spawns[aria-pressed="true"] { border-color: #ffc46a; background: rgba(122,58,10,.94); color: #fff; }
         #ct-skip-prep:disabled { color: #7b9aaa; border-color: rgba(104,143,163,.45); cursor: default; }
         /* The banner is centred and brief - a wave change should register
            without taking the screen away from the player. */
@@ -1801,6 +1812,7 @@
             <button class="menu-btn primary" id="btn-owner-daily-challenges" type="button" style="display:none;">Challenge Editor</button>
             <button class="menu-btn primary" id="btn-owner-grant-skin" type="button" style="display:none;">Grant Skin</button>
             <button class="menu-btn primary" id="btn-owner-balances" type="button" style="display:none;">Player Balances</button>
+            <button class="menu-btn primary" id="btn-owner-inventory-editor" type="button" style="display:none;">Inventory Editor</button>
             <button class="menu-btn" id="btn-owner-recovery-lookup" type="button" style="display:none;">Admin Recovery Lookup</button>
             <button class="menu-btn danger" id="btn-owner-reset-all-xp" type="button" style="display:none;">Reset All XP</button>
             <div id="owner-only-section" style="display:none;">
@@ -1829,6 +1841,44 @@
             <button class="menu-btn" id="btn-balances-refresh" type="button">Refresh</button>
             <div id="balances-list" class="admin-list"></div>
             <div class="menu-status" id="balances-status"></div>
+        </div>
+
+        <!-- Per-item counterpart to the whole-account "clear inventory" in the
+             admin panel. Every row shows why an item may not be editable -
+             listed, mid-trade, equipped - because those are the cases where a
+             blind edit would break something a player agreed to. -->
+        <div id="inventory-editor-menu" class="menu-container">
+            <button class="panel-close" id="btn-inventory-editor-back" type="button" aria-label="Close">×</button>
+            <div class="menu-title" style="color: var(--jim-green-lite);">INVENTORY EDITOR</div>
+            <div class="host-menu-note">Add or remove cases and skins on any account, and set skin wear.</div>
+            <div class="inv-editor-row">
+                <input id="inv-editor-username" class="username-input" maxlength="20" placeholder="Account username" autocomplete="off" spellcheck="false" style="margin-bottom:0;">
+                <button class="menu-btn" id="btn-inv-editor-load" type="button">Load</button>
+            </div>
+
+            <div id="inv-editor-body" style="display:none;">
+                <div class="host-menu-note">Add a case</div>
+                <div class="inv-editor-row">
+                    <select id="inv-editor-case-select" class="host-mode-select"></select>
+                    <input id="inv-editor-case-qty" type="number" min="1" max="1000" value="1" class="inv-editor-num">
+                    <button class="menu-btn" id="btn-inv-editor-add-case" type="button">Add</button>
+                </div>
+
+                <div class="host-menu-note">Add a skin — wear 0 is pristine, 1 is ruined</div>
+                <div class="inv-editor-row">
+                    <input id="inv-editor-skin-search" class="username-input" maxlength="40" placeholder="Search skins" autocomplete="off" spellcheck="false" style="margin-bottom:0;">
+                    <input id="inv-editor-skin-wear" type="number" min="0" max="1" step="0.01" placeholder="wear" class="inv-editor-num">
+                </div>
+                <div id="inv-editor-skin-results" class="admin-list"></div>
+
+                <div class="host-menu-note">Cases held</div>
+                <div id="inv-editor-cases" class="admin-list"></div>
+
+                <div class="host-menu-note">Skins held</div>
+                <div id="inv-editor-skins" class="admin-list"></div>
+            </div>
+
+            <div class="menu-status" id="inv-editor-status"></div>
         </div>
 
         <div id="ban-manager-menu" class="menu-container">
@@ -2144,6 +2194,9 @@
                     <button class="menu-btn" id="btn-admin-force-mode" type="button">Force</button>
                 </div>
                 <button class="menu-btn" id="btn-admin-force-map" type="button">Force Map: Half Map</button>
+                <!-- Only meaningful in Zombies, so it is hidden in every other
+                     mode rather than sitting there doing nothing. -->
+                <button class="menu-btn" id="btn-host-zombie-spawns" type="button" style="display:none;">Zombie Spawns: Active</button>
             </div>
             <div class="host-mode-row">
                 <select class="host-mode-select" id="host-mode-select">
@@ -2744,7 +2797,6 @@
         <div class="ct-row ct-credits"><span class="ct-label">Credits</span><strong id="ct-credits">0</strong></div>
         <div id="ct-phase" class="ct-phase"></div>
         <button id="ct-skip-prep" type="button" hidden aria-keyshortcuts="V">Vote to skip preparation</button>
-        <button id="ct-admin-pause" type="button" hidden aria-pressed="false">Pause spawning</button>
     </div>
     <div id="containment-banner" class="is-hidden" role="status"></div>
     <canvas id="minimap" width="220" height="220"></canvas>
@@ -4245,6 +4297,18 @@
         document.getElementById('btn-leaderboards-back').addEventListener('click', () => showTitleMenu());
         ownerAdminButton.addEventListener('click', showOwnerAdmin);
         document.getElementById('btn-owner-grant-skin').addEventListener('click', () => showGrantSkin('title'));
+        document.getElementById('btn-owner-inventory-editor').addEventListener('click', () => showInventoryEditor('title'));
+        document.getElementById('btn-inv-editor-load').addEventListener('click', loadInventoryEditor);
+        document.getElementById('btn-inventory-editor-back').addEventListener('click', closeOverlayPanel);
+        document.getElementById('inv-editor-username').addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') loadInventoryEditor();
+        });
+        document.getElementById('inv-editor-skin-search').addEventListener('input', renderInventoryEditorSkinSearch);
+        document.getElementById('btn-inv-editor-add-case').addEventListener('click', () => {
+            const caseId = document.getElementById('inv-editor-case-select').value;
+            const quantity = Number(document.getElementById('inv-editor-case-qty').value) || 1;
+            if (caseId) invEditorSend('grantCase', { caseId, quantity });
+        });
         document.getElementById('btn-owner-balances').addEventListener('click', () => showBalances('title'));
         document.getElementById('btn-grant-skin-back').addEventListener('click', closeOverlayPanel);
         document.getElementById('btn-balances-back').addEventListener('click', closeOverlayPanel);
@@ -4566,6 +4630,7 @@
             return [accountMenu, createGameMenu, serverBrowser, settingsMenu, leaderboardMenu,
                 document.getElementById('profile-menu'), ownerAdminMenu, banManagerMenu, caseEditorMenu, dailyChallengeEditorMenu,
                 document.getElementById('grant-skin-menu'), document.getElementById('balances-menu'),
+                document.getElementById('inventory-editor-menu'),
                 friendsMenu, inventoryMenu, tradeUpMenu, marketplaceMenu, newsMenu];
         }
 
@@ -6061,6 +6126,14 @@
                 : { name: 'Counter-Terrorist', plural: 'Counter-Terrorists', short: 'CT', color: '#49a6ff' };
         }
 
+        // Declared up here, not beside the Containment HUD code that maintains
+        // it, because renderHostControls() below reads it. `let` sits in a
+        // temporal dead zone until its declaration runs, so a declaration
+        // seven thousand lines further down would throw the moment anything
+        // called renderHostControls during script execution - the same trap
+        // that once blanked every skin preview.
+        let containmentSpawnPaused = false;
+
         function renderHostControls() {
             const isHost = currentRoomCode && currentRoomHostId === mySocketId;
             // An admin can open this in a room they do not host. The buttons that
@@ -6072,6 +6145,10 @@
             if (!canConfigure && hostControls.style.display === 'block') showPauseMenu();
             document.getElementById('host-admin-actions').style.display = accountIsAdmin ? 'block' : 'none';
             document.getElementById('btn-host-owner-tools').style.display = accountIsOwnerAdmin ? 'block' : 'none';
+            // Re-stated here as well as on the Containment broadcast, so opening
+            // the panel between waves shows the real state rather than whatever
+            // it was when the last packet happened to arrive.
+            updateContainmentAdminPause(containmentSpawnPaused);
             if (!canConfigure) return;
 
             const forceMode = document.getElementById('admin-force-mode-select');
@@ -9280,6 +9357,7 @@
             document.getElementById('btn-owner-reset-all-xp').style.display = adminOnly;
             document.getElementById('btn-owner-grant-skin').style.display = adminOnly;
             document.getElementById('btn-owner-balances').style.display = adminOnly;
+            document.getElementById('btn-owner-inventory-editor').style.display = adminOnly;
             document.getElementById('owner-only-section').style.display = accountIsOwnerAdmin ? 'block' : 'none';
             const profileButton = document.getElementById('btn-profile');
             if (profileButton) profileButton.style.display = isGuest ? 'none' : 'block';
@@ -9447,6 +9525,187 @@
 
         // --- owner tools: grant skin ---------------------------------------
         let grantSkinCatalog = [];
+
+        // --- owner tools: inventory editor ----------------------------------
+        //
+        // Per-item editing of any account: add cases, add skins, change wear,
+        // remove either. The server owns every rule; this only ever names an
+        // account and an item and reads back what the server says the
+        // inventory now is, so the panel cannot drift from the truth.
+        let invEditorState = { account: null, skins: [], cases: [], caseCatalog: [] };
+
+        function showInventoryEditor(from = 'title') {
+            if (!accountIsAdmin && !accountIsOwnerAdmin) return;
+            showExperimentalPanel(document.getElementById('inventory-editor-menu'), 'btn-account-menu', from === 'pause' ? 'pause' : 'title');
+            document.getElementById('inv-editor-status').textContent = '';
+            document.getElementById('inv-editor-body').style.display = 'none';
+            invEditorState = { account: null, skins: [], cases: [], caseCatalog: [] };
+        }
+
+        function invEditorUsername() {
+            return document.getElementById('inv-editor-username').value.trim();
+        }
+
+        function loadInventoryEditor() {
+            const username = invEditorUsername();
+            if (!username) {
+                document.getElementById('inv-editor-status').textContent = 'Enter a username first.';
+                return;
+            }
+            document.getElementById('inv-editor-status').textContent = 'Loading…';
+            sendPacket('adminInventoryLookup', { username });
+        }
+
+        // Every action names the account by id once it is loaded, so renaming
+        // mid-edit cannot redirect an edit onto a different account.
+        function invEditorSend(action, payload) {
+            if (!invEditorState.account) return;
+            document.getElementById('inv-editor-status').textContent = 'Working…';
+            sendPacket('adminInventoryEdit', { accountId: invEditorState.account.id, action, ...payload });
+        }
+
+        function applyInventoryEditorData(data) {
+            invEditorState = {
+                account: data.account || null,
+                skins: Array.isArray(data.skins) ? data.skins : [],
+                cases: Array.isArray(data.cases) ? data.cases : [],
+                caseCatalog: Array.isArray(data.caseCatalog) ? data.caseCatalog : []
+            };
+            document.getElementById('inv-editor-body').style.display = invEditorState.account ? 'block' : 'none';
+            if (data.status) document.getElementById('inv-editor-status').textContent = data.status;
+            else if (invEditorState.account) {
+                document.getElementById('inv-editor-status').textContent =
+                    `${invEditorState.account.username} — ${invEditorState.skins.length} skin${invEditorState.skins.length === 1 ? '' : 's'}, ${invEditorState.cases.length} case stack${invEditorState.cases.length === 1 ? '' : 's'}.`;
+            }
+            renderInventoryEditor();
+        }
+
+        function invEditorEmpty(text) {
+            const empty = document.createElement('div');
+            empty.className = 'leader-empty';
+            empty.textContent = text;
+            return empty;
+        }
+
+        function renderInventoryEditor() {
+            const caseSelect = document.getElementById('inv-editor-case-select');
+            if (document.activeElement !== caseSelect) {
+                const previous = caseSelect.value;
+                caseSelect.replaceChildren();
+                for (const row of invEditorState.caseCatalog) {
+                    const option = document.createElement('option');
+                    option.value = row.id;
+                    option.textContent = row.name || row.id;
+                    caseSelect.append(option);
+                }
+                if (previous) caseSelect.value = previous;
+            }
+
+            const cases = document.getElementById('inv-editor-cases');
+            cases.replaceChildren();
+            if (!invEditorState.cases.length) cases.append(invEditorEmpty('No cases.'));
+            for (const row of invEditorState.cases) {
+                const item = document.createElement('div');
+                item.className = 'inv-editor-item';
+                const name = document.createElement('span');
+                name.className = 'inv-editor-name';
+                name.textContent = `${row.caseId} x${row.quantity}`;
+                const amount = document.createElement('input');
+                amount.type = 'number';
+                amount.className = 'inv-editor-num';
+                amount.min = '1';
+                amount.max = String(row.quantity);
+                amount.value = String(row.quantity);
+                const remove = document.createElement('button');
+                remove.className = 'menu-btn danger';
+                remove.type = 'button';
+                remove.textContent = 'Remove';
+                remove.addEventListener('click', () => {
+                    invEditorSend('removeCase', { caseId: row.caseId, quantity: Number(amount.value) || row.quantity });
+                });
+                item.append(name, amount, remove);
+                cases.append(item);
+            }
+
+            const skins = document.getElementById('inv-editor-skins');
+            skins.replaceChildren();
+            if (!invEditorState.skins.length) skins.append(invEditorEmpty('No skins.'));
+            for (const row of invEditorState.skins) {
+                const item = document.createElement('div');
+                item.className = 'inv-editor-item';
+                const name = document.createElement('span');
+                name.className = 'inv-editor-name';
+                name.textContent = row.itemId;
+                // Say why an item cannot be edited rather than just disabling.
+                const lock = row.listed ? 'listed' : (row.pendingTrade ? 'trading' : (row.equippedOn ? `equipped ${row.equippedOn}` : ''));
+                if (lock) {
+                    const badge = document.createElement('span');
+                    badge.className = 'inv-editor-lock';
+                    badge.textContent = lock;
+                    name.append(badge);
+                }
+                const wear = document.createElement('input');
+                wear.type = 'number';
+                wear.className = 'inv-editor-num';
+                wear.min = '0';
+                wear.max = '1';
+                wear.step = '0.01';
+                wear.value = Number(row.wearValue || 0).toFixed(3);
+                // Equipped is fine to re-wear; only a listing or a live trade
+                // is a promise to someone else about this exact item.
+                wear.disabled = row.listed || row.pendingTrade;
+                const save = document.createElement('button');
+                save.className = 'menu-btn';
+                save.type = 'button';
+                save.textContent = 'Set wear';
+                save.disabled = wear.disabled;
+                save.addEventListener('click', () => {
+                    invEditorSend('setWear', { inventoryId: row.id, wear: Number(wear.value) });
+                });
+                const remove = document.createElement('button');
+                remove.className = 'menu-btn danger';
+                remove.type = 'button';
+                remove.textContent = 'Remove';
+                remove.addEventListener('click', () => {
+                    invEditorSend('removeSkin', { inventoryId: row.id });
+                });
+                item.append(name, wear, save, remove);
+                skins.append(item);
+            }
+
+            renderInventoryEditorSkinSearch();
+        }
+
+        function renderInventoryEditorSkinSearch() {
+            const list = document.getElementById('inv-editor-skin-results');
+            const term = document.getElementById('inv-editor-skin-search').value.trim().toLowerCase();
+            list.replaceChildren();
+            if (!term) { list.append(invEditorEmpty('Type to find a skin to add.')); return; }
+            const matches = (skinInventoryState?.catalog?.items || [])
+                .filter((entry) => `${entry.weapon || ''} ${entry.name || ''} ${entry.id || ''}`.toLowerCase().includes(term))
+                .slice(0, 30);
+            if (!matches.length) { list.append(invEditorEmpty('No skin matches that.')); return; }
+            for (const entry of matches) {
+                const item = document.createElement('div');
+                item.className = 'inv-editor-item';
+                const name = document.createElement('span');
+                name.className = 'inv-editor-name';
+                name.textContent = `${entry.weapon || ''} | ${entry.name || entry.id}`;
+                const add = document.createElement('button');
+                add.className = 'menu-btn';
+                add.type = 'button';
+                add.textContent = 'Add';
+                add.addEventListener('click', () => {
+                    // Blank wear means "roll it like a case would".
+                    const raw = document.getElementById('inv-editor-skin-wear').value.trim();
+                    invEditorSend('grantSkin', raw === ''
+                        ? { itemId: entry.id }
+                        : { itemId: entry.id, wear: Number(raw) });
+                });
+                item.append(name, add);
+                list.append(item);
+            }
+        }
 
         function showGrantSkin(from = 'title') {
             if (!accountIsAdmin && !accountIsOwnerAdmin) return;
@@ -11391,18 +11650,20 @@
 
         document.getElementById('ct-skip-prep')?.addEventListener('click', voteToSkipContainmentPreparation);
 
-        // The button only renders for admins, but the server re-checks: this is
-        // convenience, not the authority. Its state is read from the broadcast
-        // rather than toggled locally, so two admins never disagree about it.
-        let containmentSpawnPaused = false;
-
+        // Lives in Host Controls beside the other room-wide administration, not
+        // on the HUD: holding the horde is a lobby decision, not something to
+        // reach for mid-fight, and the HUD is for what you are playing.
+        //
+        // Admin-only here, but the server re-checks - this is convenience, not
+        // the authority. The state is read from the broadcast rather than
+        // toggled locally, so two admins never disagree about it.
         function updateContainmentAdminPause(paused) {
             containmentSpawnPaused = paused === true;
-            const button = document.getElementById('ct-admin-pause');
+            const button = document.getElementById('btn-host-zombie-spawns');
             if (!button) return;
-            button.hidden = !accountIsAdmin;
+            button.style.display = accountIsAdmin && isContainment() ? 'block' : 'none';
             button.setAttribute('aria-pressed', containmentSpawnPaused ? 'true' : 'false');
-            button.textContent = containmentSpawnPaused ? 'Spawning paused · resume' : 'Pause spawning';
+            button.textContent = `Zombie Spawns: ${containmentSpawnPaused ? 'Paused' : 'Active'}`;
         }
 
         function toggleContainmentSpawnPause() {
@@ -11410,7 +11671,7 @@
             sendPacket('containmentAdminPause', { paused: !containmentSpawnPaused });
         }
 
-        document.getElementById('ct-admin-pause')?.addEventListener('click', toggleContainmentSpawnPause);
+        document.getElementById('btn-host-zombie-spawns')?.addEventListener('click', toggleContainmentSpawnPause);
 
         function applyContainmentState(state) {
             const hud = document.getElementById('containment-hud');
@@ -13603,6 +13864,10 @@
                     const node = document.getElementById(id);
                     if (node && node.closest('.menu-container').style.display !== 'none') node.textContent = data?.message || '';
                 }
+            } else if (type === 'adminInventoryData') {
+                applyInventoryEditorData(data || {});
+            } else if (type === 'adminInventoryStatus') {
+                document.getElementById('inv-editor-status').textContent = data?.message || '';
             } else if (type === 'mowbucksUpdated') {
                 // An owner changed this account's balance while it was online.
                 accountMowbucks = Math.max(0, Number(data?.mowbucks ?? accountMowbucks));
