@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Containment gate mapper (offline)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #06090c; color: #dfe8e2;
+    font: 13px/1.5 'Courier New', Courier, monospace; overflow: hidden; }
+  canvas { display: block; }
+  #hud, #panel { position: absolute; z-index: 4; }
+  #hud { top: 12px; left: 12px; pointer-events: none; text-shadow: 1px 1px 0 #000; }
+  #hud .k { color: #7f8f86; }
+  #hud b { color: #fff; font-size: 15px; }
+  #crosshair { position: absolute; z-index: 3; left: 50%; top: 50%; width: 18px; height: 18px;
+    margin: -9px 0 0 -9px; pointer-events: none; }
+  #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #7fd4ff; }
+  #crosshair::before { left: 8px; top: 0; width: 2px; height: 18px; }
+  #crosshair::after { top: 8px; left: 0; height: 2px; width: 18px; }
+  #panel { top: 12px; right: 12px; width: 460px; max-height: calc(100vh - 24px);
+    display: flex; flex-direction: column; gap: 8px; background: rgba(6,12,16,.94);
+    border: 1px solid #1e3440; padding: 12px; overflow: auto; }
+  #panel h1 { margin: 0; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: #7fd4ff; }
+  #panel h2 { margin: 6px 0 0; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: #7f8f86; }
+  label { display: block; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: #7f8f86; }
+  select, input, button, textarea { width: 100%; background: #08131a; color: #dfe8e2;
+    border: 1px solid #23414f; padding: 6px 7px; font: inherit; font-size: 12px; }
+  button { cursor: pointer; text-transform: uppercase; font-weight: 700; letter-spacing: .08em; font-size: 11px; }
+  button:hover, button:focus-visible { border-color: #7fd4ff; outline: none; }
+  button.primary { background: #10303f; color: #d9f5ff; }
+  button.danger { border-color: #6b2b2b; color: #ffb4b4; }
+  textarea { height: 190px; resize: vertical; white-space: pre; font-size: 11px; }
+  .row { display: flex; gap: 6px; }
+  .row > * { flex: 1; }
+  .note { color: #7f8f86; font-size: 11px; }
+  .warn { color: #ffc46a; font-size: 11px; }
+  #pending { color: #ffd76a; min-height: 18px; font-size: 11px; }
+  #splash { position: absolute; inset: 0; z-index: 9; display: grid; place-items: center;
+    background: rgba(4,7,10,.92); text-align: center; padding: 24px; }
+  /* An id selector that sets `display` outranks the UA's `[hidden]` rule, so
+     without these the overlay never actually goes away - it just sits there at
+     92% opacity looking like a very dark map. */
+  #splash[hidden], #crosshair[hidden] { display: none; }
+  #splash div { max-width: 560px; }
+  #splash p { color: #9fb0a8; }
+  kbd { background: #12222b; border: 1px solid #2b4a59; padding: 1px 5px; color: #d9f5ff; }
+</style>
+</head>
+<body>
+
+<!-- Containment gate mapper.
+     ====================================================================
+     WHY THIS EXISTS
+       Authoring a gate means producing x/z/yaw/width/yHint that the server
+       will accept. Doing that inside a live match means fighting a horde and
+       a round trip for every reading. This is the same map, the same GLB and
+       the same uniform scale, with no server, no websocket and no zombies -
+       so a coordinate you read here is a coordinate you can paste.
+
+     THE ONE THING THAT MAKES IT TRUSTWORTHY
+       The numbers below are not eyeballed. `yaw` and `width` are derived from
+       the exact local-frame transform in segmentIntersectsContainmentGate()
+       in server.js, and the blocking volume drawn in the viewport is built
+       from those derived values - so you are looking at what the server will
+       actually block, not at an artist's impression of it.
+
+     RUN IT
+       There is no build step, but it cannot be opened as a file:// page:
+       the browser will refuse to fetch the GLBs. Serve the Subdivision
+       directory and open /tools/gate-mapper.html -
+
+         cd games/subdivision && python3 -m http.server 8000
+         open http://localhost:8000/tools/gate-mapper.html
+
+       three.js comes from the same CDN and pinned version as the game. -->
+
+<div id="crosshair" hidden></div>
+
+<div id="hud">
+  <div><span class="k">Eye</span> <b id="hud-eye">-</b></div>
+  <div><span class="k">Floor below</span> <b id="hud-floor">-</b></div>
+  <div><span class="k">Crosshair</span> <b id="hud-look">-</b></div>
+  <div><span class="k">Yaw</span> <b id="hud-yaw">-</b></div>
+  <div id="pending"></div>
+</div>
+
+<div id="panel">
+  <h1>Gate mapper</h1>
+
+  <label for="map">Map</label>
+  <select id="map"></select>
+
+  <label for="mode">Capture mode</label>
+  <select id="mode">
+    <option value="gate">Gate — two posts, wall to wall</option>
+    <option value="breach">Breach — one point</option>
+    <option value="start">Staging start — one point + facing</option>
+  </select>
+
+  <div class="row">
+    <div><label for="cap-id">id</label><input id="cap-id" placeholder="tunnel-breach"></div>
+    <div><label for="cap-section">section</label><input id="cap-section" placeholder="B tunnels"></div>
+  </div>
+  <div class="row">
+    <div><label for="cap-label">label / requiresGate</label><input id="cap-label" placeholder="Unlock B tunnels"></div>
+  </div>
+
+  <div class="row">
+    <button id="btn-capture" class="primary">Capture (C)</button>
+    <button id="btn-undo">Undo (Z)</button>
+  </div>
+  <div class="row">
+    <button id="btn-goto-start">Go to staging</button>
+    <button id="btn-clear" class="danger">Clear all</button>
+  </div>
+
+  <label><input type="checkbox" id="show-authored" checked style="width:auto"> Show authored gates &amp; breaches</label>
+
+  <h2>Output — paste into maps.js</h2>
+  <textarea id="out" readonly spellcheck="false"></textarea>
+  <button id="btn-copy">Copy</button>
+  <div id="warnings" class="warn"></div>
+
+  <div class="note">
+    <kbd>WASD</kbd> fly · <kbd>Q</kbd>/<kbd>E</kbd> down/up · <kbd>Shift</kbd> boost ·
+    <kbd>C</kbd> capture · <kbd>Z</kbd> undo · <kbd>Esc</kbd> release mouse
+  </div>
+</div>
+
+<div id="splash"><div>
+  <h1>Containment gate mapper</h1>
+  <p>Offline. No server, no ping, no zombies — the same GLB at the same scale the game uses.</p>
+  <p>Click to fly. Look at a gate post and press <kbd>C</kbd>.</p>
+  <p id="splash-status" class="note">Loading three.js…</p>
+</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/DRACOLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/libs/meshopt_decoder.js"></script>
+<script src="../maps.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var splashStatus = $('splash-status');
+
+  if (!window.THREE || !THREE.GLTFLoader) {
+    splashStatus.textContent = 'three.js failed to load. This tool needs the CDN once; after that the browser caches it.';
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // Map table
+  //
+  // maps.js is the authority for the imported maps and, crucially, for the
+  // authored gate/breach data drawn below. Dust2 is declared in index.html
+  // rather than maps.js, so it is repeated here - the ONLY value that has to
+  // match is `scale`, because world coordinates are raw GLB coordinates times
+  // that number and every authored figure in maps.js is in world scale.
+  // -------------------------------------------------------------------------
+  var GM = window.GameMaps || {};
+  var MAPS = { dust2: { label: 'Dust2', path: '/assets/maps/de_dust_2_with_real_light.glb', scale: 20 } };
+  Object.keys(GM.MAP_DEFS || {}).forEach(function (id) {
+    var def = GM.MAP_DEFS[id];
+    MAPS[id] = { label: def.label || id, path: def.path, scale: def.scale || 22 };
+  });
+
+  var GATES = GM.CONTAINMENT_GATES || {};
+  var LAYOUTS = GM.CONTAINMENT_LAYOUTS || {};
+
+  // Server-side clamps, repeated so the tool can warn at authoring time rather
+  // than letting a silently clamped value ship. See configureGates().
+  var LIMITS = { width: [6, 80], depth: [2, 14], height: [8, 40] };
+  var GATE_EYE = 18;      // gate.y is floor + 18; base = gate.y - 18
+  var GATE_HEIGHT = 24;   // configureGates default
+  var GATE_DEPTH = 5;
+
+  // -------------------------------------------------------------------------
+  // Scene
+  // -------------------------------------------------------------------------
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a1218);
+  // No lights, on purpose. Every shipped map already has its lighting baked
+  // into the textures, so adding a sun on top blows the whole thing out to
+  // white. Rendering the maps unlit (below) shows the baked art as authored
+  // and, more usefully here, lights every corner evenly - a mapping tool wants
+  // a legible choke point, not atmosphere.
+
+  var camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 1, 30000);
+  var markers = new THREE.Group();
+  scene.add(markers);
+
+  var mapRoot = null;
+  var mapMeshes = [];
+  var currentMapId = null;
+
+  addEventListener('resize', function () {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+
+  // -------------------------------------------------------------------------
+  // Free-fly camera. Deliberately noclip: the whole point is to reach a
+  // choke point directly instead of walking a route to it.
+  // -------------------------------------------------------------------------
+  var yaw = 0, pitch = 0;
+  var keys = Object.create(null);
+  var BASE_SPEED = 420;
+
+  renderer.domElement.addEventListener('click', function () { renderer.domElement.requestPointerLock(); });
+  document.addEventListener('pointerlockchange', function () {
+    var locked = document.pointerLockElement === renderer.domElement;
+    $('crosshair').hidden = !locked;
+  });
+  document.addEventListener('mousemove', function (e) {
+    if (document.pointerLockElement !== renderer.domElement) return;
+    yaw -= e.movementX * 0.0022;
+    pitch -= e.movementY * 0.0022;
+    var lim = Math.PI / 2 - 0.001;
+    pitch = Math.max(-lim, Math.min(lim, pitch));
+  });
+  addEventListener('keydown', function (e) {
+    // Never swallow typing in the id/section/label fields.
+    if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    keys[e.code] = true;
+    if (e.code === 'KeyC') { e.preventDefault(); capture(); }
+    if (e.code === 'KeyZ') { e.preventDefault(); undo(); }
+  });
+  addEventListener('keyup', function (e) { keys[e.code] = false; });
+  addEventListener('blur', function () { keys = Object.create(null); });
+
+  function forwardVector() {
+    return new THREE.Vector3(
+      -Math.sin(yaw) * Math.cos(pitch),
+      Math.sin(pitch),
+      -Math.cos(yaw) * Math.cos(pitch)
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Raycasts. Both hit the scaled map, so every reading is already in the
+  // world scale that maps.js stores.
+  // -------------------------------------------------------------------------
+  var ray = new THREE.Raycaster();
+
+  function lookHit() {
+    if (!mapMeshes.length) return null;
+    ray.set(camera.position, forwardVector());
+    var hits = ray.intersectObjects(mapMeshes, false);
+    return hits.length ? hits[0].point.clone() : null;
+  }
+
+  // The floor under the camera. This is what `yHint` means: the server grounds
+  // the authored hint against the collision mesh and then adds eye height, so
+  // handing it a floor reading is exactly what it expects.
+  function floorBelow() {
+    if (!mapMeshes.length) return null;
+    ray.set(camera.position, new THREE.Vector3(0, -1, 0));
+    var hits = ray.intersectObjects(mapMeshes, false);
+    return hits.length ? hits[0].point.clone() : null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Gate geometry
+  //
+  // Derived from segmentIntersectsContainmentGate() in server.js, which maps a
+  // world offset into the gate's local frame with
+  //
+  //     local.x = cos(yaw)*dx - sin(yaw)*dz
+  //     local.z = sin(yaw)*dx + cos(yaw)*dz
+  //
+  // and then tests |local.x| against width/2 and |local.z| against depth/2.
+  // So `width` runs along whichever world direction maps to local +x, which is
+  // (cos yaw, -sin yaw). Given a span v between two posts, the yaw that makes
+  // width lie along v is therefore atan2(-v.z, v.x). Getting this backwards
+  // produces a gate rotated 90 degrees - one that looks placed and blocks
+  // nothing - which is precisely the failure this tool exists to prevent.
+  // -------------------------------------------------------------------------
+  function gateFromPosts(a, b) {
+    var vx = b.x - a.x, vz = b.z - a.z;
+    var width = Math.hypot(vx, vz);
+    return {
+      x: round(( a.x + b.x) / 2),
+      z: round(( a.z + b.z) / 2),
+      yHint: round(Math.min(a.y, b.y)),
+      yaw: Math.atan2(-vz, vx),
+      width: round(width)
+    };
+  }
+
+  function round(n) { return Math.round(n * 100) / 100; }
+
+  // yaw is stored in maps.js as a readable multiple of PI where it is one.
+  function yawLiteral(v) {
+    var quarter = v / (Math.PI / 2);
+    var near = Math.round(quarter);
+    if (Math.abs(quarter - near) < 0.02) {
+      var forms = { '-2': '-Math.PI', '-1': '-Math.PI / 2', '0': '0', '1': 'Math.PI / 2', '2': 'Math.PI' };
+      if (forms[String(near)] !== undefined) return forms[String(near)];
+    }
+    return String(round(v * 1000) / 1000);
+  }
+
+  // -------------------------------------------------------------------------
+  // Markers
+  // -------------------------------------------------------------------------
+  function clearGroup(group) {
+    while (group.children.length) {
+      var child = group.children.pop();
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    }
+  }
+
+  function addPost(point, colour) {
+    var mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(4, 12, 10),
+      new THREE.MeshBasicMaterial({ color: colour })
+    );
+    mesh.position.copy(point);
+    markers.add(mesh);
+    return mesh;
+  }
+
+  // The blocking volume, built from the derived numbers rather than from the
+  // two clicked points - so a wrong yaw is visible immediately.
+  function addGateVolume(gate, colour, opacity) {
+    var box = new THREE.Mesh(
+      new THREE.BoxGeometry(gate.width, GATE_HEIGHT, GATE_DEPTH),
+      new THREE.MeshBasicMaterial({ color: colour, transparent: true, opacity: opacity, depthWrite: false })
+    );
+    // base = gate.y - 18 and gate.y = floor + 18, so the box sits on the floor.
+    box.position.set(gate.x, gate.yHint + GATE_HEIGHT / 2, gate.z);
+    box.rotation.y = gate.yaw;
+    markers.add(box);
+    var edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(box.geometry),
+      new THREE.LineBasicMaterial({ color: colour })
+    );
+    edges.position.copy(box.position);
+    edges.rotation.copy(box.rotation);
+    markers.add(edges);
+  }
+
+  // -------------------------------------------------------------------------
+  // Capture state
+  // -------------------------------------------------------------------------
+  var captured = [];   // finished rows
+  var pendingPost = null;
+
+  function capture() {
+    var hit = lookHit();
+    if (!hit) { flash('Nothing under the crosshair — aim at the floor or a wall.'); return; }
+    var mode = $('mode').value;
+
+    if (mode === 'gate') {
+      if (!pendingPost) {
+        pendingPost = hit;
+        redraw();
+        return;
+      }
+      var gate = gateFromPosts(pendingPost, hit);
+      pendingPost = null;
+      captured.push({
+        kind: 'gate',
+        id: $('cap-id').value.trim() || ('gate-' + (captured.length + 1)),
+        label: $('cap-label').value.trim() || 'Sector gate',
+        section: $('cap-section').value.trim() || 'Sector',
+        x: gate.x, z: gate.z, yHint: gate.yHint, yaw: gate.yaw, width: gate.width
+      });
+    } else if (mode === 'breach') {
+      var floor = floorBelow();
+      captured.push({
+        kind: 'breach',
+        id: $('cap-id').value.trim() || ('breach-' + (captured.length + 1)),
+        section: $('cap-section').value.trim() || 'Sector',
+        requiresGate: $('cap-label').value.trim(),
+        x: round(hit.x), z: round(hit.z), yHint: round(floor ? floor.y : hit.y)
+      });
+    } else {
+      captured.push({
+        kind: 'start',
+        id: $('cap-id').value.trim() || 'staging',
+        label: $('cap-label').value.trim() || 'Staging',
+        x: round(hit.x), z: round(hit.z), yHint: round(hit.y),
+        // Facing is taken from where you are standing, not from the point.
+        yaw: yaw
+      });
+    }
+    redraw();
+  }
+
+  function undo() {
+    if (pendingPost) { pendingPost = null; redraw(); return; }
+    captured.pop();
+    redraw();
+  }
+
+  var flashTimer = 0;
+  function flash(message) {
+    var el = $('pending');
+    el.textContent = message;
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(redrawPending, 2200);
+  }
+
+  function redrawPending() {
+    $('pending').textContent = pendingPost
+      ? 'Post A placed — aim at the far side of the gap and press C again.'
+      : '';
+  }
+
+  // -------------------------------------------------------------------------
+  // Output
+  // -------------------------------------------------------------------------
+  function emit() {
+    var gates = captured.filter(function (r) { return r.kind === 'gate'; });
+    var breaches = captured.filter(function (r) { return r.kind === 'breach'; });
+    var starts = captured.filter(function (r) { return r.kind === 'start'; });
+    var lines = [];
+    var warnings = [];
+
+    if (gates.length) {
+      lines.push('// CONTAINMENT_GATES');
+      lines.push('  ' + currentMapId + ': [');
+      lines.push(gates.map(function (g) {
+        if (g.width < LIMITS.width[0] || g.width > LIMITS.width[1]) {
+          warnings.push('"' + g.id + '" width ' + g.width + ' is outside ' +
+            LIMITS.width[0] + '-' + LIMITS.width[1] + ' and will be clamped by configureGates().');
+        }
+        return '    { id: ' + q(g.id) + ", label: " + q(g.label) + ', section: ' + q(g.section) +
+          ', x: ' + g.x + ', z: ' + g.z + ', yHint: ' + g.yHint +
+          ', yaw: ' + yawLiteral(g.yaw) + ', width: ' + g.width + ' }';
+      }).join(',\n'));
+      lines.push('  ],');
+    }
+
+    if (starts.length || breaches.length) {
+      lines.push('');
+      lines.push('// CONTAINMENT_LAYOUTS');
+      lines.push('  ' + currentMapId + ': {');
+      starts.slice(-1).forEach(function (s) {
+        lines.push('    start: { id: ' + q(s.id) + ', label: ' + q(s.label) +
+          ', x: ' + s.x + ', z: ' + s.z + ', yHint: ' + s.yHint + ', yaw: ' + yawLiteral(s.yaw) + ' },');
+      });
+      if (breaches.length) {
+        lines.push('    breaches: [');
+        lines.push(breaches.map(function (b) {
+          return '      { id: ' + q(b.id) + ', section: ' + q(b.section) +
+            (b.requiresGate ? ', requiresGate: ' + q(b.requiresGate) : '') +
+            ', x: ' + b.x + ', z: ' + b.z + ', yHint: ' + b.yHint + ' }';
+        }).join(',\n'));
+        lines.push('    ]');
+      }
+      lines.push('  },');
+    }
+
+    if (starts.length > 1) warnings.push('Only one staging start is used — the most recent capture is shown.');
+
+    $('out').value = lines.join('\n') || '// nothing captured yet';
+    $('warnings').textContent = warnings.join(' ');
+  }
+
+  function q(s) { return "'" + String(s).replace(/'/g, "\\'") + "'"; }
+
+  function redraw() {
+    clearGroup(markers);
+
+    if ($('show-authored').checked) {
+      (GATES[currentMapId] || []).forEach(function (g) {
+        addGateVolume({ x: g.x, z: g.z, yHint: g.yHint, yaw: g.yaw || 0, width: g.width || 14 }, 0x3d6b8a, 0.22);
+      });
+      var layout = LAYOUTS[currentMapId];
+      if (layout) {
+        (layout.breaches || []).forEach(function (b) {
+          addPost(new THREE.Vector3(b.x, b.yHint + 6, b.z), 0x4b7f5a);
+        });
+        if (layout.start) addPost(new THREE.Vector3(layout.start.x, layout.start.yHint + 6, layout.start.z), 0xd7c46a);
+      }
+    }
+
+    captured.forEach(function (r) {
+      if (r.kind === 'gate') addGateVolume(r, 0xffc46a, 0.34);
+      else addPost(new THREE.Vector3(r.x, r.yHint + 6, r.z), r.kind === 'start' ? 0xffffff : 0x7fd4ff);
+    });
+    if (pendingPost) addPost(pendingPost, 0xff6b74);
+
+    redrawPending();
+    emit();
+  }
+
+  // -------------------------------------------------------------------------
+  // Map loading
+  // -------------------------------------------------------------------------
+  function configureLoader(loader) {
+    if (THREE.DRACOLoader) {
+      var draco = new THREE.DRACOLoader();
+      draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/libs/draco/');
+      loader.setDRACOLoader(draco);
+    }
+    if (window.MeshoptDecoder && loader.setMeshoptDecoder) loader.setMeshoptDecoder(MeshoptDecoder);
+    return loader;
+  }
+
+  function loadMap(id) {
+    var def = MAPS[id];
+    if (!def) return;
+    currentMapId = id;
+    $('splash').hidden = false;
+    splashStatus.textContent = 'Loading ' + def.label + '…';
+
+    if (mapRoot) { scene.remove(mapRoot); mapRoot = null; }
+    mapMeshes = [];
+    captured = [];
+    pendingPost = null;
+
+    configureLoader(new THREE.GLTFLoader()).load(def.path, function (gltf) {
+      mapRoot = gltf.scene;
+      // The one line that has to match the game: a plain uniform scale, no
+      // rotation and no offset (see the map loader in index.html). World
+      // coordinates are therefore raw GLB coordinates times this.
+      mapRoot.scale.set(def.scale, def.scale, def.scale);
+      mapRoot.traverse(function (child) {
+        if (!child.isMesh) return;
+        var mats = Array.isArray(child.material) ? child.material : [child.material];
+        var unlit = mats.map(function (m) {
+          if (!m) return m;
+          var next = new THREE.MeshBasicMaterial({
+            map: m.map || null,
+            color: m.color ? m.color.clone() : new THREE.Color(0xffffff),
+            side: THREE.DoubleSide
+          });
+          // Cutout foliage/fences would otherwise render as opaque squares and
+          // hide the very geometry you are trying to measure against.
+          if (m.alphaTest) next.alphaTest = m.alphaTest;
+          else if (m.transparent) { next.transparent = true; next.alphaTest = 0.5; }
+          return next;
+        });
+        child.material = Array.isArray(child.material) ? unlit : unlit[0];
+        mapMeshes.push(child);
+      });
+      scene.add(mapRoot);
+      gotoStart();
+      redraw();
+      $('splash').hidden = true;
+    }, function (progress) {
+      if (progress.total) {
+        splashStatus.textContent = 'Loading ' + def.label + ' — ' +
+          Math.round((progress.loaded / progress.total) * 100) + '%';
+      }
+    }, function (err) {
+      splashStatus.textContent = 'Could not load ' + def.path + ' — ' + (err && err.message || err) +
+        '. Serve the Subdivision directory over http, not file://.';
+    });
+  }
+
+  // Drop onto whatever the map's own geometry says the floor is at x/z, rather
+  // than trusting an authored yHint. Some authored hints sit well below the
+  // real floor - dust2's staging hint is about 53 units under it - and starting
+  // the camera from the hint can leave you inside the ground.
+  function placeAbove(x, z, height) {
+    if (!mapRoot) return;
+    var box = new THREE.Box3().setFromObject(mapRoot);
+    ray.set(new THREE.Vector3(x, box.max.y + 10, z), new THREE.Vector3(0, -1, 0));
+    var hits = ray.intersectObjects(mapMeshes, false);
+    var y = hits.length ? hits[0].point.y + height : box.max.y + height;
+    camera.position.set(x, y, z);
+  }
+
+  function gotoStart() {
+    if (!mapRoot) return;
+    var layout = LAYOUTS[currentMapId];
+    var start = layout && layout.start;
+    if (start) {
+      placeAbove(start.x, start.z, 70);
+      yaw = Number(start.yaw) || 0;
+    } else {
+      var centre = new THREE.Box3().setFromObject(mapRoot).getCenter(new THREE.Vector3());
+      placeAbove(centre.x, centre.z, 260);
+      yaw = 0;
+    }
+    pitch = -0.3;
+  }
+
+  // -------------------------------------------------------------------------
+  // Wiring
+  // -------------------------------------------------------------------------
+  var select = $('map');
+  Object.keys(MAPS).forEach(function (id) {
+    var option = document.createElement('option');
+    option.value = id;
+    option.textContent = MAPS[id].label;
+    select.appendChild(option);
+  });
+  select.addEventListener('change', function () { loadMap(select.value); });
+
+  $('btn-capture').addEventListener('click', capture);
+  $('btn-undo').addEventListener('click', undo);
+  $('btn-goto-start').addEventListener('click', gotoStart);
+  $('btn-clear').addEventListener('click', function () { captured = []; pendingPost = null; redraw(); });
+  $('show-authored').addEventListener('change', redraw);
+  $('btn-copy').addEventListener('click', function () {
+    $('out').select();
+    navigator.clipboard.writeText($('out').value).then(function () { flash('Copied.'); },
+      function () { flash('Copy failed — select the text and copy manually.'); });
+  });
+
+  // -------------------------------------------------------------------------
+  // Frame
+  // -------------------------------------------------------------------------
+  var last = performance.now();
+  function frame(now) {
+    requestAnimationFrame(frame);
+    var dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+
+    var speed = BASE_SPEED * (keys.ShiftLeft || keys.ShiftRight ? 4 : 1) * dt;
+    var forward = forwardVector();
+    var right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    if (keys.KeyW) camera.position.addScaledVector(forward, speed);
+    if (keys.KeyS) camera.position.addScaledVector(forward, -speed);
+    if (keys.KeyD) camera.position.addScaledVector(right, speed);
+    if (keys.KeyA) camera.position.addScaledVector(right, -speed);
+    if (keys.KeyE) camera.position.y += speed;
+    if (keys.KeyQ) camera.position.y -= speed;
+
+    camera.rotation.set(pitch, yaw, 0, 'YXZ');
+
+    var eye = camera.position;
+    $('hud-eye').textContent = fmt(eye);
+    var floor = floorBelow();
+    $('hud-floor').textContent = floor ? ('y: ' + round(floor.y) + '  (drop ' + round(eye.y - floor.y) + ')') : '—';
+    var look = lookHit();
+    $('hud-look').textContent = look ? fmt(look) : '—';
+    $('hud-yaw').textContent = yawLiteral(yaw);
+
+    renderer.render(scene, camera);
+  }
+
+  function fmt(v) { return 'x: ' + round(v.x) + '  y: ' + round(v.y) + '  z: ' + round(v.z); }
+
+  select.value = 'dust2';
+  loadMap('dust2');
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
