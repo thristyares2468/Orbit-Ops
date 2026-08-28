@@ -18,6 +18,7 @@ const {
   restorePlayer,
   configureGates,
   publicGates,
+  setSpawnPaused,
   openGate,
   preparationVoteState,
   voteToSkipPreparation,
@@ -591,4 +592,81 @@ test('the hud reports the wave, what is left, and this player s own purse', () =
   assert.equal(view.alive, 1);
   assert.equal(view.remaining, match.pending + 1, 'remaining counts the queue as well as the field');
   assert.equal(hudState(match, 'p2').credits, 0, 'and never leaks another purse');
+});
+
+// --- the admin spawn hold ---------------------------------------------------
+//
+// Narrow on purpose: it stops new bodies arriving and nothing else. If it ever
+// grew to freeze damage or hold a wave's reward it would stop being a mapping
+// aid and start being a way to survive a wave you were losing.
+
+function pausedMatch() {
+  // Both, because beginMatch uses the longer first-wave countdown.
+  const match = createMatch({ now: 0, tuning: { preparationMs: 1_000, firstPreparationMs: 1_000 } });
+  beginMatch(match, 0);
+  return match;
+}
+
+test('pausing holds preparation instead of skipping it', () => {
+  const match = pausedMatch();
+  setSpawnPaused(match, true);
+  // The countdown has expired, but the wave must not start.
+  assert.deepEqual(step(match, 100_000, { alivePlayers: 1, totalPlayers: 1 }), []);
+  assert.equal(match.phase, PHASES.PREPARATION);
+  assert.equal(match.wave, 0, 'no wave was consumed while held');
+
+  // Clearing the hold starts it on the very next tick - the time already
+  // served counts, so an admin pause does not silently add a countdown.
+  setSpawnPaused(match, false);
+  const events = step(match, 100_001, { alivePlayers: 1, totalPlayers: 1 });
+  assert.equal(events[0].type, 'waveStarted');
+  assert.equal(match.phase, PHASES.ACTIVE);
+});
+
+test('pausing mid-wave stops new spawns without clearing the wave', () => {
+  const match = pausedMatch();
+  step(match, 2_000, { alivePlayers: 1, totalPlayers: 1 });
+  assert.equal(match.phase, PHASES.ACTIVE);
+  const queued = match.pending;
+  assert.ok(queued > 0);
+
+  setSpawnPaused(match, true);
+  for (let now = 3_000; now < 60_000; now += 1_000) {
+    assert.deepEqual(step(match, now, { alivePlayers: 1, totalPlayers: 1 }), [],
+      'a held director emits nothing at all');
+  }
+  assert.equal(match.pending, queued, 'the queue is untouched, not drained');
+  // Critically it did NOT fall through to waveCleared: the wave is still owed.
+  assert.equal(match.phase, PHASES.ACTIVE);
+
+  setSpawnPaused(match, false);
+  assert.equal(step(match, 61_000, { alivePlayers: 1, totalPlayers: 1 })[0].type, 'spawnDue');
+});
+
+test('a team wipe still ends the run while spawning is held', () => {
+  const match = pausedMatch();
+  step(match, 2_000, { alivePlayers: 1, totalPlayers: 1 });
+  setSpawnPaused(match, true);
+  const events = step(match, 3_000, { alivePlayers: 0, totalPlayers: 1 });
+  assert.equal(events[0].type, 'defeat');
+  assert.equal(match.phase, PHASES.DEFEAT, 'pausing is not a shield');
+});
+
+test('the hold reports whether it actually changed', () => {
+  const match = pausedMatch();
+  assert.deepEqual(setSpawnPaused(match, true), { ok: true, changed: true, spawnPaused: true });
+  assert.deepEqual(setSpawnPaused(match, true), { ok: true, changed: false, spawnPaused: true },
+    'a repeat click is not a state change, so the caller can skip the broadcast');
+  assert.deepEqual(setSpawnPaused(match, false), { ok: true, changed: true, spawnPaused: false });
+  // Anything that is not exactly true means "running".
+  setSpawnPaused(match, 'yes');
+  assert.equal(match.spawnPaused, false);
+  assert.equal(setSpawnPaused(null, true).ok, false);
+});
+
+test('the hud carries the hold so every client agrees about it', () => {
+  const match = pausedMatch();
+  assert.equal(hudState(match, 'p1').spawnPaused, false);
+  setSpawnPaused(match, true);
+  assert.equal(hudState(match, 'p1').spawnPaused, true);
 });

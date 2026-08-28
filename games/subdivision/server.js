@@ -1377,6 +1377,7 @@ function handleMessage(client, raw) {
   if (type === 'containmentBuyWeapon') { if (isContainment(room)) handleContainmentBuyWeapon(client, room, player, data); return; }
   if (type === 'containmentOpenGate') { if (isContainment(room)) handleContainmentOpenGate(client, room, player, data); return; }
   if (type === 'containmentSkipPreparation') { if (isContainment(room)) handleContainmentSkipPreparation(client, room, player); return; }
+  if (type === 'containmentAdminPause') { if (isContainment(room)) handleContainmentAdminPause(client, room, data); return; }
   if (type === 'glassBreak') { if (!player.waitingForNextRound) handleGlassBreak(client, room, player, data); return; }
   if (type === 'ventBreak') { if (!player.waitingForNextRound) handleVentBreak(client, room, player, data); return; }
   if (type === 'doorToggle') { if (!player.waitingForNextRound) handleDoorToggle(client, room, player, data); return; }
@@ -6028,6 +6029,9 @@ function ensureAdminConfig(room) {
   room.adminConfig.infiniteUtility = room.adminConfig.infiniteUtility === true;
   room.adminConfig.instaReload = room.adminConfig.instaReload === true;
   room.adminConfig.infiniteRound = room.adminConfig.infiniteRound === true;
+  // Admin-room-only: freeze new director arrivals without freezing the
+  // existing horde or changing the current wave's pending budget.
+  room.adminConfig.zombieSpawnsPaused = room.adminConfig.zombieSpawnsPaused === true;
   return room.adminConfig;
 }
 function roomWeaponPrice(room, weapon) {
@@ -6076,6 +6080,16 @@ function applyAdminConfigPatch(roomCode, room, data) {
       clearRoomRoundTimer(room);
     } else {
       ensureRoomRound(roomCode);
+    }
+  }
+  if (typeof p.zombieSpawnsPaused === 'boolean') {
+    cfg.zombieSpawnsPaused = p.zombieSpawnsPaused;
+    // The admin-panel switch and the Containment HUD button are two doors onto
+    // one hold. Delegating to the match keeps them from disagreeing - otherwise
+    // a room could show "Active" in the panel while the director was held.
+    if (isContainment(room)) {
+      containment.setSpawnPaused(ensureContainment(room), cfg.zombieSpawnsPaused);
+      broadcastContainment(roomCode, room);
     }
   }
   if (p.freeEverything === true) {
@@ -7736,6 +7750,9 @@ function containmentTick() {
 
     for (const event of events) {
       if (event.type === 'spawnDue') {
+        // The spawn budget stays pending, so resuming continues this wave
+        // naturally. Existing enemies remain active for live testing.
+        if (roomCode === ADMIN_ROOM_CODE && ensureAdminConfig(room).zombieSpawnsPaused) continue;
         const point = containment.pickSpawn(containmentSpawnPoints(room), view.players, {
           // Real line of sight, from the map's own collision mesh - the module
           // knows nothing about geometry and asks for this.
@@ -8103,6 +8120,24 @@ function handleContainmentSkipPreparation(client, room, player) {
     if (decision.reason === 'already-voted') send(client, 'containmentNotice', { message: 'You have already voted to skip preparation.' });
     return;
   }
+  broadcastContainment(client.roomCode, room);
+}
+
+// Admin hold on the wave director. Used to walk a map and read coordinates
+// without a horde in the way - the same job tools/gate-mapper.html does
+// offline, for when the layout has to be checked against a live room.
+//
+// Deliberately narrow: it suppresses new spawns and nothing else. Enemies
+// already on the map keep chasing, damage is unchanged, and no reward, gate or
+// purse is touched, so an admin cannot pause their way out of a losing wave.
+function handleContainmentAdminPause(client, room, data = {}) {
+  if (!isAdminUser(client)) return;
+  const match = ensureContainment(room);
+  if (!match) return;
+  const decision = containment.setSpawnPaused(match, data.paused === true);
+  if (!decision.changed) return;
+  // Mirrored back so the admin panel's own switch reads the same state.
+  if (room.adminConfig) room.adminConfig.zombieSpawnsPaused = decision.spawnPaused;
   broadcastContainment(client.roomCode, room);
 }
 

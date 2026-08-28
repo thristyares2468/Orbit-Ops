@@ -218,6 +218,11 @@ function createMatch(options = {}) {
     // state rather than a client-side countdown shortcut, so every player sees
     // the same threshold and a forged vote cannot advance a wave by itself.
     preparationVotes: new Set(),
+    // An admin hold on the wave director, used to walk a map without a horde
+    // (see tools/gate-mapper.html for the offline equivalent). It suppresses
+    // new spawns only - enemies already on the map keep simulating, so pausing
+    // is never a way to freeze an inconvenient wave mid-fight.
+    spawnPaused: false,
     stats: { kills: 0, headshots: 0, revives: 0, wavesCleared: 0 },
     startedAt: Number(options.now) || 0
   };
@@ -315,6 +320,9 @@ function step(match, now, context = {}) {
   switch (match.phase) {
     case PHASES.PREPARATION: {
       if (now < match.phaseEndsAt) break;
+      // Held rather than skipped: the countdown has already expired, so
+      // clearing the pause starts the wave on the very next tick.
+      if (match.spawnPaused) break;
       match.preparationVotes.clear();
       match.wave = toWave(match.wave + 1);
       const budget = waveBudget(match.wave, totalPlayers || 1, match.tuning);
@@ -330,6 +338,7 @@ function step(match, now, context = {}) {
       // Release queued enemies up to the concurrent cap, paced by the interval.
       const budget = waveBudget(match.wave, totalPlayers || 1, match.tuning);
       if (match.pending > 0
+        && !match.spawnPaused
         && match.enemies.size < budget.concurrent
         && now - match.lastSpawnAt >= budget.spawnIntervalMs) {
         match.lastSpawnAt = now;
@@ -389,6 +398,16 @@ function preparationVoteState(match, eligiblePlayerIds, playerId) {
 // A successful vote only makes the existing preparation phase expire now. The
 // normal director tick still starts the wave and emits its usual event, so
 // there is no parallel, socket-driven wave-start code path to keep in sync.
+// The admin hold. Returns whether it changed, so the caller can skip a
+// broadcast when a second click repeats the state already in flight.
+function setSpawnPaused(match, paused) {
+  if (!match) return { ok: false, changed: false, spawnPaused: false };
+  const next = paused === true;
+  const changed = !!match.spawnPaused !== next;
+  match.spawnPaused = next;
+  return { ok: true, changed, spawnPaused: next };
+}
+
 function voteToSkipPreparation(match, playerId, eligiblePlayerIds, now) {
   const id = String(playerId || '');
   const state = preparationVoteState(match, eligiblePlayerIds, id);
@@ -729,6 +748,7 @@ function hudState(match, playerId) {
     phaseEndsAt: match.phaseEndsAt,
     endless: match.endless,
     waveLimit: match.waveLimit,
+    spawnPaused: !!match.spawnPaused,
     stats: { ...match.stats }
   };
 }
@@ -746,6 +766,7 @@ module.exports = {
   openGate,
   preparationVoteState,
   voteToSkipPreparation,
+  setSpawnPaused,
   beginMatch,
   step,
   createEnemy,

@@ -498,6 +498,11 @@
         #containment-hud .ct-phase[data-phase="extraction"] { color: #6bff9d; }
         #ct-skip-prep { pointer-events: auto; display: block; width: 100%; margin-top: 8px; padding: 7px 9px; border: 1px solid rgba(127,212,255,.7); background: rgba(7,20,29,.86); color: #d9f5ff; font: 800 10px 'Courier New', monospace; letter-spacing: .07em; text-transform: uppercase; cursor: pointer; }
         #ct-skip-prep:hover:not(:disabled), #ct-skip-prep:focus-visible:not(:disabled) { border-color: #fff; background: rgba(24,84,113,.94); outline: none; }
+        /* Admin-only, and coloured unlike the player-facing button above so a
+           held horde never reads as normal play in a screenshot. */
+        #ct-admin-pause { pointer-events: auto; display: block; width: 100%; margin-top: 6px; padding: 7px 9px; border: 1px dashed rgba(255,196,106,.75); background: rgba(31,20,6,.86); color: #ffd9a0; font: 800 10px 'Courier New', monospace; letter-spacing: .07em; text-transform: uppercase; cursor: pointer; }
+        #ct-admin-pause:hover, #ct-admin-pause:focus-visible { border-color: #ffd9a0; background: rgba(66,42,10,.94); outline: none; }
+        #ct-admin-pause[aria-pressed="true"] { border-style: solid; background: rgba(122,58,10,.94); color: #fff; }
         #ct-skip-prep:disabled { color: #7b9aaa; border-color: rgba(104,143,163,.45); cursor: default; }
         /* The banner is centred and brief - a wave change should register
            without taking the screen away from the player. */
@@ -2181,6 +2186,7 @@
                 <button class="menu-btn" id="btn-admin-insta-reload">Insta Reload: Off</button>
                 <button class="menu-btn" id="btn-admin-infinite-round">Infinite Round: Off</button>
             </div>
+            <button class="menu-btn" id="btn-admin-zombie-spawns">Zombie Spawns: Active</button>
             <div class="host-menu-note">Testing shortcuts:</div>
             <div class="admin-tool-grid">
                 <button class="menu-btn danger" data-admin-tool="endGame">End Game Now</button>
@@ -2738,6 +2744,7 @@
         <div class="ct-row ct-credits"><span class="ct-label">Credits</span><strong id="ct-credits">0</strong></div>
         <div id="ct-phase" class="ct-phase"></div>
         <button id="ct-skip-prep" type="button" hidden aria-keyshortcuts="V">Vote to skip preparation</button>
+        <button id="ct-admin-pause" type="button" hidden aria-pressed="false">Pause spawning</button>
     </div>
     <div id="containment-banner" class="is-hidden" role="status"></div>
     <canvas id="minimap" width="220" height="220"></canvas>
@@ -4324,6 +4331,7 @@
         document.getElementById('btn-admin-infinite-utility').addEventListener('click', () => sendAdminConfig({ infiniteUtility: !adminInfiniteUtilityEnabled() }));
         document.getElementById('btn-admin-insta-reload').addEventListener('click', () => sendAdminConfig({ instaReload: !adminInstaReloadEnabled() }));
         document.getElementById('btn-admin-infinite-round').addEventListener('click', () => sendAdminConfig({ infiniteRound: !adminInfiniteRoundEnabled() }));
+        document.getElementById('btn-admin-zombie-spawns').addEventListener('click', () => sendAdminConfig({ zombieSpawnsPaused: !adminZombieSpawnsPaused() }));
         document.getElementById('btn-admin-summon-dummy').addEventListener('click', summonAdminDummy);
         document.getElementById('btn-admin-clear-dummies').addEventListener('click', () => sendPacket('adminClearDummies', {}));
         document.getElementById('btn-admin-room-case-editor').addEventListener('click', () => showCaseEditor('pause'));
@@ -4962,6 +4970,14 @@
                 const on = adminInfiniteRoundEnabled();
                 infiniteRoundBtn.innerText = `Infinite Round: ${on ? 'On' : 'Off'}`;
                 infiniteRoundBtn.classList.toggle('primary', on);
+            }
+            const zombieSpawnsBtn = document.getElementById('btn-admin-zombie-spawns');
+            if (zombieSpawnsBtn) {
+                const paused = adminZombieSpawnsPaused();
+                const available = currentRoomSettings.gamemode === 'containment';
+                zombieSpawnsBtn.innerText = `Zombie Spawns: ${paused ? 'Paused' : 'Active'}`;
+                zombieSpawnsBtn.classList.toggle('primary', paused);
+                zombieSpawnsBtn.disabled = !available;
             }
             if (adminGrenadeList) {
                 adminGrenadeList.innerHTML = GRENADE_KINDS.map(kind => {
@@ -7637,6 +7653,9 @@
         }
         function adminInfiniteRoundEnabled() {
             return isAdminRoom && adminConfig?.infiniteRound === true;
+        }
+        function adminZombieSpawnsPaused() {
+            return isAdminRoom && adminConfig?.zombieSpawnsPaused === true;
         }
         let myMoney = 200;
 
@@ -11369,6 +11388,27 @@
 
         document.getElementById('ct-skip-prep')?.addEventListener('click', voteToSkipContainmentPreparation);
 
+        // The button only renders for admins, but the server re-checks: this is
+        // convenience, not the authority. Its state is read from the broadcast
+        // rather than toggled locally, so two admins never disagree about it.
+        let containmentSpawnPaused = false;
+
+        function updateContainmentAdminPause(paused) {
+            containmentSpawnPaused = paused === true;
+            const button = document.getElementById('ct-admin-pause');
+            if (!button) return;
+            button.hidden = !accountIsAdmin;
+            button.setAttribute('aria-pressed', containmentSpawnPaused ? 'true' : 'false');
+            button.textContent = containmentSpawnPaused ? 'Spawning paused · resume' : 'Pause spawning';
+        }
+
+        function toggleContainmentSpawnPause() {
+            if (!isContainment() || !accountIsAdmin) return;
+            sendPacket('containmentAdminPause', { paused: !containmentSpawnPaused });
+        }
+
+        document.getElementById('ct-admin-pause')?.addEventListener('click', toggleContainmentSpawnPause);
+
         function applyContainmentState(state) {
             const hud = document.getElementById('containment-hud');
             if (!hud || !state) return;
@@ -11385,6 +11425,7 @@
             phase.textContent = CONTAINMENT_PHASE_TEXT[state.phase] || '';
             phase.dataset.phase = String(state.phase || '');
             updateContainmentPreparationVote(state.preparationVote, state.phase);
+            updateContainmentAdminPause(state.spawnPaused);
             renderBuyMenu();
         }
 

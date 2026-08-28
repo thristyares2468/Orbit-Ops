@@ -55,6 +55,9 @@ const MSG_LIMITS = {
   // Forcing a room's mode respawns everyone and rebroadcasts the whole room, so
   // it is expensive and disruptive by design. Human-click pace only.
   adminForceRoomSettings: { ratePerSec: 0.35, burst: 2 },
+  // Toggling the horde on and off is a deliberate act, not something to hold
+  // down. Slow enough that a stuck key cannot thrash the wave director.
+  containmentAdminPause: { ratePerSec: 0.5, burst: 3 },
   deleteCaseDefinition: { ratePerSec: 0.25, burst: 2 },
   getSkinInventory: { ratePerSec: 1, burst: 3 },
   marketList: { ratePerSec: 1, burst: 3 },

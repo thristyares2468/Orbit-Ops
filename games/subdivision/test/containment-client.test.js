@@ -76,6 +76,13 @@ test('gates are solid map objects and use the normal interact binding', () => {
     'the displayed collider uses the complete authored wall-to-wall gate dimensions');
 });
 
+test('the admin room exposes a synchronized zombie-spawn pause control', () => {
+  assert.match(html, /id="btn-admin-zombie-spawns"/u);
+  assert.match(html, /sendAdminConfig\(\{ zombieSpawnsPaused: !adminZombieSpawnsPaused\(\) \}\)/u);
+  assert.match(html, /function adminZombieSpawnsPaused\(\)/u);
+  assert.match(html, /Zombie Spawns: \$\{paused \? 'Paused' : 'Active'\}/u);
+});
+
 test('the coordinate capture binding copies floor coordinates for gate authoring', () => {
   const capture = html.match(/function captureLookCoords\(\) \{[\s\S]*?\n        \}/u)?.[0] || '';
   assert.match(capture, /const pasteReady = formatVec\(hit\.point\)/u);

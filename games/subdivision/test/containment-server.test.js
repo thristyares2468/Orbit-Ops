@@ -161,6 +161,13 @@ test('spawn placement spreads a wave across grounded collision-safe positions', 
   assert.match(section, /const recovery = spreadContainmentSpawn\(room, point, match\.enemies\)/u);
 });
 
+test('the admin room can pause future zombie spawns without freezing a wave', () => {
+  assert.match(server, /room\.adminConfig\.zombieSpawnsPaused = room\.adminConfig\.zombieSpawnsPaused === true;/u);
+  assert.match(server, /if \(typeof p\.zombieSpawnsPaused === 'boolean'\) \{\s*\n\s*cfg\.zombieSpawnsPaused = p\.zombieSpawnsPaused;/u);
+  assert.match(section, /if \(roomCode === ADMIN_ROOM_CODE && ensureAdminConfig\(room\)\.zombieSpawnsPaused\) continue;/u);
+  assert.match(section, /const enemy = containment\.createEnemy\(match, event\.budget, spawn, now\);/u);
+});
+
 test('a wedged enemy is recovered rather than left grinding into a wall', () => {
   assert.match(section, /if \(enemy\.stuckSince && now - enemy\.stuckSince > 4_000\)/u);
 });
@@ -186,4 +193,38 @@ test('preparation voting is server-owned and only includes eligible players', ()
   assert.match(section, /containment\.voteToSkipPreparation\(match, player\.id, containmentEligiblePlayerIds\(room\), Date\.now\(\)\)/u);
   assert.match(section, /preparationVote: containment\.preparationVoteState\(room\.containment, eligibleIds, playerId\)/u);
   assert.match(section, /if \(\(player\.health \|\| 0\) <= 0 \|\| player\.waitingForNextRound\) return;/u);
+});
+
+test('the admin spawn hold is admin-gated, mode-gated and rate-limited', () => {
+  // Admin first, before anything is created: an ordinary player must not even
+  // be able to force a match into existence through this packet.
+  assert.match(
+    server,
+    /function handleContainmentAdminPause\(client, room, data = \{\}\) \{\s*\n\s*if \(!isAdminUser\(client\)\) return;/u
+  );
+  assert.match(
+    server,
+    /if \(type === 'containmentAdminPause'\) \{ if \(isContainment\(room\)\) handleContainmentAdminPause/u,
+    'inert in every PvP room'
+  );
+  // The state comes from the module, not from a field written here.
+  assert.match(section, /containment\.setSpawnPaused\(match, data\.paused === true\)/u,
+    'only an exact true pauses; anything else means running');
+  assert.match(section, /if \(!decision\.changed\) return;/u,
+    'a repeat click does not rebroadcast the room');
+
+  const limits = fs.readFileSync(path.join(root, 'antiflood.js'), 'utf8');
+  assert.match(limits, /containmentAdminPause: \{ ratePerSec: [\d.]+, burst: \d+ \}/u);
+});
+
+test('pausing spawns cannot become a way to survive a wave', () => {
+  // The handler grants nothing and touches no player. If any of these ever
+  // appear in it, the hold has stopped being a mapping aid.
+  const handler = server.slice(
+    server.indexOf('function handleContainmentAdminPause'),
+    server.indexOf('// Snapshot encoder lives in core.js')
+  );
+  for (const forbidden of ['grant(', 'credits', 'health', 'enemies.clear', 'phase =']) {
+    assert.ok(!handler.includes(forbidden), `${forbidden} must not appear in the pause handler`);
+  }
 });
