@@ -11,11 +11,22 @@ const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 
 assert.deepStrictEqual(tradeups.RARITY_ORDER, ['common', 'rare', 'epic', 'legendary', 'mythic']);
-assert.strictEqual(tradeups.requiredInputCount('common'), 10);
-assert.strictEqual(tradeups.requiredInputCount('rare'), 10);
-assert.strictEqual(tradeups.requiredInputCount('epic'), 10);
-assert.strictEqual(tradeups.requiredInputCount('legendary'), 5);
+assert.strictEqual(tradeups.requiredInputCount('common'), 5);
+assert.strictEqual(tradeups.requiredInputCount('rare'), 5);
+assert.strictEqual(tradeups.requiredInputCount('epic'), 5);
+assert.strictEqual(tradeups.requiredInputCount('legendary'), 3);
 assert.strictEqual(tradeups.requiredInputCount('mythic'), 0);
+
+// The client repeats this rule so it can grey out the Proceed button. If the
+// two ever disagree the failure is silent: the UI collects one number of items
+// and the server rejects the submission as the wrong count.
+{
+  const clientRule = html.match(/function tradeUpRequiredCount\(rarity\) \{[\s\S]*?\n        \}/)[0];
+  const legendary = Number(clientRule.match(/'legendary' \? (\d+)/)[1]);
+  const lower = Number(clientRule.match(/\.includes\(normalized\) \? (\d+)/)[1]);
+  assert.strictEqual(legendary, tradeups.requiredInputCount('legendary'), 'client legendary count must match tradeups.js');
+  assert.strictEqual(lower, tradeups.requiredInputCount('common'), 'client common/rare/epic count must match tradeups.js');
+}
 assert.strictEqual(tradeups.nextRarity('legendary'), 'mythic');
 assert.strictEqual(tradeups.nextRarity('mythic'), null);
 
@@ -34,10 +45,12 @@ const collectionsById = new Map([
   ['collection_b', { id: 'collection_b', items: [{ itemId: 'b_rare', rarity: 'rare' }] }]
 ]);
 const inputs = [
-  ...Array.from({ length: 7 }, (_, index) => ({ id: index + 1, item_id: 'a_common', rarity_tier: 'common', collection_id: 'collection_a', wear_value: 0.22 })),
-  ...Array.from({ length: 3 }, (_, index) => ({ id: index + 8, item_id: 'b_common', rarity_tier: 'common', collection_id: 'collection_b', wear_value: 0.1 }))
+  ...Array.from({ length: 3 }, (_, index) => ({ id: index + 1, item_id: 'a_common', rarity_tier: 'common', collection_id: 'collection_a', wear_value: 0.22 })),
+  ...Array.from({ length: 2 }, (_, index) => ({ id: index + 4, item_id: 'b_common', rarity_tier: 'common', collection_id: 'collection_b', wear_value: 0.1 }))
 ];
-const rolls = [7, 0, 713, 122];
+// 3 selects index 3, which is one of the two Collection B slots - the point of
+// the case being that the selected input alone decides the output pool.
+const rolls = [3, 0, 713, 122];
 const outcome = tradeups.buildTradeUpOutcome({
   inputs,
   collectionsById,
@@ -59,7 +72,7 @@ assert.strictEqual(tradeups.wearConditionForFloat(0.38), 'Well Worn');
 assert.strictEqual(tradeups.wearConditionForFloat(0.45), 'Battle Scarred');
 
 const knifeCollection = { id: 'knife_collection', items: [{ itemId: 'knife', rarity: 'mythic' }] };
-const legendaryInputs = Array.from({ length: 5 }, (_, index) => ({ id: index + 20, item_id: 'legendary', rarity_tier: 'legendary', collection_id: 'knife_collection', wear_value: 0.3 }));
+const legendaryInputs = Array.from({ length: 3 }, (_, index) => ({ id: index + 20, item_id: 'legendary', rarity_tier: 'legendary', collection_id: 'knife_collection', wear_value: 0.3 }));
 const knifeOutcome = tradeups.buildTradeUpOutcome({
   inputs: legendaryInputs,
   collectionsById: new Map([['knife_collection', knifeCollection]]),

@@ -10179,9 +10179,12 @@
             return ['common', 'rare', 'epic', 'legendary', 'mythic'].includes(normalized) ? normalized : '';
         }
 
+        // Must match requiredInputCount() in tradeups.js, which is what the
+        // server actually enforces. A mismatch fails silently: the UI collects
+        // one number of items and the submission is rejected as the wrong count.
         function tradeUpRequiredCount(rarity) {
             const normalized = normalizedTradeUpRarity(rarity);
-            return normalized === 'legendary' ? 5 : (['common', 'rare', 'epic'].includes(normalized) ? 10 : 0);
+            return normalized === 'legendary' ? 3 : (['common', 'rare', 'epic'].includes(normalized) ? 5 : 0);
         }
 
         function tradeUpOutputRarity(rarity) {

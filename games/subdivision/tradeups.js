@@ -19,10 +19,16 @@ function nextRarity(rarity) {
   return index >= 0 && index < RARITY_ORDER.length - 1 ? RARITY_ORDER[index + 1] : null;
 }
 
+// How many inputs a trade up consumes. Mythic is 0 because there is nothing
+// above it to trade into.
+//
+// The client repeats this in tradeUpRequiredCount(); the two are checked
+// against each other in the tests, because a mismatch is silent - the UI would
+// collect one number of items and the server reject the submission.
 function requiredInputCount(rarity) {
   const normalized = normalizeTradeUpRarity(rarity);
-  if (normalized === 'legendary') return 5;
-  return ['common', 'rare', 'epic'].includes(normalized) ? 10 : 0;
+  if (normalized === 'legendary') return 3;
+  return ['common', 'rare', 'epic'].includes(normalized) ? 5 : 0;
 }
 
 function floatRangeForDefinition(definition = {}) {
