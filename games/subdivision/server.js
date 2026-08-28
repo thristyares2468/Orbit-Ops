@@ -1212,6 +1212,20 @@ function handleMessage(client, raw) {
     return;
   }
 
+  // Per-item inventory editing. Every one of these is gated here and re-checked
+  // for nothing else: the handlers assume an admin, so the gate must stay on
+  // this side of the call.
+  if (type === 'adminInventoryLookup') {
+    if (!isAdminUser(client)) return;
+    handleAdminInventoryLookup(client, data);
+    return;
+  }
+  if (type === 'adminInventoryEdit') {
+    if (!isAdminUser(client)) return;
+    handleAdminInventoryEdit(client, data);
+    return;
+  }
+
   if (type === 'leaveRoom') {
     client.roomCreationPending = null;
     const requestId = typeof data.requestId === 'string' ? data.requestId.slice(0, 80) : null;
@@ -3944,6 +3958,165 @@ async function handleAdminClearPlayerInventory(client, data = {}) {
     console.error('[admin-clear-inventory]', error.message);
     send(client, 'adminBanNotice', { ok: false, message: 'Could not clear that inventory.' });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Admin inventory editing
+//
+// Per-item counterpart to handleAdminClearPlayerInventory above: add cases,
+// add skins, change a skin's wear, remove either. Callers are already checked
+// for admin in the dispatch; nothing below re-checks, so the gate must stay
+// there.
+//
+// Two rules run through all of it. Ids are validated against the catalog
+// rather than trusted, so a packet naming a skin or case that does not exist
+// never reaches the database. And the target's own client is refreshed after
+// every change, so a player watching their inventory sees the edit rather
+// than a stale list they might then act on.
+// ---------------------------------------------------------------------------
+
+async function resolveAdminInventoryTarget(data = {}) {
+  const username = String(data.username || '').trim();
+  const accountId = String(data.accountId || '').trim();
+  if (/^\d+$/.test(accountId)) return db.getAccountById(accountId);
+  if (username) return db.findAccountByUsername(username);
+  return null;
+}
+
+function adminInventoryFail(client, message) {
+  send(client, 'adminInventoryStatus', { ok: false, message });
+}
+
+// Push the account's current state back to the admin, and to the player if
+// they happen to be online.
+async function sendAdminInventorySnapshot(client, account, status) {
+  const snapshot = await db.adminInventorySnapshot(account.id);
+  const customCases = await getCustomCaseDefinitions();
+  send(client, 'adminInventoryData', {
+    account: { id: Number(account.id), username: account.username },
+    skins: snapshot.skins,
+    cases: snapshot.cases,
+    // The pickers are driven by these, so an admin can only ever choose an id
+    // the server would accept anyway.
+    caseCatalog: customCases.map(row => ({ id: row.id, name: row.displayName || row.id })),
+    status: status || null
+  });
+  const target = findClientByAccountId(String(account.id));
+  if (target) sendSkinInventory(target);
+}
+
+function handleAdminInventoryLookup(client, data = {}) {
+  if (!db.isEnabled()) { adminInventoryFail(client, 'Inventory editing needs the database.'); return; }
+  (async () => {
+    const account = await resolveAdminInventoryTarget(data);
+    if (!account) { adminInventoryFail(client, 'No account with that name.'); return; }
+    await sendAdminInventorySnapshot(client, account);
+  })().catch(error => {
+    console.error('[admin-inventory] lookup failed:', error.message);
+    adminInventoryFail(client, 'Could not read that inventory.');
+  });
+}
+
+const ADMIN_INVENTORY_LOCK_MESSAGE = {
+  listed: 'That skin is on the market. Cancel the listing first.',
+  trading: 'That skin is in a pending trade. Cancel the trade first.',
+  missing: 'That item is no longer in the inventory.',
+  invalid: 'That is not a valid value.'
+};
+
+function handleAdminInventoryEdit(client, data = {}) {
+  if (!db.isEnabled()) { adminInventoryFail(client, 'Inventory editing needs the database.'); return; }
+  const action = String(data.action || '').trim();
+
+  (async () => {
+    const account = await resolveAdminInventoryTarget(data);
+    if (!account) { adminInventoryFail(client, 'No account with that name.'); return; }
+    const accountId = Number(account.id);
+    let status = null;
+
+    if (action === 'grantSkin') {
+      // The catalog is the allowlist: an id that is not a real skin never
+      // reaches the inventory, whatever the packet claims.
+      const item = skins.getItem(String(data.itemId || '').trim());
+      if (!item) { adminInventoryFail(client, 'That skin does not exist.'); return; }
+      const wear = Number(data.wear);
+      const granted = await db.grantSkinToAccount({
+        accountId,
+        itemId: item.id,
+        rarityTier: item.rarity || null,
+        wearValue: Number.isFinite(wear) ? wear : undefined
+      });
+      if (!granted) { adminInventoryFail(client, 'Could not grant that skin.'); return; }
+      status = `Added ${item.id} to ${account.username}.`;
+
+    } else if (action === 'grantCase') {
+      const caseId = String(data.caseId || '').trim();
+      const customCases = await getCustomCaseDefinitions();
+      if (!customCases.some(row => row.id === caseId)) {
+        adminInventoryFail(client, 'That case does not exist.');
+        return;
+      }
+      const quantity = Math.max(1, Math.min(1000, Math.floor(Number(data.quantity) || 1)));
+      const granted = await db.grantCases(accountId, caseId, quantity);
+      if (!granted) { adminInventoryFail(client, 'Could not add that case.'); return; }
+      status = `Added ${quantity} x ${caseId} to ${account.username}.`;
+
+    } else if (action === 'setWear') {
+      const result = await db.adminSetSkinWear({
+        accountId,
+        inventoryId: data.inventoryId,
+        wearValue: data.wear
+      });
+      if (!result.ok) {
+        adminInventoryFail(client, ADMIN_INVENTORY_LOCK_MESSAGE[result.reason] || 'Could not change that wear.');
+        return;
+      }
+      status = `Set ${result.item.item_id} wear to ${Number(result.item.wear_value).toFixed(3)}.`;
+
+    } else if (action === 'removeSkin') {
+      const result = await db.adminRemoveSkinInstance({ accountId, inventoryId: data.inventoryId });
+      if (!result.ok) {
+        adminInventoryFail(client, ADMIN_INVENTORY_LOCK_MESSAGE[result.reason] || 'Could not remove that skin.');
+        return;
+      }
+      // Say what else was unwound, because an admin removing an item does not
+      // necessarily know it was listed or mid-trade.
+      const extra = [];
+      if (result.cancelledListings) extra.push(`${result.cancelledListings} listing cancelled`);
+      if (result.cancelledTrades) extra.push(`${result.cancelledTrades} trade cancelled`);
+      if (result.refunded) extra.push(`${result.refunded} refunded to bidders`);
+      status = `Removed ${result.itemId}${extra.length ? ` (${extra.join(', ')})` : ''}.`;
+
+    } else if (action === 'removeCase') {
+      const result = await db.adminRemoveCases({
+        accountId,
+        caseId: data.caseId,
+        quantity: data.quantity
+      });
+      if (!result.ok) {
+        adminInventoryFail(client, ADMIN_INVENTORY_LOCK_MESSAGE[result.reason] || 'Could not remove that case.');
+        return;
+      }
+      status = `Removed ${result.removed} x ${result.caseId}.`;
+
+    } else {
+      adminInventoryFail(client, 'Unknown inventory action.');
+      return;
+    }
+
+    console.log(`[admin-inventory] ${client.username} ${action} on ${account.username}: ${status}`);
+    try {
+      db.logIpEvent({
+        event: 'admin_inventory_edit',
+        accountId: client.accountId,
+        detail: `${account.id}:${action}`
+      });
+    } catch {}
+    await sendAdminInventorySnapshot(client, account, status);
+  })().catch(error => {
+    console.error('[admin-inventory] edit failed:', error.message);
+    adminInventoryFail(client, 'That inventory edit failed.');
+  });
 }
 
 function liveDailyRows(dateKey) {

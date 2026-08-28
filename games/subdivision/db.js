@@ -644,11 +644,15 @@ async function findAccountByUsername(username) {
 // Put a skin straight into an account. Wear and pattern are rolled the same way
 // a case roll would, so a granted skin is indistinguishable from an earned one
 // in every respect except its source, which is recorded as 'admin'.
-async function grantSkinToAccount({ accountId, itemId, rarityTier = null }) {
+// wearValue is optional: left out, it rolls like a case would. The admin
+// inventory editor passes one so a grant can be given a chosen condition
+// instead of a random one.
+async function grantSkinToAccount({ accountId, itemId, rarityTier = null, wearValue: requestedWear } = {}) {
   if (!accountId || !itemId) return null;
   const patternSeed = Math.floor(Math.random() * 1000) + 1;
   const wearSeed = Math.floor(Math.random() * 1000000);
-  const wearValue = Math.random();
+  const asked = Number(requestedWear);
+  const wearValue = Number.isFinite(asked) ? Math.max(0, Math.min(1, asked)) : Math.random();
   const { rows } = await query(
     `INSERT INTO skin_inventory (account_id, item_id, source, pattern_seed, rarity_tier, wear_value, wear_seed)
      VALUES ($1, $2, 'admin', $3, $4, $5, $6)
@@ -2265,6 +2269,195 @@ async function clearPlayerInventory(accountId) {
   } finally {
     client.release();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Admin inventory editing
+//
+// The tools an admin uses to fix up an account by hand. Everything here is
+// destructive or creative, so it all funnels through functions that know what
+// else in the schema points at a skin instance.
+//
+// A skin_inventory row is not free-standing: an active market listing holds its
+// id, a pending friend trade names it inside a JSON payload, and a loadout row
+// references it. Deleting one behind their backs leaves a listing nobody can
+// buy and a loadout pointing at nothing. Cases are simpler - listing one moves
+// it out of case_inventory into escrow - so quantities here are always the
+// uncommitted ones and can be edited freely.
+// ---------------------------------------------------------------------------
+
+// Everything an admin needs to see before touching an account, including WHY a
+// given item may not be safe to edit. The flags are computed here rather than
+// in the UI so the check and the display can never disagree.
+async function adminInventorySnapshot(accountId) {
+  const [skins, cases, listed, trades, loadouts] = await Promise.all([
+    getSkinInventory(accountId),
+    getCaseInventory(accountId),
+    query(
+      `SELECT inventory_id FROM skin_market_listings
+        WHERE seller_id = $1 AND status = 'active' AND inventory_id IS NOT NULL`,
+      [accountId]
+    ),
+    query(
+      `SELECT offer_json, request_json FROM skin_trade_requests
+        WHERE status = 'pending' AND (from_account = $1 OR to_account = $1)`,
+      [accountId]
+    ),
+    query(`SELECT weapon, inventory_id FROM skin_loadouts WHERE account_id = $1`, [accountId])
+  ]);
+
+  const listedIds = new Set(listed.rows.map(row => Number(row.inventory_id)));
+  const pendingIds = pendingTradeInventoryIds(trades.rows);
+  const equipped = new Map(loadouts.rows
+    .filter(row => row.inventory_id != null)
+    .map(row => [Number(row.inventory_id), String(row.weapon)]));
+
+  return {
+    skins: skins.map(row => ({
+      id: Number(row.id),
+      itemId: row.item_id,
+      source: row.source,
+      collectionId: row.collection_id,
+      rarityTier: row.rarity_tier,
+      patternSeed: Number(row.pattern_seed || 0),
+      wearValue: Number(row.wear_value || 0),
+      wearSeed: Number(row.wear_seed || 0),
+      createdAt: row.created_at,
+      // Editing a listed or mid-trade item would change what the counterparty
+      // agreed to, so the server refuses; the UI uses this to say why.
+      listed: listedIds.has(Number(row.id)),
+      pendingTrade: pendingIds.has(Number(row.id)),
+      equippedOn: equipped.get(Number(row.id)) || null
+    })),
+    cases: cases.map(row => ({ caseId: row.case_id, quantity: Number(row.quantity || 0) }))
+  };
+}
+
+function skinEditLockReason(row) {
+  if (!row) return 'missing';
+  if (row.listed) return 'listed';
+  if (row.pendingTrade) return 'trading';
+  return null;
+}
+
+// Wear is the only mutable field. Pattern seed is deliberately left alone: it
+// is the item's identity as far as the renderer is concerned, and rerolling it
+// would silently turn one player's skin into a different-looking one.
+async function adminSetSkinWear({ accountId, inventoryId, wearValue }) {
+  const wear = Math.max(0, Math.min(1, Number(wearValue)));
+  if (!Number.isFinite(wear)) return { ok: false, reason: 'invalid' };
+  const snapshot = await adminInventorySnapshot(accountId);
+  const row = snapshot.skins.find(skin => skin.id === Number(inventoryId));
+  const locked = skinEditLockReason(row);
+  if (locked) return { ok: false, reason: locked };
+  const { rows } = await query(
+    `UPDATE skin_inventory SET wear_value = $3
+      WHERE account_id = $1 AND id = $2
+      RETURNING id, item_id, wear_value`,
+    [accountId, Number(inventoryId), wear]
+  );
+  return rows[0] ? { ok: true, item: rows[0] } : { ok: false, reason: 'missing' };
+}
+
+// Unlike setting wear, removal does not refuse a listed or mid-trade item - an
+// admin deleting something is usually cleaning up exactly that kind of mess.
+// Instead it unwinds the commitments first, in one transaction, the same way
+// clearPlayerInventory does for a whole account.
+async function adminRemoveSkinInstance({ accountId, inventoryId }) {
+  if (!pool) throw new Error('Database not configured (DATABASE_URL missing)');
+  const id = Number(inventoryId);
+  if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, reason: 'invalid' };
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const owned = await client.query(
+      `SELECT id, item_id FROM skin_inventory WHERE account_id = $1 AND id = $2 FOR UPDATE`,
+      [accountId, id]
+    );
+    if (!owned.rows[0]) {
+      await client.query('ROLLBACK');
+      return { ok: false, reason: 'missing' };
+    }
+
+    // An auction with a live bid owes that bidder their money back.
+    const auctions = await client.query(
+      `SELECT highest_bidder_id, price FROM skin_market_listings
+        WHERE seller_id = $1 AND inventory_id = $2 AND status = 'active'
+          AND listing_type = 'auction' AND highest_bidder_id IS NOT NULL
+        FOR UPDATE`,
+      [accountId, id]
+    );
+    let refunded = 0;
+    for (const row of auctions.rows) {
+      refunded += Number(row.price || 0);
+      await client.query(
+        `INSERT INTO stats (account_id, mowbucks) VALUES ($1, $2)
+         ON CONFLICT (account_id) DO UPDATE SET mowbucks = stats.mowbucks + EXCLUDED.mowbucks, updated_at = now()`,
+        [String(row.highest_bidder_id), Number(row.price || 0)]
+      );
+    }
+    const listings = await client.query(
+      `UPDATE skin_market_listings SET status = 'cancelled', updated_at = now()
+        WHERE seller_id = $1 AND inventory_id = $2 AND status = 'active'`,
+      [accountId, id]
+    );
+
+    // Pending trades name inventory ids inside a JSON payload, so they have to
+    // be read and matched rather than filtered in SQL.
+    const trades = await client.query(
+      `SELECT id, offer_json, request_json FROM skin_trade_requests
+        WHERE status = 'pending' AND (from_account = $1 OR to_account = $1)
+        FOR UPDATE`,
+      [accountId]
+    );
+    const affected = trades.rows.filter(row => pendingTradeInventoryIds([row]).has(id)).map(row => row.id);
+    if (affected.length) {
+      await client.query(
+        `UPDATE skin_trade_requests SET status = 'cancelled', updated_at = now() WHERE id = ANY($1::bigint[])`,
+        [affected]
+      );
+    }
+
+    await client.query(`DELETE FROM skin_loadouts WHERE account_id = $1 AND inventory_id = $2`, [accountId, id]);
+    await client.query(`DELETE FROM skin_inventory WHERE account_id = $1 AND id = $2`, [accountId, id]);
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      itemId: owned.rows[0].item_id,
+      cancelledListings: listings.rowCount,
+      cancelledTrades: affected.length,
+      refunded
+    };
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// Cases in case_inventory are the uncommitted ones - listing a case moves it
+// out into escrow - so there is nothing to unwind here.
+async function adminRemoveCases({ accountId, caseId, quantity }) {
+  const id = String(caseId || '').trim().slice(0, 80);
+  if (!id) return { ok: false, reason: 'invalid' };
+  const wanted = Number(quantity);
+  const { rows } = await query(
+    `SELECT quantity FROM case_inventory WHERE account_id = $1 AND case_id = $2`,
+    [accountId, id]
+  );
+  const held = Number(rows[0]?.quantity || 0);
+  if (held <= 0) return { ok: false, reason: 'missing' };
+  // A non-finite or non-positive amount means "all of them", which is what the
+  // UI's Remove button asks for.
+  const take = Number.isFinite(wanted) && wanted > 0 ? Math.min(held, Math.floor(wanted)) : held;
+  await query(
+    `UPDATE case_inventory SET quantity = quantity - $3, updated_at = now()
+      WHERE account_id = $1 AND case_id = $2`,
+    [accountId, id, take]
+  );
+  await query(`DELETE FROM case_inventory WHERE account_id = $1 AND case_id = $2 AND quantity <= 0`, [accountId, id]);
+  return { ok: true, caseId: id, removed: take, remaining: held - take };
 }
 
 async function grantCases(accountId, caseId, quantity = 1) {
@@ -3958,6 +4151,10 @@ module.exports = {
   setSkinLoadout,
   clearSkinLoadout,
   clearPlayerInventory,
+  adminInventorySnapshot,
+  adminSetSkinWear,
+  adminRemoveSkinInstance,
+  adminRemoveCases,
   grantCases,
   buyCase,
   getCaseInventory,

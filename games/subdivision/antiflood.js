@@ -59,6 +59,10 @@ const MSG_LIMITS = {
   // down. Slow enough that a stuck key cannot thrash the wave director.
   containmentAdminPause: { ratePerSec: 0.5, burst: 3 },
   deleteCaseDefinition: { ratePerSec: 0.25, burst: 2 },
+  // Inventory editing mints and destroys items. Human-click pace, and the read
+  // is only a little looser than the write because it reloads after each edit.
+  adminInventoryLookup: { ratePerSec: 1, burst: 4 },
+  adminInventoryEdit: { ratePerSec: 0.5, burst: 3 },
   getSkinInventory: { ratePerSec: 1, burst: 3 },
   marketList: { ratePerSec: 1, burst: 3 },
   marketCreateListing: { ratePerSec: 0.5, burst: 2 },
