@@ -527,6 +527,21 @@ test('a purchase cannot be talked into paying out', () => {
   assert.equal(credits(match, 'p1'), 100, 'the purse is untouched throughout');
 });
 
+test('an unbuyable map boundary remains sealed without taking credits', () => {
+  const match = createMatch({ now: 0 });
+  configureGates(match, [{
+    id: 'edge-wall', label: 'Map boundary', section: 'Map boundary',
+    x: 10, z: 10, width: 120, hidden: true, unbuyable: true, price: 0
+  }]);
+  grant(match, 'p1', 1_000);
+  const result = openGate(match, 'p1', 'edge-wall');
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'sealed');
+  assert.equal(result.gate.id, 'edge-wall');
+  assert.equal(credits(match, 'p1'), 1_000, 'a permanent boundary never spends the player purse');
+  assert.equal(match.gates.get('edge-wall').open, false);
+});
+
 test('one player spending does not touch another purse', () => {
   const match = createMatch({ now: 0 });
   grant(match, 'p1', 500);

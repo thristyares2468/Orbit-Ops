@@ -7714,7 +7714,6 @@ function send(client, type, data) {
 const CONTAINMENT_TICK_MS = 100;   // 10 Hz director; enemy motion rides the snapshot
 const CONTAINMENT_ENEMY_MS = 100;
 const CONTAINMENT_WEAPON_PRICES = Object.freeze({ ...WEAPON_PRICES, Knife: 0, Glock: 0 });
-const CONTAINMENT_GATE_PRICES = Object.freeze([750, 1250, 2000]);
 
 function isContainment(room) {
   return !!MODE_CONFIG[room?.settings?.gamemode]?.coop;
@@ -7738,15 +7737,21 @@ function ensureContainment(room) {
 
 function containmentGateDefinitions(room) {
   const authored = gameMaps.CONTAINMENT_GATES?.[getRoomMapId(room)] || [];
-  return authored.map((gate, index) => {
+  const start = containmentLayout(room)?.start;
+  return authored.map((gate) => {
     const hint = Number(gate.yHint) || 0;
     const ground = groundYForRoom(room, gate.x, gate.z, hint + 30);
+    const distance = start ? Math.hypot(Number(gate.x) - Number(start.x), Number(gate.z) - Number(start.z)) : 0;
+    // Costs rise in clear 250-credit steps as a barrier gets farther from the
+    // authored staging spawn. This keeps cheap nearby exits useful early while
+    // long-map shortcuts become meaningful wave-progression purchases.
+    const price = gate.unbuyable ? 0 : Math.max(750, Math.min(3000, 500 + Math.ceil(distance / 160) * 250));
     return {
       ...gate,
-      y: Number.isFinite(ground) ? ground + 18 : hint,
+      y: (Number.isFinite(ground) ? ground : hint) + SPAWN_EYE_OFFSET,
       depth: Number(gate.depth) || 5,
       height: Number(gate.height) || 24,
-      price: CONTAINMENT_GATE_PRICES[index] ?? CONTAINMENT_GATE_PRICES.at(-1)
+      price
     };
   });
 }

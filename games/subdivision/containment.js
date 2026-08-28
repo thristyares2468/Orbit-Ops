@@ -255,16 +255,19 @@ function configureGates(match, definitions = []) {
     const id = String(row?.id || '');
     const price = Math.max(0, Math.floor(Number(row?.price) || 0));
     if (!id || !Number.isFinite(Number(row?.x)) || !Number.isFinite(Number(row?.z))) continue;
+    const unbuyable = row.unbuyable === true;
     match.gates.set(id, {
       id,
       label: String(row?.label || 'Sector gate').slice(0, 48),
       section: String(row?.section || row?.label || 'Sector').slice(0, 48),
       x: Number(row.x), y: Number(row.y) || 0, z: Number(row.z),
       yaw: Number(row.yaw) || 0,
-      width: clamp(Number(row.width) || 14, 6, 80),
+      width: clamp(Number(row.width) || 14, 6, unbuyable ? 160 : 80),
       depth: clamp(Number(row.depth) || 5, 2, 14),
       height: clamp(Number(row.height) || 24, 8, 40),
       price,
+      hidden: row.hidden === true,
+      unbuyable,
       open: row.open === true
     });
   }
@@ -278,6 +281,7 @@ function publicGates(match) {
 function openGate(match, playerId, gateId) {
   const gate = match?.gates?.get?.(String(gateId || ''));
   if (!gate) return { ok: false, reason: 'unknown' };
+  if (gate.unbuyable) return { ok: false, reason: 'sealed', gate };
   if (gate.open) return { ok: false, reason: 'open', gate };
   const decision = purchase(match, playerId, `gate:${gate.id}`, gate.price);
   if (!decision.ok) return { ...decision, gate };

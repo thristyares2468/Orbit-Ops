@@ -15,15 +15,27 @@ const SOURCES = {
   }]))
 };
 
-test('every shipped combat map has three separated, grounded containment choke gates', async () => {
+test('every shipped combat map has grounded containment choke gates', async () => {
   for (const [mapId, gates] of Object.entries(maps.CONTAINMENT_GATES)) {
-    assert.equal(gates.length, 3, `${mapId} should expose three progression gates`);
-    for (let i = 0; i < gates.length; i += 1) {
-      const gate = gates[i];
+    const buyable = gates.filter(gate => !gate.unbuyable);
+    if (mapId === 'dust2') {
+      assert.equal(buyable.length, 15, 'Dust 2 should expose all fifteen labelled buyable gates');
+      assert.equal(gates.filter(gate => gate.unbuyable && gate.hidden).length, 2,
+        'Dust 2 keeps both labelled invisible map boundaries');
+      assert.deepEqual(buyable.map(gate => gate.label), Array.from({ length: 15 }, (_, index) => `Gate ${index + 1}`));
+      for (const gate of buyable) {
+        assert.ok(gate.width >= 8 && gate.width <= 80, `dust2/${gate.id} preserves its captured doorway span`);
+        assert.ok(Number.isFinite(gate.yHint), `dust2/${gate.id} retains the worksheet ground hint`);
+      }
+      continue;
+    }
+    assert.equal(buyable.length, 3, `${mapId} should expose three progression gates`);
+    for (let i = 0; i < buyable.length; i += 1) {
+      const gate = buyable[i];
       assert.ok(gate.width >= 20 && gate.width <= 80, `${mapId}/${gate.id} has a useful barrier span`);
-      for (let j = i + 1; j < gates.length; j += 1) {
-        const distance = Math.hypot(gate.x - gates[j].x, gate.z - gates[j].z);
-        assert.ok(distance >= 80, `${mapId} gates ${gate.id} and ${gates[j].id} are not bunched together`);
+      for (let j = i + 1; j < buyable.length; j += 1) {
+        const distance = Math.hypot(gate.x - buyable[j].x, gate.z - buyable[j].z);
+        assert.ok(distance >= 80, `${mapId} gates ${gate.id} and ${buyable[j].id} are not bunched together`);
       }
     }
 
@@ -46,15 +58,20 @@ test('every shipped combat map has three separated, grounded containment choke g
   }
 });
 
-test('every map has one fixed staging start and gate-owned breach sections', async () => {
+test('every map has one fixed staging start and verified breach sections', async () => {
   for (const [mapId, layout] of Object.entries(maps.CONTAINMENT_LAYOUTS)) {
     const gates = maps.CONTAINMENT_GATES[mapId] || [];
-    const gateIds = new Set(gates.map(gate => gate.id));
+    const gateIds = new Set(gates.filter(gate => !gate.unbuyable).map(gate => gate.id));
     assert.ok(layout.start?.id, `${mapId} has one named staging start`);
     assert.equal(layout.breaches.filter(point => !point.requiresGate).length, 1,
       `${mapId} exposes exactly one initial breach`);
-    assert.deepEqual(new Set(layout.breaches.filter(point => point.requiresGate).map(point => point.requiresGate)), gateIds,
-      `${mapId} unlocks one distinct breach section per gate`);
+    const gatedBreaches = new Set(layout.breaches.filter(point => point.requiresGate).map(point => point.requiresGate));
+    if (mapId === 'dust2') {
+      assert.equal(gatedBreaches.size, 0,
+        'Dust 2 deliberately keeps the horde in the verified staging sector until new breach coordinates are captured');
+    } else {
+      assert.deepEqual(gatedBreaches, gateIds, `${mapId} unlocks one distinct breach section per gate`);
+    }
 
     const source = SOURCES[mapId];
     const collision = await loadMapCollision(path.join(ROOT, source.path), source.scale);
@@ -72,6 +89,7 @@ test('authored gates are kept away from imported player and zombie spawn markers
     const points = maps.SPAWN_SETS[mapId]?.points || [];
     if (!points.length) continue;
     for (const gate of gates) {
+      if (gate.unbuyable) continue;
       const nearest = Math.min(...points.map(point => Math.hypot(point.x - gate.x, point.z - gate.z)));
       assert.ok(nearest >= 35, `${mapId}/${gate.id} is ${nearest.toFixed(1)} units from a spawn`);
     }

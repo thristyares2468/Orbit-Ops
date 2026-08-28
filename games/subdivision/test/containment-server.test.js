@@ -71,6 +71,16 @@ test('closed authored gates are authoritative for players and zombies', () => {
     'the authoritative horde simulation uses wall and gate collision together');
 });
 
+test('gate prices scale from the authored staging position', () => {
+  assert.match(section,
+    /const distance = start \? Math\.hypot\(Number\(gate\.x\) - Number\(start\.x\), Number\(gate\.z\) - Number\(start\.z\)\) : 0;/u);
+  assert.match(section,
+    /500 \+ Math\.ceil\(distance \/ 160\) \* 250/u,
+    'nearby sectors stay affordable while deeper sectors cost more');
+  assert.match(section, /gate\.unbuyable \? 0/u,
+    'permanent map boundaries cannot become paid progression gates');
+});
+
 test('Containment players always begin in the map staging location', () => {
   assert.match(server, /const authored = containmentLayout\(room\)\?\.start/u);
   assert.match(server, /const formation = \[-7\.5, -2\.5, 2\.5, 7\.5\][\s\S]*?\.flatMap/u,

@@ -109,9 +109,31 @@
   // horde director rather than leaving the barriers as unrelated props.
   const CONTAINMENT_GATES = {
     dust2: [
-      { id: 'tunnel-breach', label: 'Unlock B tunnels', section: 'B tunnels', x: -427.2, z: 24206.8, yHint: 20178, yaw: Math.PI / 2, width: 26 },
-      { id: 'mid-lockdown', label: 'Unlock T approach', section: 'T approach', x: 66, z: 24511, yHint: 20182.3, yaw: 0, width: 34 },
-      { id: 'long-bulkhead', label: 'Unlock A long', section: 'A long', x: 285, z: 24321, yHint: 20178, yaw: 0, width: 72 }
+      // Measured from the labelled Ground captures in
+      // docs/zombies-gate-ground-coordinates.txt. Where two captures span a
+      // doorway, the midpoint is the barrier centre and its horizontal
+      // distance supplies the wall-to-wall width. Short vertical captures use
+      // a conservative corridor-width barrier instead.
+      { id: 'dust2-gate-01', label: 'Gate 1', section: 'Gate 1', x: 140.20, z: 24093.72, yHint: 20139.14, yaw: 2.305, width: 8 },
+      { id: 'dust2-gate-02', label: 'Gate 2', section: 'Gate 2', x: -102.22, z: 24194.10, yHint: 20141.91, yaw: -0.003, width: 66 },
+      { id: 'dust2-gate-03', label: 'Gate 3', section: 'Gate 3', x: -166.68, z: 23985.56, yHint: 20139.54, yaw: 1.580, width: 69 },
+      { id: 'dust2-gate-04', label: 'Gate 4', section: 'Gate 4', x: -139.74, z: 24247.92, yHint: 20139.87, yaw: 0.267, width: 10 },
+      { id: 'dust2-gate-05', label: 'Gate 5', section: 'Gate 5', x: -136.53, z: 24465.94, yHint: 20173.63, yaw: Math.PI / 2, width: 8 },
+      { id: 'dust2-gate-06', label: 'Gate 6', section: 'Gate 6', x: 136.53, z: 24218.49, yHint: 20169.05, yaw: -Math.PI / 2, width: 8 },
+      { id: 'dust2-gate-07', label: 'Gate 7', section: 'Gate 7', x: 254.47, z: 24012.01, yHint: 20173.66, yaw: -1.513, width: 39 },
+      { id: 'dust2-gate-08', label: 'Gate 8', section: 'Gate 8', x: 337.94, z: 24073.84, yHint: 20168.60, yaw: -1.607, width: 29 },
+      { id: 'dust2-gate-09', label: 'Gate 9', section: 'Gate 9', x: 426.67, z: 24321.97, yHint: 20178.37, yaw: Math.PI / 2, width: 8 },
+      { id: 'dust2-gate-10', label: 'Gate 10', section: 'Gate 10', x: 102.40, z: 24765.39, yHint: 20171.84, yaw: -Math.PI / 2, width: 8 },
+      { id: 'dust2-gate-11', label: 'Gate 11', section: 'Gate 11', x: -250.24, z: 24830.31, yHint: 20202.75, yaw: 1.441, width: 27 },
+      { id: 'dust2-gate-12', label: 'Gate 12', section: 'Gate 12', x: 194.29, z: 24442.98, yHint: 20168.76, yaw: 0.899, width: 13 },
+      { id: 'dust2-gate-13', label: 'Gate 13', section: 'Gate 13', x: -443.74, z: 24423.15, yHint: 20186.14, yaw: -0.061, width: 41 },
+      { id: 'dust2-gate-14', label: 'Gate 14', section: 'Gate 14', x: -512.00, z: 24184.42, yHint: 20180.71, yaw: -Math.PI / 2, width: 8 },
+      { id: 'dust2-gate-15', label: 'Gate 15', section: 'Gate 15', x: -348.94, z: 24035.21, yHint: 20171.52, yaw: 0.874, width: 9 },
+      // The worksheet explicitly marks these as permanent invisible map
+      // limits. They share the authoritative gate collision path but cannot
+      // be interacted with or purchased.
+      { id: 'dust2-boundary-01', label: 'Map boundary', section: 'Map boundary', x: -296.78, z: 23990.24, yHint: 20165.08, yaw: -2.370, width: 123, depth: 6, hidden: true, unbuyable: true },
+      { id: 'dust2-boundary-02', label: 'Map boundary', section: 'Map boundary', x: -350.29, z: 23930.31, yHint: 20210.49, yaw: -1.525, width: 37, depth: 6, hidden: true, unbuyable: true }
     ],
     nuke: [
       { id: 'yard-west', label: 'Unlock west yard', section: 'West yard', x: 32, z: 548, yHint: -96.4, yaw: 0, width: 58 },
@@ -141,12 +163,12 @@
   // point against the shipped collision GLB before adding eye height.
   const CONTAINMENT_LAYOUTS = {
     dust2: {
-      start: { id: 'ct-staging', label: 'CT staging', x: 102, z: 23994, yHint: 20124, yaw: Math.PI },
+      start: { id: 'ct-staging', label: 'CT staging', x: 90.26, z: 24032.75, yHint: 20125.87, yaw: Math.PI },
       breaches: [
-        { id: 'ct-mid-breach', section: 'CT staging', x: 285, z: 24400.54, yHint: 20158 },
-        { id: 'b-back-breach', section: 'B tunnels', requiresGate: 'tunnel-breach', x: -512.15, z: 23931.51, yHint: 20166.53 },
-        { id: 't-approach-breach', section: 'T approach', requiresGate: 'mid-lockdown', x: 82.21, z: 24670.89, yHint: 20158 },
-        { id: 'a-site-breach', section: 'A long', requiresGate: 'long-bulkhead', x: 304.8, z: 23985.76, yHint: 20183.6 }
+        // Until the next set of labelled breach points is captured, the full
+        // Dust 2 horde remains in the locked staging sector. Opening a gate
+        // expands player access without inventing unverified spawn locations.
+        { id: 'ct-staging-breach', section: 'CT staging', x: 110, z: 24058, yHint: 20125.87 }
       ]
     },
     nuke: {
