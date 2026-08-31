@@ -21,7 +21,7 @@
 
   // Bump on any change to authoritative rules/shape so stale clients can reject
   // mismatched game data before subtle desyncs happen.
-  const VERSION = '2';
+  const VERSION = '3';
 
   // Buy-menu prices (identical on both sides today).
   const WEAPON_PRICES = {
@@ -48,7 +48,12 @@
 
   // Grenade/utility prices. Server calls this UTILITY_PRICES; the client calls the
   // identical object GRENADE_PRICES. Exposed under both names to avoid churn.
-  const UTILITY_PRICES = { frag: 300, smoke: 150, flash: 200, molotov: 400 };
+  const UTILITY_PRICES = { frag: 300, smoke: 150, flash: 200, molotov: 400, barricade: 500 };
+
+  // Per-life buy caps by utility kind. Anything missing here uses the caller's
+  // default (2 on both sides). The barricade is deliberately capped lower: it is
+  // persistent cover, not a one-shot effect.
+  const UTILITY_LIFE_CAPS = { barricade: 1 };
 
   // CT (0) / T (1) → spawn-point indexes. Must stay identical on both sides.
   const TEAM_SPAWN_IDS = { 0: [0, 1, 2, 3], 1: [4, 5, 6, 7] };
@@ -66,11 +71,31 @@
     molotov: { radius: 82, dps: 34, tickMs: 350, durationMs: 8500 }
   };
 
+  // Deployable barricade (Rainbow Six-style gadget). Placed on flat ground in
+  // front of the player, it is solid cover that blocks movement and bullets
+  // until its health runs out. Geometry is authoritative so the server can
+  // validate placements and the client can render an identical panel.
+  const BARRICADE = {
+    width: 14,        // panel span, left-to-right of the placing player
+    height: 13,       // stand behind and shoot over, crouch behind for full cover
+    thickness: 1.4,
+    health: 260,
+    deployDistance: 10, // where the panel lands: straight ahead, this far out
+    deployRange: 26,  // furthest the anchor point may sit from the player's eye
+    minRange: 7,      // closest, so a player can never encase themselves
+    spacing: 11,      // minimum distance between two deployed barricades
+    maxPerRoom: 8,
+    // Damage a panel takes per source. Bullets use the weapon's body damage
+    // scaled by this; frag bursts apply their falloff damage scaled by this.
+    bulletScale: 1,
+    fragScale: 1.4
+  };
+
   // Weapon index order used by the snapshot encoder (`w` field). Index 0 = Knife.
   const WEAPON_NAMES = [
     'Knife', 'Glock', 'Deagle', 'MAC10', 'P90', 'Nova', 'XM1014', 'FAMAS', 'AK47', 'SSG 08', 'AWP',
     'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver',
-    'Frag', 'Smoke', 'Flash', 'Molotov'
+    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade'
   ];
 
   const SNAPSHOT_FLAGS = {
@@ -108,7 +133,8 @@
     'Frag':   { type: 'utility', firerate: 0.8,   pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },
     'Smoke':  { type: 'utility', firerate: 0.8,   pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },
     'Flash':  { type: 'utility', firerate: 0.8,   pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },
-    'Molotov': { type: 'utility', firerate: 0.8,  pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } }
+    'Molotov': { type: 'utility', firerate: 0.8,  pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },
+    'Barricade': { type: 'utility', firerate: 0.8, pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } }
   };
 
   // ==========================================================================
@@ -175,10 +201,12 @@
     VERSION,
     WEAPON_PRICES,
     UTILITY_PRICES,
+    UTILITY_LIFE_CAPS,
     GRENADE_PRICES: UTILITY_PRICES, // alias for the client's name
     TEAM_SPAWN_IDS,
     TEAM_FULL_MAP_SPAWN_IDS,
     GRENADE,
+    BARRICADE,
     WEAPON_NAMES,
     SNAPSHOT_FLAGS,
     WEAPONS,

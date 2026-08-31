@@ -225,6 +225,11 @@ const CASUAL_BUY_TIME_MS = 30000;
 const CASUAL_BUY_ZONE_RADIUS = 145;
 const DROPPED_ITEM_PICKUP_RADIUS = 36;
 const GRENADE_PER_LIFE_CAP = 2;
+// Utility kinds may cap lower than the shared default (the barricade does).
+function utilityLifeCap(kind) {
+  const cap = Number(UTILITY_LIFE_CAPS?.[kind]);
+  return Number.isFinite(cap) ? cap : GRENADE_PER_LIFE_CAP;
+}
 const UTILITY_PRICES = core.UTILITY_PRICES; // shared with client (core.js)
 const WEAPON_PRICES = core.WEAPON_PRICES;   // shared with client (core.js)
 const CASUAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
@@ -233,6 +238,8 @@ const CASUAL_BOMB_SITES = [
   { id: 'B', label: 'B', x: -413.62, z: 23945.79, xMin: -443.73, xMax: -383.50, zMin: 23925.89, zMax: 23965.69, radius: 37 }
 ];
 const GRENADE = core.GRENADE; // authoritative grenade geometry, shared via core.js
+const BARRICADE = core.BARRICADE; // deployable barricade geometry, shared via core.js
+const UTILITY_LIFE_CAPS = core.UTILITY_LIFE_CAPS; // per-kind overrides (core.js)
 const GRENADE_HIT_WINDOW_MS = 2000;
 const GRENADE_RADIUS_SLACK = 45;
 const MODE_CONFIG = {
@@ -292,7 +299,8 @@ function publicUiConfig() {
 }
 const ROUND_LOCKED_MESSAGES = new Set([
   'playerState', 'playerShoot', 'playerHit', 'glassBreak', 'ventBreak', 'doorToggle', 'throwGrenade', 'grenadeBurst',
-  'flashHit', 'bombAction', 'dropItem', 'selfDamage', 'playerVoid', 'gunGameWin', 'useStim', 'playerHeal'
+  'flashHit', 'bombAction', 'dropItem', 'selfDamage', 'playerVoid', 'gunGameWin', 'useStim', 'playerHeal',
+  'deployBarricade', 'barricadeDamage'
 ]);
 function usesUtility(room) {
   const mode = room?.settings?.gamemode;
@@ -1432,6 +1440,7 @@ function handleMessage(client, raw) {
     const kind = sanitizeGrenadeKind(data.kind);
     const position = sanitizeVector(data.position, null);
     // Record damaging utility bursts so damage can be server-validated against them.
+    if (kind === 'frag' && position) damageBarricadesFromFrag(client.roomCode, room, position, client.id);
     if ((kind === 'frag' || kind === 'molotov') && position) {
       if (!room.recentBursts) room.recentBursts = [];
       room.recentBursts.push({ ts: Date.now(), ownerId: client.id, kind, position });
@@ -1469,6 +1478,83 @@ function handleMessage(client, raw) {
     return;
   }
 
+  if (type === 'deployBarricade') {
+    if (player.waitingForNextRound) return;
+    if (!usesUtility(room)) return;
+    if ((player.health || 0) <= 0 || player.respawningUntil) return;
+    const now = Date.now();
+    player.activeAt = now;
+    const deny = (message) => send(client, 'barricadeDenied', { message });
+    const position = sanitizeVector(data.position, null);
+    if (!position) { deny('Aim at flat ground in front of you.'); return; }
+    const infiniteUtility = isAdminRoom(room) && room.adminConfig?.infiniteUtility === true;
+    if (!player.utilityPurchasedThisLife) resetUtilityLife(player);
+    if (!infiniteUtility && (player.barricadesDeployedThisLife || 0) >= barricadeAllowance(room, player)) {
+      deny('You have no barricade to deploy.');
+      return;
+    }
+    // Placement is re-derived here rather than trusted: the client picks the
+    // spot, the server checks it is a spot the player could actually reach.
+    const reach = Math.hypot(position.x - player.position.x, position.z - player.position.z);
+    if (reach > BARRICADE.deployRange + 6 || reach < BARRICADE.minRange - 3) {
+      deny('That is too far to place a barricade.');
+      return;
+    }
+    if (Math.abs(Number(position.y) - (Number(player.position.y) - 18)) > 40) {
+      deny('Aim at flat ground in front of you.');
+      return;
+    }
+    const barricades = ensureRoomBarricades(room);
+    if (barricades.size >= BARRICADE.maxPerRoom) { deny('Too many barricades are already deployed.'); return; }
+    for (const existing of barricades.values()) {
+      if (Math.hypot(existing.x - position.x, existing.z - position.z) < BARRICADE.spacing) {
+        deny('That is too close to another barricade.');
+        return;
+      }
+    }
+    lockBuyRefunds(player);
+    clearSpawnProtection(player, now, client, 'utility');
+    room.barricadeSeq = (room.barricadeSeq || 0) + 1;
+    const barricade = {
+      id: `bc${room.barricadeSeq}`,
+      ownerId: client.id,
+      ownerTeam: player.team,
+      x: Number(position.x),
+      y: Number(position.y),
+      z: Number(position.z),
+      yaw: Number.isFinite(Number(data.yaw)) ? Number(data.yaw) : 0,
+      health: BARRICADE.health,
+      maxHealth: BARRICADE.health,
+      placedAt: now
+    };
+    barricades.set(barricade.id, barricade);
+    if (!infiniteUtility) player.barricadesDeployedThisLife = (player.barricadesDeployedThisLife || 0) + 1;
+    broadcastToRoom(client.roomCode, null, 'barricadePlaced', publicBarricade(barricade));
+    return;
+  }
+
+  if (type === 'barricadeDamage') {
+    if (player.waitingForNextRound) return;
+    if (!usesUtility(room)) return;
+    if ((player.health || 0) <= 0 || player.respawningUntil) return;
+    const now = Date.now();
+    player.activeAt = now;
+    const barricade = room.barricades?.get(String(data.id || '').slice(0, 32));
+    if (!barricade || barricade.health <= 0) return;
+    const weapon = sanitizeWeaponName(data.weapon) || player.weapon;
+    const wdef = WEAPONS[weapon];
+    if (!wdef || wdef.type === 'utility') return;
+    const melee = wdef.type === 'melee';
+    const centre = { x: barricade.x, y: barricade.y + BARRICADE.height / 2, z: barricade.z };
+    if (distanceBetweenVectors(player.position, centre) > (melee ? AC.MELEE_RANGE : AC.GUN_RANGE)) return;
+    // Its own token bucket: shooting cover must not spend the budget that keeps
+    // player damage honest, and vice versa.
+    if (!damageRateOk(player.ac, weapon, wdef, now, 'barricadeBucket')) return;
+    const damage = melee ? 45 : Math.max(1, Math.round(wdef.dmg.body * BARRICADE.bulletScale));
+    applyBarricadeDamage(client.roomCode, room, barricade, damage, client.id);
+    return;
+  }
+
   if (type === 'flashHit') {
     if (player.waitingForNextRound) return;
     if (!usesUtility(room)) return;
@@ -1498,20 +1584,22 @@ function handleMessage(client, raw) {
     if (player.waitingForNextRound) return;
     if (!usesUtility(room)) return;
     player.activeAt = Date.now();
-    const kind = sanitizeGrenadeKind(data.kind);
+    const kind = sanitizeUtilityKind(data.kind);
+    if (!kind) return;
     if (isGrenadeDisabledByAdmin(room, kind)) {
-      send(client, 'utilityDenied', { kind, money: player.money, message: 'That grenade is disabled.' });
+      send(client, 'utilityDenied', { kind, money: player.money, message: 'That utility is disabled.' });
       return;
     }
     const price = roomUtilityPrice(room, kind);
     const casual = isCasualMode(room);
     if (!player.utilityPurchasedThisLife) resetUtilityLife(player);
-    if ((player.utilityPurchasedThisLife[kind] || 0) >= GRENADE_PER_LIFE_CAP) {
+    const lifeCap = utilityLifeCap(kind);
+    if ((player.utilityPurchasedThisLife[kind] || 0) >= lifeCap) {
       send(client, 'utilityDenied', {
         kind,
         money: player.money,
         utilityPurchasedThisLife: player.utilityPurchasedThisLife,
-        message: `You can only buy ${GRENADE_PER_LIFE_CAP} ${kind} grenades per life.`
+        message: `You can only buy ${lifeCap} ${kind} per life.`
       });
       return;
     }
@@ -4492,14 +4580,14 @@ function handleDoorToggle(client, room, player, data) {
 
 // Lenient per-weapon damage-rate cap. Drops excess hits (no strike) so rapid-fire
 // can't amplify DPS, while normal full-auto + network jitter never drop.
-function damageRateOk(ac, weapon, wdef, now) {
-  if (!ac.hitBucket) ac.hitBucket = {};
+function damageRateOk(ac, weapon, wdef, now, bucketName = 'hitBucket') {
+  if (!ac[bucketName]) ac[bucketName] = {};
   const interval = wdef.type === 'melee' ? 0.3 : wdef.firerate; // seconds per shot
   const pellets = wdef.pellets || 1;
   const cap = pellets + 3;                                       // burst headroom for jitter
   const refillPerSec = pellets / Math.max(0.03, interval * 0.7); // allow ~1.4x the legit rate
-  let b = ac.hitBucket[weapon];
-  if (!b) { b = { tokens: cap, last: now }; ac.hitBucket[weapon] = b; }
+  let b = ac[bucketName][weapon];
+  if (!b) { b = { tokens: cap, last: now }; ac[bucketName][weapon] = b; }
   b.tokens = Math.min(cap, b.tokens + ((now - b.last) / 1000) * refillPerSec);
   b.last = now;
   if (b.tokens < 1) return false;
@@ -4727,6 +4815,89 @@ function handlePlayerHit(client, room, player, data) {
       assistsAwarded
     });
     if (countsStats) checkCasualElimination(client.roomCode, room);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Deployable barricades. Server-owned: it decides where a panel may go, how much
+// health it has, and when it dies. Clients render and report hits, exactly like
+// breakable glass, but never decide any of those three things.
+// ---------------------------------------------------------------------------
+function ensureRoomBarricades(room) {
+  if (!room.barricades) room.barricades = new Map();
+  return room.barricades;
+}
+
+function publicBarricade(barricade) {
+  return {
+    id: barricade.id,
+    ownerId: barricade.ownerId,
+    ownerTeam: barricade.ownerTeam,
+    x: barricade.x,
+    y: barricade.y,
+    z: barricade.z,
+    yaw: barricade.yaw,
+    health: barricade.health,
+    maxHealth: barricade.maxHealth
+  };
+}
+
+function publicBarricades(room) {
+  return Array.from(room?.barricades?.values?.() || []).map(publicBarricade);
+}
+
+function clearRoomBarricades(room) {
+  if (!room) return;
+  ensureRoomBarricades(room).clear();
+}
+
+// A panel is cover its owner paid for, so it outlives their death but not their
+// exit — nothing left in the room can remove an absent player's barricade.
+function removeBarricadesOwnedBy(roomCode, room, ownerId) {
+  const barricades = room?.barricades;
+  if (!barricades?.size) return;
+  for (const [id, barricade] of Array.from(barricades.entries())) {
+    if (barricade.ownerId !== ownerId) continue;
+    barricades.delete(id);
+    broadcastToRoom(roomCode, null, 'barricadeRemoved', { id, destroyed: false });
+  }
+}
+
+// One free panel per life (the client grants it on spawn, as it does for every
+// other utility kind in DM/TDM) plus anything bought this life.
+function barricadeAllowance(room, player) {
+  const free = usesUtility(room) && !isCasualMode(room) ? 1 : 0;
+  return free + Number(player?.utilityPurchasedThisLife?.barricade || 0);
+}
+
+function applyBarricadeDamage(roomCode, room, barricade, amount, byId) {
+  const damage = Math.max(1, Math.round(Number(amount) || 0));
+  barricade.health = Math.max(0, barricade.health - damage);
+  if (barricade.health > 0) {
+    broadcastToRoom(roomCode, null, 'barricadeHealth', { id: barricade.id, health: barricade.health, byId });
+    return;
+  }
+  room.barricades.delete(barricade.id);
+  broadcastToRoom(roomCode, null, 'barricadeRemoved', {
+    id: barricade.id,
+    destroyed: true,
+    byId,
+    position: { x: barricade.x, y: barricade.y, z: barricade.z }
+  });
+}
+
+// Frag bursts chew through panels with the same falloff they apply to players.
+function damageBarricadesFromFrag(roomCode, room, position, byId) {
+  const barricades = room?.barricades;
+  if (!barricades?.size || !position) return;
+  const { radius, maxDamage } = GRENADE.frag;
+  for (const barricade of Array.from(barricades.values())) {
+    const centre = { x: barricade.x, y: barricade.y + BARRICADE.height / 2, z: barricade.z };
+    const dist = distanceBetweenVectors(centre, position);
+    if (dist > radius) continue;
+    const falloff = Math.max(0, 1 - dist / radius);
+    const damage = Math.round(maxDamage * falloff * BARRICADE.fragScale);
+    if (damage > 0) applyBarricadeDamage(roomCode, room, barricade, damage, byId);
   }
 }
 
@@ -5002,6 +5173,8 @@ function joinRoom(client, roomCode, options = {}) {
       recentBursts: [],
       activeFires: [],
       activeSmokes: [],
+      barricades: new Map(),
+      barricadeSeq: 0,
       brokenGlassPanes: new Set(),
       brokenVentIds: new Set(),
       openDoors: new Set(),
@@ -5137,6 +5310,7 @@ function joinRoom(client, roomCode, options = {}) {
     brokenGlassPanes: Array.from(room.brokenGlassPanes || []),
     brokenVentIds: Array.from(room.brokenVentIds || []),
     openDoorIds: Array.from(room.openDoors || []),
+    barricades: publicBarricades(room),
     droppedItems: publicDroppedItems(room),
     adminDummies: publicAdminDummies(room),
     adminConfig: room.adminConfig || null,
@@ -5204,6 +5378,7 @@ function removePlayerFromRoom(id, reason, options = {}) {
     cancelBombAction(room, player.id);
   }
   room.players.delete(id);
+  removeBarricadesOwnedBy(roomCode, room, id);
   if (room.mapVote?.votes.delete(id)) {
     broadcastToRoom(roomCode, id, 'mapVoteUpdate', publicMapVotePayload(room));
   }
@@ -5354,6 +5529,7 @@ function getRoomState(roomCode) {
     brokenGlassPanes: Array.from(room.brokenGlassPanes || []),
     brokenVentIds: Array.from(room.brokenVentIds || []),
     openDoorIds: Array.from(room.openDoors || []),
+    barricades: publicBarricades(room),
     droppedItems: publicDroppedItems(room),
     adminDummies: publicAdminDummies(room),
     adminConfig: room.adminConfig || null
@@ -5365,7 +5541,7 @@ function publicAdminDummies(room) {
 }
 
 function adminMaxUtilityCounts() {
-  return Object.fromEntries(Object.keys(UTILITY_PRICES).map(kind => [kind, GRENADE_PER_LIFE_CAP]));
+  return Object.fromEntries(Object.keys(UTILITY_PRICES).map(kind => [kind, utilityLifeCap(kind)]));
 }
 
 function adminTeleportPoint(room, action, player) {
@@ -5770,6 +5946,7 @@ function finishTimedRoundInner(roomCode, room) {
   room.activeFires = [];
   room.activeSmokes = [];
   room.recentBursts = [];
+  clearRoomBarricades(room);
   room.progressionSuppressedRound = false;
   room.progressionSuppressedReason = '';
   if (MODE_CONFIG[room.settings.gamemode]?.timed && !(roomCode === ADMIN_ROOM_CODE && ensureAdminConfig(room).infiniteRound)) {
@@ -5867,6 +6044,7 @@ function finishGunGameRound(roomCode, room, winnerPlayer) {
   room.activeFires = [];
   room.activeSmokes = [];
   room.recentBursts = [];
+  clearRoomBarricades(room);
   room.progressionSuppressedRound = false;
   room.progressionSuppressedReason = '';
   const spawns = batchRespawn(room);
@@ -6100,11 +6278,14 @@ function countTeam(room, team) {
 }
 
 function freshUtilityCounts() {
-  return { frag: 0, smoke: 0, flash: 0, molotov: 0 };
+  return { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0 };
 }
 
 function resetUtilityLife(player) {
-  if (player) player.utilityPurchasedThisLife = freshUtilityCounts();
+  if (!player) return;
+  player.utilityPurchasedThisLife = freshUtilityCounts();
+  // Deployed barricades outlive their owner's life; the allowance does not.
+  player.barricadesDeployedThisLife = 0;
 }
 
 function resetHealthshotLife(player) {
@@ -7055,6 +7236,7 @@ function startCasualRound(roomCode) {
   room.activeFires = [];
   room.activeSmokes = [];
   room.recentBursts = [];
+  clearRoomBarricades(room);
   room.progressionSuppressedRound = false;
   room.progressionSuppressedReason = '';
   clearDroppedItems(room);
@@ -7131,6 +7313,7 @@ function finishCasualRound(roomCode, room, winnerTeam, reason) {
   room.activeFires = [];
   room.activeSmokes = [];
   room.recentBursts = [];
+  clearRoomBarricades(room);
   room.progressionSuppressedRound = false;
   room.progressionSuppressedReason = '';
   st.nextRoundStartsAt = transitionEnd;
@@ -7350,6 +7533,13 @@ function broadcastCasualState(roomCode, room) {
 function sanitizeGrenadeKind(value) {
   return value === 'smoke' || value === 'flash' || value === 'molotov' ? value : 'frag';
 
+}
+// Buy-menu utility kinds. Wider than sanitizeGrenadeKind because the barricade
+// is bought like a grenade but never thrown, so the throw/burst paths must keep
+// rejecting it. Returns '' for anything unknown.
+function sanitizeUtilityKind(value) {
+  const kind = String(value || '');
+  return UTILITY_PRICES[kind] !== undefined ? kind : '';
 }
 function sanitizeWeaponName(value) {
   const name = String(value || '').slice(0, 32);

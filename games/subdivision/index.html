@@ -3098,6 +3098,7 @@
             walk: 'ShiftLeft', reload: 'KeyR', scoreboard: 'Tab', captureCoords: 'KeyP',
             weapon1: 'Digit1', weapon2: 'Digit2', weapon3: 'Digit3',
             grenadeFrag: 'Digit4', grenadeSmoke: 'Digit5', grenadeFlash: 'Digit6', grenadeMolotov: 'Digit7',
+            utilityBarricade: 'Digit8',
             healthshot: 'KeyX',
             interact: 'KeyE',
             buyMenu: 'KeyB'
@@ -3119,6 +3120,7 @@
             ['walk', 'Walk'], ['reload', 'Reload'], ['scoreboard', 'Scoreboard'], ['captureCoords', 'Capture Coords'],
             ['weapon1', 'Primary Slot'], ['weapon2', 'Secondary Slot'], ['weapon3', 'Knife Slot'],
             ['grenadeFrag', 'Frag Grenade'], ['grenadeSmoke', 'Smoke Grenade'], ['grenadeFlash', 'Flash Grenade'], ['grenadeMolotov', 'Molotov'],
+            ['utilityBarricade', 'Deployable Barricade'],
             ['healthshot', 'Health Shot'],
             ['interact', 'Interact / Open Door'],
             ['buyMenu', 'Buy Menu']
@@ -4954,7 +4956,7 @@
             if (data.grenades && typeof data.grenades === 'object') {
                 for (const kind of GRENADE_KINDS) {
                     if (Number.isFinite(Number(data.grenades[kind]))) {
-                        grenadeInventory[kind] = Math.max(0, Math.min(GRENADE_CAP, Math.round(Number(data.grenades[kind]))));
+                        grenadeInventory[kind] = Math.max(0, Math.min(utilityCap(kind), Math.round(Number(data.grenades[kind]))));
                     }
                 }
             }
@@ -7178,7 +7180,11 @@
             { id: 20, name: 'Frag', type: 'grenade', kind: 'frag', damage: 0, rangeMod: 1.0, firerate: 0.8, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.92, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
             { id: 21, name: 'Smoke', type: 'grenade', kind: 'smoke', damage: 0, rangeMod: 1.0, firerate: 0.8, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.92, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
             { id: 22, name: 'Flash', type: 'grenade', kind: 'flash', damage: 0, rangeMod: 1.0, firerate: 0.8, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.92, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
-            { id: 23, name: 'Molotov', type: 'grenade', kind: 'molotov', damage: 0, rangeMod: 1.0, firerate: 0.8, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.92, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) }
+            { id: 23, name: 'Molotov', type: 'grenade', kind: 'molotov', damage: 0, rangeMod: 1.0, firerate: 0.8, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.92, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
+            // Deployable barricade. Typed 'grenade' so it inherits every utility
+            // rule already in the client (no ammo, no reload, utility HUD/buy slot);
+            // the deploy branches key off `kind` instead of throwing it.
+            { id: 24, name: 'Barricade', type: 'grenade', kind: 'barricade', damage: 0, rangeMod: 1.0, firerate: 0.9, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.88, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) }
         ];
 
         const MOVEMENT_INACCURACY_MULT = 1.55;
@@ -7683,14 +7689,21 @@
         const TEAM_FRIENDLY_TINT = 0x2e7d3a;    // friendly uniform tint
         const TEAM_ENEMY_TINT = 0x7d2e2e;       // enemy uniform tint
 
-        const GRENADE_KINDS = ['frag', 'smoke', 'flash', 'molotov'];
+        const GRENADE_KINDS = ['frag', 'smoke', 'flash', 'molotov', 'barricade'];
         const GRENADE_PRICES = window.GameCore.GRENADE_PRICES; // shared with server UTILITY_PRICES (core.js)
         const GRENADE_CAP = 2;
         const GRENADE_LIFE_CAP = 2;
         const GRENADE_CHARGE_MS = 1250;
         const GRENADE_MIN_CHARGE = 0.3;
         const GRENADE_MAX_CHARGE = 1.45;
-        const grenadeWeaponIndex = { frag: 19, smoke: 20, flash: 21, molotov: 22 };
+        const grenadeWeaponIndex = { frag: 19, smoke: 20, flash: 21, molotov: 22, barricade: 23 };
+        const UTILITY_LIFE_CAPS = window.GameCore.UTILITY_LIFE_CAPS; // per-kind overrides (core.js)
+        // Owned/per-life cap for one utility kind. Both caps are the same number,
+        // so one helper covers the inventory cap and the buy-per-life cap.
+        function utilityCap(kind) {
+            const cap = Number(UTILITY_LIFE_CAPS?.[kind]);
+            return Number.isFinite(cap) ? cap : GRENADE_CAP;
+        }
         const WEAPON_PRICES = window.GameCore.WEAPON_PRICES; // shared with server (core.js)
         const GRENADE_CONFIG = {
             frag:  { fuse: 1.6, radius: 125, maxDamage: 125, throwSpeed: 360, lobSpeed: 200, color: 0x4a5a3a },
@@ -7698,6 +7711,8 @@
             flash: { fuse: 1.6, radius: 310, throwSpeed: 305, lobSpeed: 165, color: 0xdfe3e6 },
             molotov: { fuse: 0.9, radius: 82, dps: 34, tickMs: 350, duration: 8500, throwSpeed: 315, lobSpeed: 170, color: 0x8b3a16 }
         };
+        // Deployable barricade geometry/health, shared with the server (core.js).
+        const BARRICADE = window.GameCore.BARRICADE;
         // Admin testing room: per-room overrides for prices / availability / mode /
         // map size. null in normal rooms (helpers fall back to the constants above).
         let isAdminRoom = false;
@@ -7736,9 +7751,13 @@
         }
         let myMoney = 200;
 
-        let grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0 };
-        let grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0 };
+        let grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0 };
+        let grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0 };
         let selectedGrenade = 'frag';
+        const barricadeActors = new Map(); // id -> deployed panel group
+        let barricadePreview = null;       // ghost panel shown while the barricade is out
+        let barricadeEffects = [];         // debris / spark bursts
+        let lastBarricadeDeployAt = 0;
         let grenades = [];       // in-air projectiles
         let smokeClouds = [];    // active smoke volumes
         let molotovFires = [];   // active incendiary areas
@@ -8295,9 +8314,9 @@
                     event.preventDefault();
 
                     switchDeathmatchSlot(isBind(event, 'weapon1') ? 'main' : (isBind(event, 'weapon2') ? 'sidearm' : 'knife'));
-                } else if (usesUtility() && (isBind(event, 'grenadeFrag') || isBind(event, 'grenadeSmoke') || isBind(event, 'grenadeFlash') || isBind(event, 'grenadeMolotov'))) {
+                } else if (usesUtility() && (isBind(event, 'grenadeFrag') || isBind(event, 'grenadeSmoke') || isBind(event, 'grenadeFlash') || isBind(event, 'grenadeMolotov') || isBind(event, 'utilityBarricade'))) {
                     event.preventDefault();
-                    equipGrenade(isBind(event, 'grenadeFrag') ? 'frag' : (isBind(event, 'grenadeSmoke') ? 'smoke' : (isBind(event, 'grenadeFlash') ? 'flash' : 'molotov')));
+                    equipGrenade(isBind(event, 'grenadeFrag') ? 'frag' : (isBind(event, 'grenadeSmoke') ? 'smoke' : (isBind(event, 'grenadeFlash') ? 'flash' : (isBind(event, 'grenadeMolotov') ? 'molotov' : 'barricade'))));
                 } else if (usesUtility() && isBind(event, 'healthshot')) {
                     event.preventDefault();
                     if (!wasHeld) useHealthshot();
@@ -13995,6 +14014,9 @@
                 clearRemotePlayers();
                 clearContainmentEnemies();
                 clearContainmentGates();
+                clearAllBarricades();
+                clearBarricadeEffects();
+                clearBarricadePreview();
                 syncRoomPlayerOrder(data.players || []);
                 updateMyStateFromPlayers(data.players || []);
                 data.players.forEach(player => {
@@ -14005,6 +14027,7 @@
                 syncDroppedItems(data.droppedItems || []);
                 startGame();
                 syncAdminDummies(data.adminDummies || []);
+                syncBarricades(data.barricades || []);
                 syncContainmentEnemies(data.containmentEnemies || []);
                 if (Array.isArray(data.containment?.gates)) syncContainmentGates(data.containment.gates);
                 localWaitingForNextRound = !!data.waitingForNextRound;
@@ -14398,6 +14421,15 @@
             } else if (type === 'grenadeBurst') {
                 removeGrenadeById(data.id);
                 if (data.position) spawnBurstVFX(data.kind, data.position, false);
+            } else if (type === 'barricadePlaced') {
+                spawnBarricade(data);
+                if (data.ownerId === mySocketId) onOwnBarricadeDeployed();
+            } else if (type === 'barricadeHealth') {
+                applyBarricadeHealth(data.id, data.health);
+            } else if (type === 'barricadeRemoved') {
+                removeBarricadeById(data.id, { destroyed: !!data.destroyed });
+            } else if (type === 'barricadeDenied') {
+                flashToast(data.message || 'You cannot deploy a barricade here.');
             } else if (type === 'roundWait') {
                 localWaitingForNextRound = true;
                 myHealth = 0;
@@ -16019,7 +16051,7 @@
 
         function embeddedAgentWeaponAnimFamily(weapon = 'AK47') {
             if (weapon === 'Knife') return 'knife';
-            if (['Frag', 'Smoke', 'Flash', 'Molotov'].includes(weapon)) return 'grenade';
+            if (['Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade'].includes(weapon)) return 'grenade';
             if (['Glock', 'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver', 'Deagle'].includes(weapon)) return 'onehanded';
             if (['MAC10', 'P90'].includes(weapon)) return 'mp5';
             if (['Nova', 'XM1014'].includes(weapon)) return 'shotgun';
@@ -16560,6 +16592,17 @@
                 case 'Flash': createMesh(new THREE.SphereGeometry(0.2, 10, 8), matSilver, 0, 0, -0.3); createMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.12), matDarkGrey, 0, 0.18, -0.3); break;
 
                 case 'Molotov': createMesh(new THREE.CylinderGeometry(0.08, 0.11, 0.62), new THREE.MeshPhongMaterial({ color: 0x31543a, transparent: true, opacity: 0.78 }), 0, 0, -0.35, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.16), matWood, 0, 0.02, -0.72, Math.PI/2); createMesh(new THREE.BoxGeometry(0.08, 0.16, 0.18), new THREE.MeshPhongMaterial({ color: 0xff6a20, emissive: 0x552000 }), 0, 0.15, -0.74); break;
+                // Carried folded, hazard stripe up, so it reads as a deployable
+                // and not as another grenade in the corner of the screen.
+                case 'Barricade': {
+                    const matPanel = new THREE.MeshPhongMaterial({ color: 0x505d69, shininess: 24 });
+                    const matStripe = new THREE.MeshPhongMaterial({ color: 0xd9a12b });
+                    createMesh(new THREE.BoxGeometry(0.86, 0.58, 0.11), matPanel, 0, -0.06, -0.46);
+                    createMesh(new THREE.BoxGeometry(0.86, 0.09, 0.15), matStripe, 0, 0.17, -0.46);
+                    createMesh(new THREE.BoxGeometry(0.1, 0.7, 0.2), matDarkGrey, -0.41, -0.06, -0.44);
+                    createMesh(new THREE.BoxGeometry(0.1, 0.7, 0.2), matDarkGrey, 0.41, -0.06, -0.44);
+                    break;
+                }
             }
             const equippedItem = equippedSkinItem(wp.name) || (wp.name === 'Knife' ? skinCatalogItem(defaultKnifeItemId()) : null);
             attachWeaponAsset(weaponGroup, wp.name, 'firstPerson', equippedItem);
@@ -18614,7 +18657,7 @@
             myHealth = 100;
             updateHealthUI();
             stimCharges = 0;
-            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0 };
+            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0 };
             lastPurchaseId = null;
             resetAllAmmo();
             camera.position.set(0, 0, 0);
@@ -18625,7 +18668,7 @@
             if (spawn) { controls.getObject().position.copy(spawn); repositioned = true; }
             if (usesUtility() && !isCasual()) {
                 GRENADE_KINDS.forEach(kind => {
-                    grenadeInventory[kind] = Math.max(grenadeInventory[kind] || 0, 1);
+                    grenadeInventory[kind] = Math.min(utilityCap(kind), Math.max(grenadeInventory[kind] || 0, 1));
                 });
                 resetHealthshotState();
             }
@@ -18730,6 +18773,12 @@
                 add(new THREE.BoxGeometry(0.25, 0.25, 2.8), matBlade, 0, 0, -1.0, -0.35);
                 add(new THREE.BoxGeometry(0.45, 0.45, 0.9), matDark, 0, -0.05, 0.55, -0.35);
                 attachWeaponAsset(parent, weaponName, 'thirdPerson', skinItem);
+                return;
+            }
+
+            if (weaponName === 'Barricade') {
+                add(new THREE.BoxGeometry(1.9, 1.3, 0.3), matMetal, 0, 0, -0.5);
+                add(new THREE.BoxGeometry(1.9, 0.22, 0.36), new THREE.MeshPhongMaterial({ color: 0xd9a12b }), 0, 0.4, -0.5);
                 return;
             }
 
@@ -19281,15 +19330,16 @@
                 if (utilList) {
                     utilList.innerHTML = GRENADE_KINDS.filter(kind => isGrenadeEnabled(kind)).map(kind => {
                         const infiniteUtility = adminInfiniteUtilityEnabled();
-                        const owned = infiniteUtility ? GRENADE_CAP : (grenadeInventory[kind] || 0);
+                        const cap = utilityCap(kind);
+                        const owned = infiniteUtility ? cap : (grenadeInventory[kind] || 0);
                         const bought = grenadePurchasedThisLife[kind] || 0;
                         const price = getGrenadePrice(kind);
-                        const limitReason = infiniteUtility ? null : (owned >= GRENADE_CAP ? 'Inventory full' : (bought >= GRENADE_LIFE_CAP ? 'Life cap reached' : null));
+                        const limitReason = infiniteUtility ? null : (owned >= cap ? 'Inventory full' : (bought >= cap ? 'Life cap reached' : null));
                         const reason = reasonFor(price, limitReason);
                         const disabled = !!reason;
                         const name = kind.charAt(0).toUpperCase() + kind.slice(1);
                         const priceHtml = paid ? `<span class="buy-price">$${price}</span>` : '';
-                        const countHtml = paid ? `<span class="buy-owned">${infiniteUtility ? 'Infinite utility' : `Owned ${owned}/${GRENADE_CAP} · Life ${bought}/${GRENADE_LIFE_CAP}`}</span>` : '';
+                        const countHtml = paid ? `<span class="buy-owned">${infiniteUtility ? 'Infinite utility' : `Owned ${owned}/${cap} · Life ${bought}/${cap}`}</span>` : '';
                         return `<button class="buy-btn${disabled ? ' buy-disabled' : ''}" data-buy-util="${kind}"${disabled ? ' disabled' : ''} title="${escapeHtml(reason || 'Buy utility')}"><span>${name}</span>${priceHtml}${countHtml}${reason ? `<span class="buy-reason">${escapeHtml(reason)}</span>` : ''}</button>`;
                     }).join('');
                 }
@@ -19364,7 +19414,7 @@
             if (usesUtility()) {
                 let delay = 150;
                 for (const kind of GRENADE_KINDS) {
-                    const desired = Math.max(0, Math.min(GRENADE_CAP, Number(rebuyLoadout.utility?.[kind] || 0)));
+                    const desired = Math.max(0, Math.min(utilityCap(kind), Number(rebuyLoadout.utility?.[kind] || 0)));
                     const missing = Math.max(0, desired - (grenadeInventory[kind] || 0));
                     for (let i = 0; i < missing; i++) {
                         setTimeout(() => requestBuyUtility(kind), delay);
@@ -20690,6 +20740,12 @@
                 queueLocalVentBreak(ventId, hit.point);
                 return;
             }
+            const barricadeId = hit.object?.userData?.barricadeId;
+            if (barricadeId) {
+                reportBarricadeHit(barricadeId, hit.point);
+                addBulletDecal(hit);
+                return;
+            }
             addBulletDecal(hit);
         }
 
@@ -21139,6 +21195,9 @@
         function isWallbangSurface(hitOrObj) {
             const hit = hitOrObj?.object ? hitOrObj : null;
             const obj = hit?.object || hitOrObj;
+            // Barricades stop bullets until they break, whatever their materials
+            // would otherwise look like to the penetration heuristics below.
+            if (obj?.userData?.isBarricadePanel) return false;
             if (hit && wallbangTextureNameForHit(hit)) return true;
             if (hit && currentRoomSettings.mapId === MAP_DUST2 && obj?.userData?.isMapObject) {
                 const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
@@ -21729,7 +21788,7 @@
             if (!usesUtility()) { hud.style.display = 'none'; return; }
             hud.style.display = 'block';
 
-            const rows = [['frag', 'grenadeFrag', 'Frag'], ['smoke', 'grenadeSmoke', 'Smoke'], ['flash', 'grenadeFlash', 'Flash'], ['molotov', 'grenadeMolotov', 'Molotov']];
+            const rows = [['frag', 'grenadeFrag', 'Frag'], ['smoke', 'grenadeSmoke', 'Smoke'], ['flash', 'grenadeFlash', 'Flash'], ['molotov', 'grenadeMolotov', 'Molotov'], ['barricade', 'utilityBarricade', 'Barricade']];
             hud.innerHTML = `<div class="util-money">${usesCasualEconomy() ? `$${myMoney}` : 'UTILITY'}</div>` + rows.map(([k, action, label]) => {
                 const sel = k === selectedGrenade;
                 const infiniteUtility = adminInfiniteUtilityEnabled();
@@ -21742,15 +21801,15 @@
         function requestBuyUtility(kind) {
             if (!usesUtility()) return;
             if (GRENADE_PRICES[kind] === undefined || !isGrenadeEnabled(kind)) return;
-            if ((grenadeInventory[kind] || 0) >= GRENADE_CAP) return;
-            if ((grenadePurchasedThisLife[kind] || 0) >= GRENADE_LIFE_CAP) return;
+            if ((grenadeInventory[kind] || 0) >= utilityCap(kind)) return;
+            if ((grenadePurchasedThisLife[kind] || 0) >= utilityCap(kind)) return;
             if (usesCasualEconomy() && !isCasualBuyOpen()) return;
             if (usesCasualEconomy() && myMoney < getGrenadePrice(kind)) return;
             sendPacket('buyUtility', { kind });
         }
 
         function grantUtility(kind) {
-            grenadeInventory[kind] = Math.min(GRENADE_CAP, (grenadeInventory[kind] || 0) + 1);
+            grenadeInventory[kind] = Math.min(utilityCap(kind), (grenadeInventory[kind] || 0) + 1);
             rebuyLoadout = {
                 main: weapons[deathmatchLoadout.main]?.name,
                 sidearm: weapons[deathmatchLoadout.sidearm]?.name,
@@ -21789,12 +21848,15 @@
 
         function throwGrenade(kind, isAlt) {
             if (!usesUtility() || (!adminInfiniteUtilityEnabled() && (grenadeInventory[kind] || 0) <= 0)) return;
+            if (kind === 'barricade') { attemptDeployBarricade(); return; }
             throwGrenadeWithCharge(kind, isAlt, 1);
         }
 
         function beginGrenadeAim(isAlt) {
             const wp = weapons[currentWeaponIndex];
             if (!wp || wp.type !== 'grenade' || !usesUtility() || (!adminInfiniteUtilityEnabled() && (grenadeInventory[wp.kind] || 0) <= 0)) return;
+            // The barricade is placed, not thrown: no charge, no arc, no fuse.
+            if (wp.kind === 'barricade') { attemptDeployBarricade(); return; }
             if (grenadeAim) return;
             grenadeAim = { kind: wp.kind, alt: !!isAlt, startedAt: performance.now() };
             playSfxSample(grenadeHandlingSfx[wp.kind]?.pin, null, 'effects', { volumeScale: 0.66, cooldownKey: 'grenade:pin', cooldownMs: 250 });
@@ -21821,6 +21883,7 @@
 
         function throwGrenadeWithCharge(kind, isAlt, charge = 1) {
             const infiniteUtility = adminInfiniteUtilityEnabled();
+            if (kind === 'barricade') return; // deployed, never thrown
             if (!usesUtility() || (!infiniteUtility && (grenadeInventory[kind] || 0) <= 0)) return;
             clearLocalSpawnProtectionForAction();
             if (!infiniteUtility) grenadeInventory[kind] -= 1;
@@ -21911,8 +21974,371 @@
             }
         }
 
+        // ---- Deployable barricade ----
+        // A utility panel deployed on the ground in front of the player: solid
+        // cover that blocks movement and bullets until its health runs out. The
+        // server owns placement approval, health and destruction; this side owns
+        // the preview, the mesh, and reporting hits.
+        const BARRICADE_STEEL = 0x4d5a66;
+        const BARRICADE_SCORCHED = 0x2b1f1c;
+
+        function barricadeHitNormalY(hit) {
+            if (!hit?.face) return 0;
+            const normal = hit.face.normal.clone();
+            normal.applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize();
+            return normal.y;
+        }
+
+        function firstSolidHitAlong(origin, direction, distance) {
+            if (!mapObjects.length) return null;
+            raycaster.near = 0;
+            raycaster.far = distance;
+            raycaster.set(origin, direction.clone().normalize());
+            const hit = raycaster.intersectObjects(mapObjects, false)
+                .find(candidate => candidate.object?.visible !== false && candidate.face);
+            raycaster.far = Infinity;
+            return hit || null;
+        }
+
+        // Fixed-distance placement, R6 style: the panel always lands straight
+        // ahead at the same range, so the preview is the whole aiming interface.
+        function computeBarricadePlacement() {
+            if (!controls || !camera || !scene || !mapLoaded || !mapObjects.length) return null;
+            const eye = camera.getWorldPosition(new THREE.Vector3());
+            const look = new THREE.Vector3(0, 0, -1).transformDirection(camera.matrixWorld);
+            const flat = new THREE.Vector3(look.x, 0, look.z);
+            if (flat.lengthSq() < 1e-5) return null;
+            flat.normalize();
+            // rotation.y such that the panel's local -Z faces away from the player,
+            // which puts its width across the view.
+            const yaw = Math.atan2(-flat.x, -flat.z);
+            const anchor = eye.clone().addScaledVector(flat, BARRICADE.deployDistance);
+            const result = { position: anchor, yaw, valid: false, reason: 'No room to deploy here.' };
+
+            const clearance = BARRICADE.deployDistance + BARRICADE.thickness + 1.5;
+            const wall = firstSolidHitAlong(eye, flat, clearance);
+            if (wall) return result;
+
+            const feetY = eye.y - currentHeight;
+            const ground = firstSolidHitAlong(
+                new THREE.Vector3(anchor.x, feetY + PLAYER_MAX_STEP_HEIGHT, anchor.z),
+                new THREE.Vector3(0, -1, 0),
+                PLAYER_MAX_STEP_HEIGHT + 26
+            );
+            if (!ground || barricadeHitNormalY(ground) < 0.65) {
+                result.reason = 'Aim at flat ground.';
+                return result;
+            }
+            result.position = new THREE.Vector3(anchor.x, ground.point.y, anchor.z);
+
+            for (const actor of barricadeActors.values()) {
+                if (Math.hypot(actor.position.x - result.position.x, actor.position.z - result.position.z) < BARRICADE.spacing) {
+                    result.reason = 'Too close to another barricade.';
+                    return result;
+                }
+            }
+            for (const remote of remotePlayers.values()) {
+                if (!remote?.visible || Number(remote.userData?.health || 0) <= 0) continue;
+                if (Math.hypot(remote.position.x - result.position.x, remote.position.z - result.position.z) < BARRICADE.width * 0.4) {
+                    result.reason = 'Someone is standing there.';
+                    return result;
+                }
+            }
+            result.valid = true;
+            result.reason = '';
+            return result;
+        }
+
+        function createBarricadePanel(ghost = false) {
+            const group = new THREE.Group();
+            const width = BARRICADE.width;
+            const height = BARRICADE.height;
+            const thickness = BARRICADE.thickness;
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(width, height, thickness),
+                ghost
+                    ? new THREE.MeshBasicMaterial({ color: 0x54d98c, transparent: true, opacity: 0.3, depthWrite: false })
+                    : new THREE.MeshPhongMaterial({ color: BARRICADE_STEEL, shininess: 26 })
+            );
+            body.position.y = height / 2;
+            group.add(body);
+            group.userData.body = body;
+
+            if (ghost) {
+                const outline = new THREE.Mesh(
+                    new THREE.BoxGeometry(width + 0.35, height + 0.35, thickness + 0.35),
+                    new THREE.MeshBasicMaterial({ color: 0x54d98c, wireframe: true, transparent: true, opacity: 0.5, depthWrite: false })
+                );
+                outline.position.y = height / 2;
+                group.add(outline);
+                group.userData.outline = outline;
+                return group;
+            }
+
+            const frameMat = new THREE.MeshPhongMaterial({ color: 0x2f3841, shininess: 40 });
+            const stripeMat = new THREE.MeshPhongMaterial({ color: 0xd9a12b });
+            for (const side of [-1, 1]) {
+                const post = new THREE.Mesh(new THREE.BoxGeometry(0.9, height, thickness + 0.5), frameMat);
+                post.position.set(side * (width / 2 - 0.45), height / 2, 0);
+                group.add(post);
+                const foot = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.6, thickness + 4.2), frameMat);
+                foot.position.set(side * (width / 2 - 1.2), 0.3, 0);
+                group.add(foot);
+                const brace = new THREE.Mesh(new THREE.BoxGeometry(0.5, height * 0.75, 0.5), frameMat);
+                brace.position.set(side * (width / 2 - 1.2), height * 0.38, thickness / 2 + 1.5);
+                brace.rotation.x = -0.42;
+                group.add(brace);
+            }
+            const stripe = new THREE.Mesh(new THREE.BoxGeometry(width - 1.6, 1.1, thickness + 0.2), stripeMat);
+            stripe.position.y = height - 2.6;
+            group.add(stripe);
+
+            // Health strip along the top edge, anchored left so it drains sideways.
+            const fillGeometry = new THREE.BoxGeometry(width - 1.2, 0.5, thickness + 0.3);
+            fillGeometry.translate((width - 1.2) / 2, 0, 0);
+            const fill = new THREE.Mesh(fillGeometry, new THREE.MeshBasicMaterial({ color: 0x6fe08a }));
+            fill.position.set(-(width - 1.2) / 2, height - 0.55, 0);
+            group.add(fill);
+            group.userData.healthFill = fill;
+            return group;
+        }
+
+        function applyBarricadeHealthVisual(group, health, maxHealth) {
+            const ratio = Math.max(0, Math.min(1, Number(health) / Math.max(1, Number(maxHealth) || BARRICADE.health)));
+            const fill = group.userData.healthFill;
+            if (fill) {
+                fill.scale.x = Math.max(0.001, ratio);
+                fill.material.color.setHex(ratio > 0.6 ? 0x6fe08a : (ratio > 0.3 ? 0xe3c86f : 0xe3563f));
+            }
+            const body = group.userData.body;
+            if (body) body.material.color.setHex(BARRICADE_STEEL).lerp(new THREE.Color(BARRICADE_SCORCHED), (1 - ratio) * 0.75);
+            group.userData.health = Number(health) || 0;
+        }
+
+        function spawnBarricade(record) {
+            const id = String(record?.id || '');
+            if (!id || !scene) return null;
+            removeBarricadeById(id);
+            const group = createBarricadePanel(false);
+            group.position.set(Number(record.x) || 0, Number(record.y) || 0, Number(record.z) || 0);
+            group.rotation.y = Number(record.yaw) || 0;
+            group.userData.barricadeId = id;
+            group.userData.ownerId = record.ownerId || null;
+            group.userData.maxHealth = Number(record.maxHealth) || BARRICADE.health;
+            const body = group.userData.body;
+            body.userData = { isMapObject: true, isBarricadePanel: true, barricadeId: id, name: 'barricade-panel' };
+            body.name = 'barricade-panel';
+            scene.add(group);
+            objects.push(body);
+            mapObjects.push(body);
+            barricadeActors.set(id, group);
+            applyBarricadeHealthVisual(group, Number(record.health) || group.userData.maxHealth, group.userData.maxHealth);
+            playNoise(0.22, 0.5, 900, 120, group.position, { channel: 'effects' });
+            return group;
+        }
+
+        function removeBarricadeById(id, options = {}) {
+            const key = String(id || '');
+            const group = barricadeActors.get(key);
+            if (!group) return;
+            barricadeActors.delete(key);
+            objects = objects.filter(obj => obj.userData?.barricadeId !== key);
+            mapObjects = mapObjects.filter(obj => obj.userData?.barricadeId !== key);
+            group.removeFromParent?.();
+            group.traverse?.((child) => {
+                child.geometry?.dispose?.();
+                if (Array.isArray(child.material)) child.material.forEach(mat => mat?.dispose?.());
+                else child.material?.dispose?.();
+            });
+            if (options.destroyed) {
+                const centre = group.position.clone().setY(group.position.y + BARRICADE.height / 2);
+                spawnBarricadeDebris(centre);
+                playNoise(0.42, 0.7, 2600, 200, centre, { channel: 'effects' });
+            }
+        }
+
+        // Debris/sparks live on their own list: fragFlashes assumes one Mesh per
+        // entry and disposes `mesh.geometry` directly, which a Group does not have.
+        function pushBarricadeEffect(group, ttl, speed) {
+            const velocities = group.children.map(() => new THREE.Vector3(
+                (Math.random() - 0.5) * speed,
+                Math.random() * speed * 0.7,
+                (Math.random() - 0.5) * speed
+            ));
+            barricadeEffects.push({ group, velocities, born: performance.now(), ttl });
+        }
+
+        function updateBarricadeEffects(time, delta) {
+            for (let i = barricadeEffects.length - 1; i >= 0; i--) {
+                const effect = barricadeEffects[i];
+                const progress = (time - effect.born) / effect.ttl;
+                if (progress >= 1) {
+                    effect.group.removeFromParent?.();
+                    effect.group.traverse?.((child) => {
+                        child.geometry?.dispose?.();
+                        child.material?.dispose?.();
+                    });
+                    barricadeEffects.splice(i, 1);
+                    continue;
+                }
+                effect.group.children.forEach((child, index) => {
+                    const velocity = effect.velocities[index];
+                    if (!velocity) return;
+                    velocity.y -= 90 * delta;
+                    child.position.addScaledVector(velocity, delta);
+                    child.rotation.x += 3.4 * delta;
+                    child.rotation.z += 2.6 * delta;
+                    if (child.material) child.material.opacity = 0.95 * (1 - progress);
+                });
+            }
+        }
+
+        function clearBarricadeEffects() {
+            for (let i = barricadeEffects.length - 1; i >= 0; i--) {
+                const effect = barricadeEffects[i];
+                effect.group.removeFromParent?.();
+                effect.group.traverse?.((child) => {
+                    child.geometry?.dispose?.();
+                    child.material?.dispose?.();
+                });
+            }
+            barricadeEffects.length = 0;
+        }
+
+        function spawnBarricadeDebris(centre) {
+            if (!scene || !centre) return;
+            const group = new THREE.Group();
+            group.position.copy(centre);
+            for (let i = 0; i < 14; i++) {
+                const shard = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.6 + Math.random() * 1.1, 0.5 + Math.random() * 0.9, 0.3),
+                    new THREE.MeshBasicMaterial({ color: i % 4 === 0 ? 0xd9a12b : 0x66727e, transparent: true, opacity: 0.95 })
+                );
+                shard.position.set((Math.random() - 0.5) * BARRICADE.width, (Math.random() - 0.5) * BARRICADE.height, (Math.random() - 0.5) * 2);
+                shard.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+                group.add(shard);
+            }
+            scene.add(group);
+            pushBarricadeEffect(group, 950, 26);
+        }
+
+        function applyBarricadeHealth(id, health) {
+            const group = barricadeActors.get(String(id || ''));
+            if (!group) return;
+            applyBarricadeHealthVisual(group, health, group.userData.maxHealth);
+        }
+
+        function syncBarricades(list = []) {
+            const wanted = new Set();
+            for (const record of Array.isArray(list) ? list : []) {
+                const id = String(record?.id || '');
+                if (!id) continue;
+                wanted.add(id);
+                spawnBarricade(record);
+            }
+            for (const id of Array.from(barricadeActors.keys())) if (!wanted.has(id)) removeBarricadeById(id);
+        }
+
+        function clearAllBarricades() {
+            for (const id of Array.from(barricadeActors.keys())) removeBarricadeById(id);
+        }
+
+        function clearBarricadePreview() {
+            if (!barricadePreview) return;
+            barricadePreview.removeFromParent?.();
+            barricadePreview.traverse?.((child) => {
+                child.geometry?.dispose?.();
+                child.material?.dispose?.();
+            });
+            barricadePreview = null;
+        }
+
+        function holdingBarricade() {
+            return usesUtility()
+                && weapons[currentWeaponIndex]?.kind === 'barricade'
+                && !isDead
+                && !roundTransitionActive
+                && (adminInfiniteUtilityEnabled() || (grenadeInventory.barricade || 0) > 0);
+        }
+
+        function updateBarricadePreview() {
+            if (!holdingBarricade()) { clearBarricadePreview(); return; }
+            const placement = computeBarricadePlacement();
+            if (!placement) { clearBarricadePreview(); return; }
+            if (!barricadePreview) {
+                barricadePreview = createBarricadePanel(true);
+                barricadePreview.renderOrder = 995;
+                scene.add(barricadePreview);
+            }
+            barricadePreview.position.copy(placement.position);
+            barricadePreview.rotation.y = placement.yaw;
+            const colour = placement.valid ? 0x54d98c : 0xe3563f;
+            barricadePreview.userData.body.material.color.setHex(colour);
+            barricadePreview.userData.outline.material.color.setHex(colour);
+        }
+
+        function attemptDeployBarricade() {
+            if (!usesUtility() || isDead || roundTransitionActive || localWaitingForNextRound) return;
+            const infiniteUtility = adminInfiniteUtilityEnabled();
+            if (!infiniteUtility && (grenadeInventory.barricade || 0) <= 0) return;
+            const now = performance.now();
+            if (now - lastBarricadeDeployAt < 700) return;
+            const placement = computeBarricadePlacement();
+            if (!placement) return;
+            if (!placement.valid) { flashToast(placement.reason || 'No room to deploy here.'); return; }
+            lastBarricadeDeployAt = now;
+            lastFireTime = now;
+            clearLocalSpawnProtectionForAction();
+            // The panel itself only appears when the server approves it, so two
+            // players cannot both plant one in the same doorway.
+            sendPacket('deployBarricade', {
+                position: vecObj(placement.position),
+                yaw: placement.yaw
+            });
+        }
+
+        // Owner-side follow-up once the server has accepted the placement.
+        function onOwnBarricadeDeployed() {
+            if (!adminInfiniteUtilityEnabled()) {
+                grenadeInventory.barricade = Math.max(0, (grenadeInventory.barricade || 0) - 1);
+            }
+            updateGrenadeHud();
+            renderBuyMenu();
+            clearBarricadePreview();
+            if (!holdingBarricade() && weapons[currentWeaponIndex]?.kind === 'barricade') {
+                setTimeout(() => {
+                    if (weapons[currentWeaponIndex]?.kind === 'barricade') switchDeathmatchSlot(deathmatchActiveSlot, true);
+                }, 180);
+            }
+        }
+
+        // Bullets report to the server, which owns the panel's health.
+        function reportBarricadeHit(id, hitPoint) {
+            const weapon = weapons[currentWeaponIndex];
+            if (!id || !weapon || weapon.type === 'grenade') return;
+            sendPacket('barricadeDamage', { id, weapon: weapon.name });
+            if (hitPoint) spawnBarricadeSparks(hitPoint);
+        }
+
+        function spawnBarricadeSparks(point) {
+            if (!scene || !point) return;
+            const group = new THREE.Group();
+            group.position.copy(point);
+            for (let i = 0; i < 5; i++) {
+                const spark = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.18, 0.18, 0.5),
+                    new THREE.MeshBasicMaterial({ color: 0xffc772, transparent: true, opacity: 0.9, depthWrite: false })
+                );
+                spark.position.set((Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 1.2);
+                spark.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+                group.add(spark);
+            }
+            scene.add(group);
+            pushBarricadeEffect(group, 260, 14);
+        }
+
         function grenadeWeaponName(kind) {
-            return ({ frag: 'Frag', smoke: 'Smoke', flash: 'Flash', molotov: 'Molotov' })[kind] || 'Frag';
+            return ({ frag: 'Frag', smoke: 'Smoke', flash: 'Flash', molotov: 'Molotov', barricade: 'Barricade' })[kind] || 'Frag';
         }
 
         function disposeGrenadeProjectileModel(object) {
@@ -22635,8 +23061,8 @@
 
         function tdmResetState() {
 
-            grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0 };
-            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0 };
+            grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0 };
+            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0 };
             selectedGrenade = 'frag';
             grenadeAim = null;
             lastGrenadeChargeHud = -1;
@@ -22658,6 +23084,9 @@
                 effect.mesh?.material?.dispose?.();
             }
             fragFlashes.length = 0;
+            clearAllBarricades();
+            clearBarricadeEffects();
+            clearBarricadePreview();
             flashState = null;
             const flashOverlay = document.getElementById('flash-overlay');
             if (flashOverlay) flashOverlay.style.opacity = '0';
@@ -22721,6 +23150,8 @@
             updateContainmentGateHint(time);
             updateRemotePlayerPoses(delta, time);
             updateGrenadeArc();
+            updateBarricadePreview();
+            updateBarricadeEffects(time, delta);
             updateMvpStage(delta, time);
             updateShadowLightAnchor();
 
