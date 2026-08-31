@@ -22020,10 +22020,13 @@
             if (wall) return result;
 
             const feetY = eye.y - currentHeight;
+            // Short cast on purpose: the floor has to be roughly the one the
+            // player is standing on, so a barricade can never be dropped off a
+            // ledge onto whatever happens to be far below.
             const ground = firstSolidHitAlong(
                 new THREE.Vector3(anchor.x, feetY + PLAYER_MAX_STEP_HEIGHT, anchor.z),
                 new THREE.Vector3(0, -1, 0),
-                PLAYER_MAX_STEP_HEIGHT + 26
+                PLAYER_MAX_STEP_HEIGHT + 14
             );
             if (!ground || barricadeHitNormalY(ground) < 0.65) {
                 result.reason = 'Aim at flat ground.';
