@@ -262,7 +262,7 @@ function configureGates(match, definitions = []) {
       section: String(row?.section || row?.label || 'Sector').slice(0, 48),
       x: Number(row.x), y: Number(row.y) || 0, z: Number(row.z),
       yaw: Number(row.yaw) || 0,
-      width: clamp(Number(row.width) || 14, 6, unbuyable ? 160 : 80),
+      width: clamp(Number(row.width) || 14, 6, 160),
       depth: clamp(Number(row.depth) || 5, 2, 14),
       height: clamp(Number(row.height) || 24, 8, 40),
       price,

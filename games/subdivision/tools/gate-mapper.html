@@ -135,6 +135,12 @@
     <button id="btn-clear" class="danger">Clear all</button>
   </div>
 
+  <label for="authored-gate">Authored gate inspection</label>
+  <div class="row">
+    <select id="authored-gate"></select>
+    <button id="btn-goto-gate">View gate</button>
+  </div>
+
   <label><input type="checkbox" id="show-authored" checked style="width:auto"> Show authored gates &amp; breaches</label>
 
   <h2>Output — paste into maps.js</h2>
@@ -160,7 +166,7 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/DRACOLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/libs/meshopt_decoder.js"></script>
-<script src="../maps.js"></script>
+<script src="../maps.js?v=gate-scan-20260831"></script>
 <script>
 (function () {
   'use strict';
@@ -216,7 +222,7 @@
 
   // Server-side clamps, repeated so the tool can warn at authoring time rather
   // than letting a silently clamped value ship. See configureGates().
-  var LIMITS = { width: [6, 80], depth: [2, 14], height: [8, 40] };
+  var LIMITS = { width: [6, 160], depth: [2, 14], height: [8, 40] };
   var GATE_EYE = 18;      // gate.y is floor + 18; base = gate.y - 18
   var GATE_HEIGHT = 24;   // configureGates default
   var GATE_DEPTH = 5;
@@ -670,6 +676,37 @@
     pitch = -0.3;
   }
 
+  function refreshAuthoredGateOptions() {
+    var picker = $('authored-gate');
+    picker.innerHTML = '';
+    (GATES[currentMapId] || []).forEach(function (gate) {
+      if (gate.hidden) return;
+      var option = document.createElement('option');
+      option.value = gate.id;
+      option.textContent = gate.label || gate.id;
+      picker.appendChild(option);
+    });
+    $('btn-goto-gate').disabled = !picker.options.length;
+  }
+
+  function gotoAuthoredGate() {
+    if (!mapRoot) return;
+    var id = $('authored-gate').value;
+    var gate = (GATES[currentMapId] || []).find(function (row) { return row.id === id; });
+    if (!gate) return;
+    var gateYaw = Number(gate.yaw) || 0;
+    // Approach along the gate's route axis at the authored vertical level.
+    // A top-down ray lands on Dust2 roofs and hides lower corridors, which is
+    // exactly where several of these progression gates live.
+    camera.position.set(
+      gate.x + Math.sin(gateYaw) * 48,
+      gate.yHint + 20,
+      gate.z + Math.cos(gateYaw) * 48
+    );
+    yaw = gateYaw;
+    pitch = -0.12;
+  }
+
   // -------------------------------------------------------------------------
   // Wiring
   // -------------------------------------------------------------------------
@@ -680,7 +717,7 @@
     option.textContent = MAPS[id].label;
     select.appendChild(option);
   });
-  select.addEventListener('change', function () { loadMap(select.value); });
+  select.addEventListener('change', function () { loadMap(select.value); refreshAuthoredGateOptions(); });
 
   function applySpeed(sliderValue, remember) {
     var slider = $('speed');
@@ -725,6 +762,7 @@
   $('btn-capture').addEventListener('click', capture);
   $('btn-undo').addEventListener('click', undo);
   $('btn-goto-start').addEventListener('click', gotoStart);
+  $('btn-goto-gate').addEventListener('click', gotoAuthoredGate);
   $('btn-clear').addEventListener('click', function () { captured = []; pendingPost = null; redraw(); });
   $('show-authored').addEventListener('change', redraw);
   $('btn-copy').addEventListener('click', function () {
@@ -778,6 +816,7 @@
 
   select.value = 'dust2';
   loadMap('dust2');
+  refreshAuthoredGateOptions();
   requestAnimationFrame(frame);
 })();
 </script>

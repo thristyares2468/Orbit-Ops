@@ -157,12 +157,12 @@ test('a gate rotated by a quarter turn would NOT block - so the sign matters', (
 });
 
 test('every authored gate still spans more than the server floor', () => {
-  // configureGates clamps width to 6-80. Anything authored outside that range
+  // configureGates clamps width to 6-160. Anything authored outside that range
   // ships as a different barrier than the one that was measured.
   const maps = require('../maps.js');
   for (const [mapId, gates] of Object.entries(maps.CONTAINMENT_GATES || {})) {
     for (const gate of gates) {
-      assert.ok(gate.width >= 6 && gate.width <= 80,
+      assert.ok(gate.width >= 6 && gate.width <= 160,
         `${mapId}/${gate.id} width ${gate.width} would be silently clamped`);
       assert.ok(Number.isFinite(gate.x) && Number.isFinite(gate.z) && Number.isFinite(gate.yHint),
         `${mapId}/${gate.id} has a non-finite coordinate`);

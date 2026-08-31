@@ -111,24 +111,26 @@
     dust2: [
       // Measured from the labelled Ground captures in
       // docs/zombies-gate-ground-coordinates.txt. Where two captures span a
-      // doorway, the midpoint is the barrier centre and its horizontal
-      // distance supplies the wall-to-wall width. Short vertical captures use
-      // a conservative corridor-width barrier instead.
-      { id: 'dust2-gate-01', label: 'Gate 1', section: 'Gate 1', x: 140.20, z: 24093.72, yHint: 20139.14, yaw: 2.305, width: 8 },
-      { id: 'dust2-gate-02', label: 'Gate 2', section: 'Gate 2', x: -102.22, z: 24194.10, yHint: 20141.91, yaw: -0.003, width: 66 },
-      { id: 'dust2-gate-03', label: 'Gate 3', section: 'Gate 3', x: -166.68, z: 23985.56, yHint: 20139.54, yaw: 1.580, width: 69 },
-      { id: 'dust2-gate-04', label: 'Gate 4', section: 'Gate 4', x: -139.74, z: 24247.92, yHint: 20139.87, yaw: 0.267, width: 10 },
-      { id: 'dust2-gate-05', label: 'Gate 5', section: 'Gate 5', x: -136.53, z: 24465.94, yHint: 20173.63, yaw: Math.PI / 2, width: 8 },
-      { id: 'dust2-gate-06', label: 'Gate 6', section: 'Gate 6', x: 136.53, z: 24218.49, yHint: 20169.05, yaw: -Math.PI / 2, width: 8 },
-      { id: 'dust2-gate-07', label: 'Gate 7', section: 'Gate 7', x: 254.47, z: 24012.01, yHint: 20173.66, yaw: -1.513, width: 39 },
-      { id: 'dust2-gate-08', label: 'Gate 8', section: 'Gate 8', x: 337.94, z: 24073.84, yHint: 20168.60, yaw: -1.607, width: 29 },
-      { id: 'dust2-gate-09', label: 'Gate 9', section: 'Gate 9', x: 426.67, z: 24321.97, yHint: 20178.37, yaw: Math.PI / 2, width: 8 },
-      { id: 'dust2-gate-10', label: 'Gate 10', section: 'Gate 10', x: 102.40, z: 24765.39, yHint: 20171.84, yaw: -Math.PI / 2, width: 8 },
-      { id: 'dust2-gate-11', label: 'Gate 11', section: 'Gate 11', x: -250.24, z: 24830.31, yHint: 20202.75, yaw: 1.441, width: 27 },
-      { id: 'dust2-gate-12', label: 'Gate 12', section: 'Gate 12', x: 194.29, z: 24442.98, yHint: 20168.76, yaw: 0.899, width: 13 },
-      { id: 'dust2-gate-13', label: 'Gate 13', section: 'Gate 13', x: -443.74, z: 24423.15, yHint: 20186.14, yaw: -0.061, width: 41 },
-      { id: 'dust2-gate-14', label: 'Gate 14', section: 'Gate 14', x: -512.00, z: 24184.42, yHint: 20180.71, yaw: -Math.PI / 2, width: 8 },
-      { id: 'dust2-gate-15', label: 'Gate 15', section: 'Gate 15', x: -348.94, z: 24035.21, yHint: 20171.52, yaw: 0.874, width: 9 },
+      // doorway, each pair is used as a choke-area seed. The final centre,
+      // floor, rotation, and span are snapped against the Dust2 GLB's actual
+      // walkable floor and wall triangles. Every width includes a small wall
+      // overlap so neither players nor zombies can squeeze around a closed
+      // barrier at its ends.
+      { id: 'dust2-gate-01', label: 'Gate 1', section: 'Gate 1', x: 140.27, z: 24083.70, yHint: 20126.78, yaw: -2.793, width: 69.1 },
+      { id: 'dust2-gate-02', label: 'Gate 2', section: 'Gate 2', x: -102.42, z: 24189.10, yHint: 20125.87, yaw: 0, width: 77.9 },
+      { id: 'dust2-gate-03', label: 'Gate 3', section: 'Gate 3', x: -188.57, z: 23976.25, yHint: 20132.12, yaw: -2.793, width: 81.2 },
+      { id: 'dust2-gate-04', label: 'Gate 4', section: 'Gate 4', x: -149.84, z: 24257.35, yHint: 20130.13, yaw: -1.396, width: 63 },
+      { id: 'dust2-gate-05', label: 'Gate 5', section: 'Gate 5', x: -102.50, z: 24455.08, yHint: 20160, yaw: -2.618, width: 90.9 },
+      { id: 'dust2-gate-06', label: 'Gate 6', section: 'Gate 6', x: 121.26, z: 24203.36, yHint: 20160, yaw: -0.436, width: 39.4 },
+      { id: 'dust2-gate-07', label: 'Gate 7', section: 'Gate 7', x: 255.27, z: 24012.57, yHint: 20157.05, yaw: -0.611, width: 51.5 },
+      { id: 'dust2-gate-08', label: 'Gate 8', section: 'Gate 8', x: 337.94, z: 24055.65, yHint: 20160, yaw: -Math.PI / 2, width: 69.4 },
+      { id: 'dust2-gate-09', label: 'Gate 9', section: 'Gate 9', x: 388.44, z: 24321.97, yHint: 20160, yaw: 0, width: 88.3 },
+      { id: 'dust2-gate-10', label: 'Gate 10', section: 'Gate 10', x: 66.48, z: 24769.40, yHint: 20160, yaw: -0.175, width: 84.1 },
+      { id: 'dust2-gate-11', label: 'Gate 11', section: 'Gate 11', x: -255.17, z: 24840.56, yHint: 20194.13, yaw: -1.309, width: 71.7 },
+      { id: 'dust2-gate-12', label: 'Gate 12', section: 'Gate 12', x: 168.89, z: 24447.84, yHint: 20160, yaw: -0.349, width: 58.5 },
+      { id: 'dust2-gate-13', label: 'Gate 13', section: 'Gate 13', x: -443.73, z: 24423.15, yHint: 20168.53, yaw: 0, width: 40.9 },
+      { id: 'dust2-gate-14', label: 'Gate 14', section: 'Gate 14', x: -528.74, z: 24184.42, yHint: 20168.53, yaw: 0, width: 40.9 },
+      { id: 'dust2-gate-15', label: 'Gate 15', section: 'Gate 15', x: -346.52, z: 24053.32, yHint: 20160, yaw: -0.873, width: 28.5 },
       // The worksheet explicitly marks these as permanent invisible map
       // limits. They share the authoritative gate collision path but cannot
       // be interacted with or purchased.

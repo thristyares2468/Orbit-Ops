@@ -85,6 +85,8 @@ test('the admin room exposes a synchronized zombie-spawn pause control', () => {
 
 test('the coordinate capture binding copies floor coordinates for gate authoring', () => {
   const capture = html.match(/function captureLookCoords\(\) \{[\s\S]*?\n        \}/u)?.[0] || '';
+  assert.match(capture, /!obj\.userData\?\.containmentGateId/u,
+    'an existing temporary gate cannot replace the imported wall under the crosshair');
   assert.match(capture, /const pasteReady = formatVec\(hit\.point\)/u);
   assert.match(capture, /Ground point copied\/logged/u);
   assert.doesNotMatch(capture, /navigator\.clipboard\.writeText\(formatVec\(spawn\)\)/u,
