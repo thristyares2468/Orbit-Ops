@@ -94,6 +94,22 @@ test('shooting a charge destroys it instead of setting it off', () => {
   assert.match(client, /const c4Id = hit\.object\?\.userData\?\.c4Id;[\s\S]{0,140}?reportC4Hit/);
 });
 
+test('the authored charge model is wired to the asset loader', () => {
+  const glb = path.join(ROOT, 'assets/weapons/c4.glb');
+  assert.ok(fs.existsSync(glb), 'the C4 model must ship with the client');
+  const bytes = fs.readFileSync(glb);
+  assert.equal(bytes.toString('utf8', 0, 4), 'glTF', 'weapon models are binary glTF');
+  assert.ok(bytes.length < 1.5 * 1024 * 1024, 'a utility model should stay in weapon-model territory');
+  assert.match(client, /'C4': \{ path: '\/assets\/weapons\/c4\.glb', axis: 'z'/);
+  // The asset is the charge; the detonator that replaces it is procedural, so
+  // the loader must be skipped in that state or it overwrites the view model.
+  assert.match(client, /if \(wp\.kind === 'c4' && myLiveC4Charge\(\)\) return;\n\s*attachWeaponAsset\(weaponGroup/);
+  // Clones share the cache's geometry and textures - removing a charge must not
+  // dispose them, or the next charge renders broken.
+  assert.match(client, /model\.userData\.isSharedAsset = true;/);
+  assert.match(client, /if \(child\.userData\?\.isSharedAsset\) continue;/);
+});
+
 test('a live charge is never a wallbang surface and never blocks movement', () => {
   assert.match(client, /isBarricadePanel \|\| obj\?\.userData\?\.isC4Charge\) return false;/);
   const spawn = client.slice(client.indexOf('function spawnC4Charge'));
