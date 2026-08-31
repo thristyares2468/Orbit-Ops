@@ -76,9 +76,9 @@
   // until its health runs out. Geometry is authoritative so the server can
   // validate placements and the client can render an identical panel.
   const BARRICADE = {
-    width: 14,        // panel span, left-to-right of the placing player
-    height: 13,       // stand behind and shoot over, crouch behind for full cover
-    thickness: 1.4,
+    width: 18.2,      // panel span, left-to-right of the placing player
+    height: 16.9,     // just under standing eye height: lean out or crouch behind
+    thickness: 1.82,
     health: 260,
     deployDistance: 10, // where the panel lands: straight ahead, this far out
     deployRange: 26,  // furthest the anchor point may sit from the player's eye
@@ -96,7 +96,7 @@
   // thrower cannot use it as an instant grenade.
   const C4 = {
     radius: 150,
-    maxDamage: 200,
+    maxDamage: 270,
     selfScale: 0.6,     // the planter takes a fraction of their own blast
     armDelayMs: 2000,
     deployDistance: 8,  // where the charge lands: straight ahead, this far out
