@@ -63,6 +63,10 @@ Gate 15
 { x: -349.76, y: 20165.43, z: 24036.19 }
 { x: -348.12, y: 20177.60, z: 24034.23 }
 
-
-Unbuyable wall (invisible barrier)
+Unbuyable wall 1 (invisible barrier)
 { x: -254.92, y: 20152.09, z: 23949.49 }
+{ x: -338.64, y: 20178.06, z: 24030.98 }
+
+Unbuyable wall 2 (invisible barrier)
+{ x: -350.98, y: 20212.04, z: 23915.56 }
+{ x: -349.60, y: 20208.94, z: 23945.54 }
