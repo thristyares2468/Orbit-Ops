@@ -3098,7 +3098,7 @@
             walk: 'ShiftLeft', reload: 'KeyR', scoreboard: 'Tab', captureCoords: 'KeyP',
             weapon1: 'Digit1', weapon2: 'Digit2', weapon3: 'Digit3',
             grenadeFrag: 'Digit4', grenadeSmoke: 'Digit5', grenadeFlash: 'Digit6', grenadeMolotov: 'Digit7',
-            utilityBarricade: 'Digit8',
+            utilityBarricade: 'Digit8', utilityC4: 'Digit9',
             healthshot: 'KeyX',
             interact: 'KeyE',
             buyMenu: 'KeyB'
@@ -3120,7 +3120,7 @@
             ['walk', 'Walk'], ['reload', 'Reload'], ['scoreboard', 'Scoreboard'], ['captureCoords', 'Capture Coords'],
             ['weapon1', 'Primary Slot'], ['weapon2', 'Secondary Slot'], ['weapon3', 'Knife Slot'],
             ['grenadeFrag', 'Frag Grenade'], ['grenadeSmoke', 'Smoke Grenade'], ['grenadeFlash', 'Flash Grenade'], ['grenadeMolotov', 'Molotov'],
-            ['utilityBarricade', 'Deployable Barricade'],
+            ['utilityBarricade', 'Deployable Barricade'], ['utilityC4', 'Remote C4'],
             ['healthshot', 'Health Shot'],
             ['interact', 'Interact / Open Door'],
             ['buyMenu', 'Buy Menu']
@@ -7184,7 +7184,10 @@
             // Deployable barricade. Typed 'grenade' so it inherits every utility
             // rule already in the client (no ammo, no reload, utility HUD/buy slot);
             // the deploy branches key off `kind` instead of throwing it.
-            { id: 24, name: 'Barricade', type: 'grenade', kind: 'barricade', damage: 0, rangeMod: 1.0, firerate: 0.9, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.88, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) }
+            { id: 24, name: 'Barricade', type: 'grenade', kind: 'barricade', damage: 0, rangeMod: 1.0, firerate: 0.9, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.88, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
+            // Remote charge. Same utility typing as the barricade; the slot holds
+            // the charge until one is planted and the detonator afterwards.
+            { id: 25, name: 'C4', type: 'grenade', kind: 'c4', damage: 0, rangeMod: 1.0, firerate: 0.6, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.94, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) }
         ];
 
         const MOVEMENT_INACCURACY_MULT = 1.55;
@@ -7689,14 +7692,14 @@
         const TEAM_FRIENDLY_TINT = 0x2e7d3a;    // friendly uniform tint
         const TEAM_ENEMY_TINT = 0x7d2e2e;       // enemy uniform tint
 
-        const GRENADE_KINDS = ['frag', 'smoke', 'flash', 'molotov', 'barricade'];
+        const GRENADE_KINDS = ['frag', 'smoke', 'flash', 'molotov', 'barricade', 'c4'];
         const GRENADE_PRICES = window.GameCore.GRENADE_PRICES; // shared with server UTILITY_PRICES (core.js)
         const GRENADE_CAP = 2;
         const GRENADE_LIFE_CAP = 2;
         const GRENADE_CHARGE_MS = 1250;
         const GRENADE_MIN_CHARGE = 0.3;
         const GRENADE_MAX_CHARGE = 1.45;
-        const grenadeWeaponIndex = { frag: 19, smoke: 20, flash: 21, molotov: 22, barricade: 23 };
+        const grenadeWeaponIndex = { frag: 19, smoke: 20, flash: 21, molotov: 22, barricade: 23, c4: 24 };
         const UTILITY_LIFE_CAPS = window.GameCore.UTILITY_LIFE_CAPS; // per-kind overrides (core.js)
         // Owned/per-life cap for one utility kind. Both caps are the same number,
         // so one helper covers the inventory cap and the buy-per-life cap.
@@ -7713,6 +7716,8 @@
         };
         // Deployable barricade geometry/health, shared with the server (core.js).
         const BARRICADE = window.GameCore.BARRICADE;
+        // Remote C4 charge: geometry, blast and arming delay, shared via core.js.
+        const C4 = window.GameCore.C4;
         // Admin testing room: per-room overrides for prices / availability / mode /
         // map size. null in normal rooms (helpers fall back to the constants above).
         let isAdminRoom = false;
@@ -7751,13 +7756,16 @@
         }
         let myMoney = 200;
 
-        let grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0 };
-        let grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0 };
+        let grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
+        let grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
         let selectedGrenade = 'frag';
         const barricadeActors = new Map(); // id -> deployed panel group
         let barricadePreview = null;       // ghost panel shown while the barricade is out
         let barricadeEffects = [];         // debris / spark bursts
         let lastBarricadeDeployAt = 0;
+        const c4Actors = new Map();        // id -> planted charge group
+        let c4Preview = null;              // ghost charge shown while the C4 is out
+        let lastC4ActionAt = 0;
         let grenades = [];       // in-air projectiles
         let smokeClouds = [];    // active smoke volumes
         let molotovFires = [];   // active incendiary areas
@@ -8115,7 +8123,9 @@
                         const start = Math.max(0, GRENADE_KINDS.indexOf(weapons[currentWeaponIndex]?.kind));
                         for (let offset = 1; offset <= GRENADE_KINDS.length; offset++) {
                             const kind = GRENADE_KINDS[(start + offset) % GRENADE_KINDS.length];
-                            if ((grenadeInventory[kind] || 0) > 0) { equipGrenade(kind); break; }
+                            // A planted charge counts: the empty C4 slot is the detonator.
+                            const holdsDetonator = kind === 'c4' && !!myLiveC4Charge();
+                            if ((grenadeInventory[kind] || 0) > 0 || holdsDetonator) { equipGrenade(kind); break; }
                         }
                     }
                 });
@@ -8314,9 +8324,9 @@
                     event.preventDefault();
 
                     switchDeathmatchSlot(isBind(event, 'weapon1') ? 'main' : (isBind(event, 'weapon2') ? 'sidearm' : 'knife'));
-                } else if (usesUtility() && (isBind(event, 'grenadeFrag') || isBind(event, 'grenadeSmoke') || isBind(event, 'grenadeFlash') || isBind(event, 'grenadeMolotov') || isBind(event, 'utilityBarricade'))) {
+                } else if (usesUtility() && (isBind(event, 'grenadeFrag') || isBind(event, 'grenadeSmoke') || isBind(event, 'grenadeFlash') || isBind(event, 'grenadeMolotov') || isBind(event, 'utilityBarricade') || isBind(event, 'utilityC4'))) {
                     event.preventDefault();
-                    equipGrenade(isBind(event, 'grenadeFrag') ? 'frag' : (isBind(event, 'grenadeSmoke') ? 'smoke' : (isBind(event, 'grenadeFlash') ? 'flash' : (isBind(event, 'grenadeMolotov') ? 'molotov' : 'barricade'))));
+                    equipGrenade(isBind(event, 'grenadeFrag') ? 'frag' : (isBind(event, 'grenadeSmoke') ? 'smoke' : (isBind(event, 'grenadeFlash') ? 'flash' : (isBind(event, 'grenadeMolotov') ? 'molotov' : (isBind(event, 'utilityBarricade') ? 'barricade' : 'c4')))));
                 } else if (usesUtility() && isBind(event, 'healthshot')) {
                     event.preventDefault();
                     if (!wasHeld) useHealthshot();
@@ -14017,6 +14027,8 @@
                 clearAllBarricades();
                 clearBarricadeEffects();
                 clearBarricadePreview();
+                clearAllC4Charges();
+                clearC4Preview();
                 syncRoomPlayerOrder(data.players || []);
                 updateMyStateFromPlayers(data.players || []);
                 data.players.forEach(player => {
@@ -14028,6 +14040,7 @@
                 startGame();
                 syncAdminDummies(data.adminDummies || []);
                 syncBarricades(data.barricades || []);
+                syncC4Charges(data.c4Charges || []);
                 syncContainmentEnemies(data.containmentEnemies || []);
                 if (Array.isArray(data.containment?.gates)) syncContainmentGates(data.containment.gates);
                 localWaitingForNextRound = !!data.waitingForNextRound;
@@ -14430,6 +14443,22 @@
                 removeBarricadeById(data.id, { destroyed: !!data.destroyed });
             } else if (type === 'barricadeDenied') {
                 flashToast(data.message || 'You cannot deploy a barricade here.');
+            } else if (type === 'c4Placed') {
+                spawnC4Charge(data);
+                if (data.ownerId === mySocketId) onOwnC4Deployed();
+            } else if (type === 'c4Health') {
+                const charge = c4Actors.get(String(data.id || ''));
+                if (charge) charge.userData.health = Number(data.health) || 0;
+            } else if (type === 'c4Removed') {
+                removeC4ChargeById(data.id, { destroyed: data.reason === 'destroyed' });
+            } else if (type === 'c4Detonated') {
+                removeC4ChargeById(data.id);
+                if (data.position) {
+                    spawnC4Explosion(data.position);
+                    if (data.ownerId === mySocketId) applyLocalC4Damage(data.position);
+                }
+            } else if (type === 'c4Denied') {
+                flashToast(data.message || 'You cannot use that charge yet.');
             } else if (type === 'roundWait') {
                 localWaitingForNextRound = true;
                 myHealth = 0;
@@ -16051,7 +16080,7 @@
 
         function embeddedAgentWeaponAnimFamily(weapon = 'AK47') {
             if (weapon === 'Knife') return 'knife';
-            if (['Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade'].includes(weapon)) return 'grenade';
+            if (['Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4'].includes(weapon)) return 'grenade';
             if (['Glock', 'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver', 'Deagle'].includes(weapon)) return 'onehanded';
             if (['MAC10', 'P90'].includes(weapon)) return 'mp5';
             if (['Nova', 'XM1014'].includes(weapon)) return 'shotgun';
@@ -16594,6 +16623,22 @@
                 case 'Molotov': createMesh(new THREE.CylinderGeometry(0.08, 0.11, 0.62), new THREE.MeshPhongMaterial({ color: 0x31543a, transparent: true, opacity: 0.78 }), 0, 0, -0.35, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.16), matWood, 0, 0.02, -0.72, Math.PI/2); createMesh(new THREE.BoxGeometry(0.08, 0.16, 0.18), new THREE.MeshPhongMaterial({ color: 0xff6a20, emissive: 0x552000 }), 0, 0.15, -0.74); break;
                 // Carried folded, hazard stripe up, so it reads as a deployable
                 // and not as another grenade in the corner of the screen.
+                // Holds the charge until one is planted, then the detonator.
+                case 'C4': {
+                    const matCase = new THREE.MeshPhongMaterial({ color: 0x2b3138, shininess: 20 });
+                    const matBrick = new THREE.MeshPhongMaterial({ color: 0xb08a4a });
+                    const matLed = new THREE.MeshBasicMaterial({ color: 0xff3b3b });
+                    if (myLiveC4Charge()) {
+                        createMesh(new THREE.BoxGeometry(0.32, 0.48, 0.16), matCase, 0.06, -0.12, -0.5);
+                        createMesh(new THREE.BoxGeometry(0.15, 0.09, 0.06), matLed, 0.06, 0.06, -0.58);
+                        createMesh(new THREE.CylinderGeometry(0.025, 0.025, 0.46), matDarkGrey, 0.18, 0.3, -0.48);
+                    } else {
+                        createMesh(new THREE.BoxGeometry(0.5, 0.3, 0.22), matCase, 0, -0.08, -0.5);
+                        createMesh(new THREE.BoxGeometry(0.42, 0.2, 0.09), matBrick, 0, -0.04, -0.62);
+                        createMesh(new THREE.SphereGeometry(0.05, 8, 6), matLed, 0.19, 0.09, -0.5);
+                    }
+                    break;
+                }
                 case 'Barricade': {
                     const matPanel = new THREE.MeshPhongMaterial({ color: 0x505d69, shininess: 24 });
                     const matStripe = new THREE.MeshPhongMaterial({ color: 0xd9a12b });
@@ -18657,7 +18702,7 @@
             myHealth = 100;
             updateHealthUI();
             stimCharges = 0;
-            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0 };
+            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
             lastPurchaseId = null;
             resetAllAmmo();
             camera.position.set(0, 0, 0);
@@ -18773,6 +18818,12 @@
                 add(new THREE.BoxGeometry(0.25, 0.25, 2.8), matBlade, 0, 0, -1.0, -0.35);
                 add(new THREE.BoxGeometry(0.45, 0.45, 0.9), matDark, 0, -0.05, 0.55, -0.35);
                 attachWeaponAsset(parent, weaponName, 'thirdPerson', skinItem);
+                return;
+            }
+
+            if (weaponName === 'C4') {
+                add(new THREE.BoxGeometry(1.1, 0.7, 0.5), matDark, 0, 0, -0.45);
+                add(new THREE.BoxGeometry(0.9, 0.44, 0.2), new THREE.MeshPhongMaterial({ color: 0xb08a4a }), 0, 0, -0.7);
                 return;
             }
 
@@ -19555,7 +19606,7 @@
 
         function getWeaponKillFeedClass(weaponName) {
             if (weaponName === 'Knife') return 'kf-knife';
-            if (['Frag', 'Molotov', 'Flash', 'Smoke'].includes(weaponName)) return 'kf-shotgun';
+            if (['Frag', 'Molotov', 'Flash', 'Smoke', 'C4', 'Barricade'].includes(weaponName)) return 'kf-shotgun';
             if (['Glock', 'Deagle', 'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver'].includes(weaponName)) return 'kf-pistol';
             if (['Nova', 'XM1014'].includes(weaponName)) return 'kf-shotgun';
             if (['SSG 08', 'AWP'].includes(weaponName)) return 'kf-sniper';
@@ -20746,6 +20797,11 @@
                 addBulletDecal(hit);
                 return;
             }
+            const c4Id = hit.object?.userData?.c4Id;
+            if (c4Id) {
+                reportC4Hit(c4Id, hit.point);
+                return;
+            }
             addBulletDecal(hit);
         }
 
@@ -21197,7 +21253,7 @@
             const obj = hit?.object || hitOrObj;
             // Barricades stop bullets until they break, whatever their materials
             // would otherwise look like to the penetration heuristics below.
-            if (obj?.userData?.isBarricadePanel) return false;
+            if (obj?.userData?.isBarricadePanel || obj?.userData?.isC4Charge) return false;
             if (hit && wallbangTextureNameForHit(hit)) return true;
             if (hit && currentRoomSettings.mapId === MAP_DUST2 && obj?.userData?.isMapObject) {
                 const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
@@ -21788,13 +21844,16 @@
             if (!usesUtility()) { hud.style.display = 'none'; return; }
             hud.style.display = 'block';
 
-            const rows = [['frag', 'grenadeFrag', 'Frag'], ['smoke', 'grenadeSmoke', 'Smoke'], ['flash', 'grenadeFlash', 'Flash'], ['molotov', 'grenadeMolotov', 'Molotov'], ['barricade', 'utilityBarricade', 'Barricade']];
+            const rows = [['frag', 'grenadeFrag', 'Frag'], ['smoke', 'grenadeSmoke', 'Smoke'], ['flash', 'grenadeFlash', 'Flash'], ['molotov', 'grenadeMolotov', 'Molotov'], ['barricade', 'utilityBarricade', 'Barricade'], ['c4', 'utilityC4', 'C4']];
             hud.innerHTML = `<div class="util-money">${usesCasualEconomy() ? `$${myMoney}` : 'UTILITY'}</div>` + rows.map(([k, action, label]) => {
                 const sel = k === selectedGrenade;
                 const infiniteUtility = adminInfiniteUtilityEnabled();
                 const n = infiniteUtility ? 'INF' : (grenadeInventory[k] || 0);
-                const empty = !infiniteUtility && n <= 0;
-                return `<div class="${sel ? 'active-weapon' : ''}" style="${empty ? 'color:#777;' : ''}">${sel ? '> ' : ''}${bindLabel(action)}. ${label} x${n}</div>`;
+                const liveCharge = k === 'c4' ? myLiveC4Charge() : null;
+                const state = liveCharge ? (myC4Armed() ? 'DETONATE' : 'ARMING') : `x${n}`;
+                const empty = !infiniteUtility && !liveCharge && n <= 0;
+                const highlight = liveCharge && myC4Armed() ? 'color:#ff6a5a;' : '';
+                return `<div class="${sel ? 'active-weapon' : ''}" style="${empty ? 'color:#777;' : highlight}">${sel ? '> ' : ''}${bindLabel(action)}. ${label} ${state}</div>`;
             }).join('');
         }
 
@@ -21840,13 +21899,16 @@
         function equipGrenade(kind) {
             if (!usesUtility() || !grenadeWeaponIndex[kind]) return;
             selectedGrenade = kind;
-            if (adminInfiniteUtilityEnabled() || (grenadeInventory[kind] || 0) > 0) {
+            // A spent C4 slot is still worth drawing: it is the detonator.
+            const holdsDetonator = kind === 'c4' && !!myLiveC4Charge();
+            if (adminInfiniteUtilityEnabled() || (grenadeInventory[kind] || 0) > 0 || holdsDetonator) {
                 switchWeapon(grenadeWeaponIndex[kind], true);
             }
             updateGrenadeHud();
         }
 
         function throwGrenade(kind, isAlt) {
+            if (kind === 'c4') { useC4(); return; }
             if (!usesUtility() || (!adminInfiniteUtilityEnabled() && (grenadeInventory[kind] || 0) <= 0)) return;
             if (kind === 'barricade') { attemptDeployBarricade(); return; }
             throwGrenadeWithCharge(kind, isAlt, 1);
@@ -21854,7 +21916,11 @@
 
         function beginGrenadeAim(isAlt) {
             const wp = weapons[currentWeaponIndex];
-            if (!wp || wp.type !== 'grenade' || !usesUtility() || (!adminInfiniteUtilityEnabled() && (grenadeInventory[wp.kind] || 0) <= 0)) return;
+            if (!wp || wp.type !== 'grenade' || !usesUtility()) return;
+            // Checked before the inventory guard: with a charge already planted the
+            // slot is a detonator, and holds nothing to spend.
+            if (wp.kind === 'c4') { useC4(); return; }
+            if (!adminInfiniteUtilityEnabled() && (grenadeInventory[wp.kind] || 0) <= 0) return;
             // The barricade is placed, not thrown: no charge, no arc, no fuse.
             if (wp.kind === 'barricade') { attemptDeployBarricade(); return; }
             if (grenadeAim) return;
@@ -21883,7 +21949,7 @@
 
         function throwGrenadeWithCharge(kind, isAlt, charge = 1) {
             const infiniteUtility = adminInfiniteUtilityEnabled();
-            if (kind === 'barricade') return; // deployed, never thrown
+            if (kind === 'barricade' || kind === 'c4') return; // deployed, never thrown
             if (!usesUtility() || (!infiniteUtility && (grenadeInventory[kind] || 0) <= 0)) return;
             clearLocalSpawnProtectionForAction();
             if (!infiniteUtility) grenadeInventory[kind] -= 1;
@@ -22000,9 +22066,11 @@
             return hit || null;
         }
 
-        // Fixed-distance placement, R6 style: the panel always lands straight
+        // Fixed-distance placement, R6 style: a deployable always lands straight
         // ahead at the same range, so the preview is the whole aiming interface.
-        function computeBarricadePlacement() {
+        // `spec` is the shared table for the gadget being placed plus the actors
+        // it must not be planted on top of.
+        function computeDeployPlacement(spec) {
             if (!controls || !camera || !scene || !mapLoaded || !mapObjects.length) return null;
             const eye = camera.getWorldPosition(new THREE.Vector3());
             const look = new THREE.Vector3(0, 0, -1).transformDirection(camera.matrixWorld);
@@ -22012,10 +22080,10 @@
             // rotation.y such that the panel's local -Z faces away from the player,
             // which puts its width across the view.
             const yaw = Math.atan2(-flat.x, -flat.z);
-            const anchor = eye.clone().addScaledVector(flat, BARRICADE.deployDistance);
+            const anchor = eye.clone().addScaledVector(flat, spec.deployDistance);
             const result = { position: anchor, yaw, valid: false, reason: 'No room to deploy here.' };
 
-            const clearance = BARRICADE.deployDistance + BARRICADE.thickness + 1.5;
+            const clearance = spec.deployDistance + spec.thickness + 1.5;
             const wall = firstSolidHitAlong(eye, flat, clearance);
             if (wall) return result;
 
@@ -22034,15 +22102,15 @@
             }
             result.position = new THREE.Vector3(anchor.x, ground.point.y, anchor.z);
 
-            for (const actor of barricadeActors.values()) {
-                if (Math.hypot(actor.position.x - result.position.x, actor.position.z - result.position.z) < BARRICADE.spacing) {
-                    result.reason = 'Too close to another barricade.';
+            for (const actor of spec.actors.values()) {
+                if (Math.hypot(actor.position.x - result.position.x, actor.position.z - result.position.z) < spec.spacing) {
+                    result.reason = `Too close to another ${spec.noun}.`;
                     return result;
                 }
             }
             for (const remote of remotePlayers.values()) {
                 if (!remote?.visible || Number(remote.userData?.health || 0) <= 0) continue;
-                if (Math.hypot(remote.position.x - result.position.x, remote.position.z - result.position.z) < BARRICADE.width * 0.4) {
+                if (Math.hypot(remote.position.x - result.position.x, remote.position.z - result.position.z) < spec.clearRadius) {
                     result.reason = 'Someone is standing there.';
                     return result;
                 }
@@ -22050,6 +22118,28 @@
             result.valid = true;
             result.reason = '';
             return result;
+        }
+
+        function computeBarricadePlacement() {
+            return computeDeployPlacement({
+                deployDistance: BARRICADE.deployDistance,
+                thickness: BARRICADE.thickness,
+                spacing: BARRICADE.spacing,
+                clearRadius: BARRICADE.width * 0.4,
+                actors: barricadeActors,
+                noun: 'barricade'
+            });
+        }
+
+        function computeC4Placement() {
+            return computeDeployPlacement({
+                deployDistance: C4.deployDistance,
+                thickness: C4.thickness,
+                spacing: C4.spacing,
+                clearRadius: 3,
+                actors: c4Actors,
+                noun: 'charge'
+            });
         }
 
         function createBarricadePanel(ghost = false) {
@@ -22340,8 +22430,288 @@
             pushBarricadeEffect(group, 260, 14);
         }
 
+        // ---- Remote C4 charge ----
+        // Planted like the barricade, then armed on a timer. Only the planter can
+        // set it off, and only after it arms; the server owns both rules. Shooting
+        // a charge destroys it outright rather than setting it off.
+        const C4_BODY_COLOUR = 0x30373f;
+
+        function createC4Charge(ghost = false) {
+            const group = new THREE.Group();
+            const width = C4.width;
+            const height = C4.height;
+            const thickness = C4.thickness;
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(width, height, thickness),
+                ghost
+                    ? new THREE.MeshBasicMaterial({ color: 0x54d98c, transparent: true, opacity: 0.34, depthWrite: false })
+                    : new THREE.MeshPhongMaterial({ color: C4_BODY_COLOUR, shininess: 18 })
+            );
+            body.position.y = height / 2;
+            group.add(body);
+            group.userData.body = body;
+
+            if (ghost) {
+                const outline = new THREE.Mesh(
+                    new THREE.BoxGeometry(width + 0.3, height + 0.3, thickness + 0.3),
+                    new THREE.MeshBasicMaterial({ color: 0x54d98c, wireframe: true, transparent: true, opacity: 0.55, depthWrite: false })
+                );
+                outline.position.y = height / 2;
+                group.add(outline);
+                group.userData.outline = outline;
+                return group;
+            }
+
+            const brickMat = new THREE.MeshPhongMaterial({ color: 0xb08a4a });
+            for (const offset of [-thickness * 0.26, thickness * 0.26]) {
+                const brick = new THREE.Mesh(new THREE.BoxGeometry(width * 0.82, height * 0.62, thickness * 0.34), brickMat);
+                brick.position.set(0, height * 0.42, offset);
+                group.add(brick);
+            }
+            const tape = new THREE.Mesh(new THREE.BoxGeometry(width * 0.16, height + 0.1, thickness + 0.1), new THREE.MeshPhongMaterial({ color: 0x1d2126 }));
+            tape.position.y = height / 2;
+            group.add(tape);
+            const led = new THREE.Mesh(
+                new THREE.SphereGeometry(0.3, 8, 6),
+                new THREE.MeshBasicMaterial({ color: 0xffb347 })
+            );
+            led.position.set(width * 0.28, height + 0.22, 0);
+            group.add(led);
+            group.userData.led = led;
+            const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.5), new THREE.MeshPhongMaterial({ color: 0x11151a }));
+            antenna.position.set(-width * 0.3, height + 0.7, 0);
+            group.add(antenna);
+            return group;
+        }
+
+        // Arming is timed locally from the moment the placement lands, so a skewed
+        // clock between two machines can never report a charge as ready early.
+        function c4ArmDelayRemaining(record) {
+            const serverRemaining = Number(record?.armsAt) - Date.now();
+            if (!Number.isFinite(serverRemaining)) return C4.armDelayMs;
+            return Math.max(0, Math.min(C4.armDelayMs, serverRemaining));
+        }
+
+        function spawnC4Charge(record) {
+            const id = String(record?.id || '');
+            if (!id || !scene) return null;
+            removeC4ChargeById(id);
+            const group = createC4Charge(false);
+            group.position.set(Number(record.x) || 0, Number(record.y) || 0, Number(record.z) || 0);
+            group.rotation.y = Number(record.yaw) || 0;
+            group.userData.c4Id = id;
+            group.userData.ownerId = record.ownerId || null;
+            group.userData.ownerTeam = record.ownerTeam;
+            group.userData.maxHealth = Number(record.maxHealth) || C4.health;
+            group.userData.health = Number(record.health) || group.userData.maxHealth;
+            group.userData.armsAtLocal = performance.now() + c4ArmDelayRemaining(record);
+            group.userData.armed = false;
+            const body = group.userData.body;
+            body.userData = { isMapObject: true, isC4Charge: true, c4Id: id, name: 'c4-charge' };
+            body.name = 'c4-charge';
+            scene.add(group);
+            // `objects` only: a charge is shootable, but it is far too small to be
+            // worth adding to the movement/collision set.
+            objects.push(body);
+            c4Actors.set(id, group);
+            playNoise(0.16, 0.42, 1400, 260, group.position, { channel: 'effects' });
+            if (record.ownerId === mySocketId) refreshC4HoldingState();
+            return group;
+        }
+
+        function removeC4ChargeById(id, options = {}) {
+            const key = String(id || '');
+            const group = c4Actors.get(key);
+            if (!group) return;
+            c4Actors.delete(key);
+            objects = objects.filter(obj => obj.userData?.c4Id !== key);
+            const wasMine = group.userData.ownerId === mySocketId;
+            const centre = group.position.clone().setY(group.position.y + C4.height / 2);
+            group.removeFromParent?.();
+            group.traverse?.((child) => {
+                child.geometry?.dispose?.();
+                if (Array.isArray(child.material)) child.material.forEach(mat => mat?.dispose?.());
+                else child.material?.dispose?.();
+            });
+            if (options.destroyed) {
+                spawnBarricadeSparks(centre);
+                playNoise(0.22, 0.55, 2200, 300, centre, { channel: 'effects' });
+            }
+            if (wasMine) refreshC4HoldingState();
+        }
+
+        function syncC4Charges(list = []) {
+            const wanted = new Set();
+            for (const record of Array.isArray(list) ? list : []) {
+                const id = String(record?.id || '');
+                if (!id) continue;
+                wanted.add(id);
+                spawnC4Charge(record);
+            }
+            for (const id of Array.from(c4Actors.keys())) if (!wanted.has(id)) removeC4ChargeById(id);
+        }
+
+        function clearAllC4Charges() {
+            for (const id of Array.from(c4Actors.keys())) removeC4ChargeById(id);
+        }
+
+        function clearC4Preview() {
+            if (!c4Preview) return;
+            c4Preview.removeFromParent?.();
+            c4Preview.traverse?.((child) => {
+                child.geometry?.dispose?.();
+                child.material?.dispose?.();
+            });
+            c4Preview = null;
+        }
+
+        function myLiveC4Charge() {
+            for (const group of c4Actors.values()) if (group.userData.ownerId === mySocketId) return group;
+            return null;
+        }
+
+        function myC4Armed() {
+            const charge = myLiveC4Charge();
+            return !!charge && performance.now() >= charge.userData.armsAtLocal;
+        }
+
+        // The slot holds a charge until one is planted and the detonator after, so
+        // the view model and the HUD both have to be rebuilt when that flips.
+        function refreshC4HoldingState() {
+            updateGrenadeHud();
+            renderBuyMenu();
+            if (!weaponGroup || weapons[currentWeaponIndex]?.kind !== 'c4') return;
+            const spent = !adminInfiniteUtilityEnabled() && !myLiveC4Charge() && (grenadeInventory.c4 || 0) <= 0;
+            if (!spent) { buildGunModel(); return; }
+            setTimeout(() => {
+                if (weapons[currentWeaponIndex]?.kind === 'c4') switchDeathmatchSlot(deathmatchActiveSlot, true);
+            }, 180);
+        }
+
+        function holdingC4() {
+            return usesUtility()
+                && weapons[currentWeaponIndex]?.kind === 'c4'
+                && !isDead
+                && !roundTransitionActive;
+        }
+
+        function updateC4Charges(time) {
+            for (const group of c4Actors.values()) {
+                const armed = time >= group.userData.armsAtLocal;
+                if (armed !== group.userData.armed) {
+                    group.userData.armed = armed;
+                    if (group.userData.ownerId === mySocketId) {
+                        refreshC4HoldingState();
+                        flashToast(`Charge armed · ${bindLabel('utilityC4')} to detonate`);
+                    }
+                }
+                const led = group.userData.led;
+                if (!led) continue;
+                // Amber while arming, then a hard red blink so a planted charge can
+                // be spotted (and shot) by the people standing next to it.
+                if (!armed) led.material.color.setHex(0xffb347);
+                else led.material.color.setHex(Math.floor(time / 260) % 2 ? 0x3b0d0d : 0xff2b2b);
+            }
+        }
+
+        function updateC4Preview() {
+            // Once a charge is down the slot is a detonator, so there is nothing
+            // left to preview.
+            if (!holdingC4() || myLiveC4Charge() || (!adminInfiniteUtilityEnabled() && (grenadeInventory.c4 || 0) <= 0)) {
+                clearC4Preview();
+                return;
+            }
+            const placement = computeC4Placement();
+            if (!placement) { clearC4Preview(); return; }
+            if (!c4Preview) {
+                c4Preview = createC4Charge(true);
+                c4Preview.renderOrder = 995;
+                scene.add(c4Preview);
+            }
+            c4Preview.position.copy(placement.position);
+            c4Preview.rotation.y = placement.yaw;
+            const colour = placement.valid ? 0x54d98c : 0xe3563f;
+            c4Preview.userData.body.material.color.setHex(colour);
+            c4Preview.userData.outline.material.color.setHex(colour);
+        }
+
+        // One button: plant if the slot still holds a charge, detonate if one is
+        // already down.
+        function useC4() {
+            if (!usesUtility() || isDead || roundTransitionActive || localWaitingForNextRound) return;
+            const now = performance.now();
+            if (now - lastC4ActionAt < 450) return;
+            const live = myLiveC4Charge();
+            if (live) {
+                if (now < live.userData.armsAtLocal) {
+                    flashToast(`Charge arming · ${Math.ceil((live.userData.armsAtLocal - now) / 100) / 10}s`);
+                    return;
+                }
+                lastC4ActionAt = now;
+                lastFireTime = now;
+                sendPacket('detonateC4', {});
+                return;
+            }
+            if (!adminInfiniteUtilityEnabled() && (grenadeInventory.c4 || 0) <= 0) return;
+            const placement = computeC4Placement();
+            if (!placement) return;
+            if (!placement.valid) { flashToast(placement.reason || 'No room to plant a charge here.'); return; }
+            lastC4ActionAt = now;
+            lastFireTime = now;
+            clearLocalSpawnProtectionForAction();
+            sendPacket('deployC4', { position: vecObj(placement.position), yaw: placement.yaw });
+        }
+
+        function onOwnC4Deployed() {
+            if (!adminInfiniteUtilityEnabled()) {
+                grenadeInventory.c4 = Math.max(0, (grenadeInventory.c4 || 0) - 1);
+            }
+            clearC4Preview();
+            refreshC4HoldingState();
+        }
+
+        function spawnC4Explosion(pos) {
+            const point = new THREE.Vector3(Number(pos?.x) || 0, Number(pos?.y) || 0, Number(pos?.z) || 0);
+            playSpatialSample(grenadeSfx.frag, point, 'effects', { refDistance: 40, maxDistance: 1100, edgeStartDistance: 780, rolloffFactor: 1.0, occludedVolumeScale: 0.42, volumeScale: 0.92 });
+            disturbSmokeAt(point, C4.radius * 0.9, 3800, 46);
+            spawnFragFlash(point, 0xffc24d, 26);
+            spawnFragShockwave(point, C4.radius * 0.62);
+            spawnFragParticles(point);
+        }
+
+        // The planter reports blast hits, exactly as the frag thrower does; the
+        // server re-derives the damage from the detonation it just approved.
+        function applyLocalC4Damage(pos) {
+            const point = new THREE.Vector3(Number(pos?.x) || 0, Number(pos?.y) || 0, Number(pos?.z) || 0);
+            remotePlayers.forEach((remote, id) => {
+                if (isTDM() && remote.userData.team === myTeam) return;
+                if ((remote.userData.health || 0) <= 0) return;
+                const centre = remote.position.clone().add(new THREE.Vector3(0, 11, 0));
+                const distance = centre.distanceTo(point);
+                if (distance > C4.radius) return;
+                if (!hasLineOfSight(point, centre)) return;
+                const damage = Math.round(C4.maxDamage * (1 - distance / C4.radius));
+                if (damage > 0) sendPacket('playerHit', { targetId: id, kind: 'c4', damage });
+            });
+            if (controls && !isDead) {
+                const myPos = controls.getObject().position.clone();
+                const distance = myPos.distanceTo(point);
+                if (distance <= C4.radius && hasLineOfSight(point, myPos)) {
+                    const damage = Math.round(C4.maxDamage * (1 - distance / C4.radius) * C4.selfScale);
+                    if (damage > 0) sendPacket('selfDamage', { amount: damage, reason: 'c4' });
+                }
+            }
+        }
+
+        function reportC4Hit(id, hitPoint) {
+            const weapon = weapons[currentWeaponIndex];
+            if (!id || !weapon || weapon.type === 'grenade') return;
+            sendPacket('c4Damage', { id, weapon: weapon.name });
+            if (hitPoint) spawnBarricadeSparks(hitPoint);
+        }
+
         function grenadeWeaponName(kind) {
-            return ({ frag: 'Frag', smoke: 'Smoke', flash: 'Flash', molotov: 'Molotov', barricade: 'Barricade' })[kind] || 'Frag';
+            return ({ frag: 'Frag', smoke: 'Smoke', flash: 'Flash', molotov: 'Molotov', barricade: 'Barricade', c4: 'C4' })[kind] || 'Frag';
         }
 
         function disposeGrenadeProjectileModel(object) {
@@ -23064,8 +23434,8 @@
 
         function tdmResetState() {
 
-            grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0 };
-            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0 };
+            grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
+            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
             selectedGrenade = 'frag';
             grenadeAim = null;
             lastGrenadeChargeHud = -1;
@@ -23090,6 +23460,8 @@
             clearAllBarricades();
             clearBarricadeEffects();
             clearBarricadePreview();
+            clearAllC4Charges();
+            clearC4Preview();
             flashState = null;
             const flashOverlay = document.getElementById('flash-overlay');
             if (flashOverlay) flashOverlay.style.opacity = '0';
@@ -23155,6 +23527,8 @@
             updateGrenadeArc();
             updateBarricadePreview();
             updateBarricadeEffects(time, delta);
+            updateC4Charges(time);
+            updateC4Preview();
             updateMvpStage(delta, time);
             updateShadowLightAnchor();
 

@@ -21,7 +21,7 @@
 
   // Bump on any change to authoritative rules/shape so stale clients can reject
   // mismatched game data before subtle desyncs happen.
-  const VERSION = '3';
+  const VERSION = '4';
 
   // Buy-menu prices (identical on both sides today).
   const WEAPON_PRICES = {
@@ -48,12 +48,12 @@
 
   // Grenade/utility prices. Server calls this UTILITY_PRICES; the client calls the
   // identical object GRENADE_PRICES. Exposed under both names to avoid churn.
-  const UTILITY_PRICES = { frag: 300, smoke: 150, flash: 200, molotov: 400, barricade: 500 };
+  const UTILITY_PRICES = { frag: 300, smoke: 150, flash: 200, molotov: 400, barricade: 500, c4: 600 };
 
   // Per-life buy caps by utility kind. Anything missing here uses the caller's
   // default (2 on both sides). The barricade is deliberately capped lower: it is
   // persistent cover, not a one-shot effect.
-  const UTILITY_LIFE_CAPS = { barricade: 1 };
+  const UTILITY_LIFE_CAPS = { barricade: 1, c4: 1 };
 
   // CT (0) / T (1) → spawn-point indexes. Must stay identical on both sides.
   const TEAM_SPAWN_IDS = { 0: [0, 1, 2, 3], 1: [4, 5, 6, 7] };
@@ -91,11 +91,30 @@
     fragScale: 1.4
   };
 
+  // Remote-detonated C4 charge. Deployed on the ground like the barricade, then
+  // armed on a timer; only after `armDelayMs` will the detonator fire it, so the
+  // thrower cannot use it as an instant grenade.
+  const C4 = {
+    radius: 150,
+    maxDamage: 200,
+    selfScale: 0.6,     // the planter takes a fraction of their own blast
+    armDelayMs: 2000,
+    deployDistance: 8,  // where the charge lands: straight ahead, this far out
+    deployRange: 24,    // server bound on the anchor point
+    minRange: 4,
+    spacing: 6,         // minimum distance between two charges
+    maxPerRoom: 8,
+    health: 60,         // shootable: a spotted charge can be cleared
+    width: 2.8,
+    height: 1.8,
+    thickness: 1.8
+  };
+
   // Weapon index order used by the snapshot encoder (`w` field). Index 0 = Knife.
   const WEAPON_NAMES = [
     'Knife', 'Glock', 'Deagle', 'MAC10', 'P90', 'Nova', 'XM1014', 'FAMAS', 'AK47', 'SSG 08', 'AWP',
     'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver',
-    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade'
+    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4'
   ];
 
   const SNAPSHOT_FLAGS = {
@@ -134,7 +153,8 @@
     'Smoke':  { type: 'utility', firerate: 0.8,   pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },
     'Flash':  { type: 'utility', firerate: 0.8,   pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },
     'Molotov': { type: 'utility', firerate: 0.8,  pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },
-    'Barricade': { type: 'utility', firerate: 0.8, pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } }
+    'Barricade': { type: 'utility', firerate: 0.8, pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },
+    'C4':      { type: 'utility', firerate: 0.8,  pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } }
   };
 
   // ==========================================================================
@@ -207,6 +227,7 @@
     TEAM_FULL_MAP_SPAWN_IDS,
     GRENADE,
     BARRICADE,
+    C4,
     WEAPON_NAMES,
     SNAPSHOT_FLAGS,
     WEAPONS,

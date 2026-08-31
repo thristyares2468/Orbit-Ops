@@ -58,7 +58,7 @@ test('a deployed panel is solid cover on the client', () => {
   assert.match(client, /isBarricadePanel/, 'the panel is tagged so penetration can exclude it');
   assert.match(
     client,
-    /function isWallbangSurface\(hitOrObj\)[\s\S]{0,400}?isBarricadePanel\) return false;/,
+    /function isWallbangSurface\(hitOrObj\)[\s\S]{0,400}?isBarricadePanel[^\n]*return false;/,
     'bullets must not pass through a live barricade'
   );
   assert.match(client, /barricadeId;\s*\n\s*if \(barricadeId\) \{\s*\n\s*reportBarricadeHit/, 'bullet impacts report to the server');
@@ -75,7 +75,7 @@ test('the client never places a panel on its own authority', () => {
 
 test('the barricade is deployed, never thrown', () => {
   assert.match(client, /if \(wp\.kind === 'barricade'\) \{ attemptDeployBarricade\(\); return; \}/);
-  assert.match(client, /function throwGrenadeWithCharge[\s\S]{0,300}?if \(kind === 'barricade'\) return;/);
+  assert.match(client, /function throwGrenadeWithCharge[\s\S]{0,300}?if \(kind === 'barricade'[^\n]*\) return;/);
   assert.match(server, /function sanitizeGrenadeKind[\s\S]{0,200}?'molotov' \? value : 'frag'/,
     'the throw/burst paths must keep rejecting the barricade kind');
 });
