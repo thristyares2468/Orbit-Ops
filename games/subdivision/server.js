@@ -239,6 +239,7 @@ const CASUAL_BOMB_SITES = [
 ];
 const GRENADE = core.GRENADE; // authoritative grenade geometry, shared via core.js
 const BARRICADE = core.BARRICADE; // deployable barricade geometry, shared via core.js
+const C4 = core.C4; // remote-detonated charge geometry/timing, shared via core.js
 const UTILITY_LIFE_CAPS = core.UTILITY_LIFE_CAPS; // per-kind overrides (core.js)
 const GRENADE_HIT_WINDOW_MS = 2000;
 const GRENADE_RADIUS_SLACK = 45;
@@ -300,7 +301,7 @@ function publicUiConfig() {
 const ROUND_LOCKED_MESSAGES = new Set([
   'playerState', 'playerShoot', 'playerHit', 'glassBreak', 'ventBreak', 'doorToggle', 'throwGrenade', 'grenadeBurst',
   'flashHit', 'bombAction', 'dropItem', 'selfDamage', 'playerVoid', 'gunGameWin', 'useStim', 'playerHeal',
-  'deployBarricade', 'barricadeDamage'
+  'deployBarricade', 'barricadeDamage', 'deployC4', 'detonateC4', 'c4Damage'
 ]);
 function usesUtility(room) {
   const mode = room?.settings?.gamemode;
@@ -1552,6 +1553,108 @@ function handleMessage(client, raw) {
     if (!damageRateOk(player.ac, weapon, wdef, now, 'barricadeBucket')) return;
     const damage = melee ? 45 : Math.max(1, Math.round(wdef.dmg.body * BARRICADE.bulletScale));
     applyBarricadeDamage(client.roomCode, room, barricade, damage, client.id);
+    return;
+  }
+
+  if (type === 'deployC4') {
+    if (player.waitingForNextRound) return;
+    if (!usesUtility(room)) return;
+    if ((player.health || 0) <= 0 || player.respawningUntil) return;
+    const now = Date.now();
+    player.activeAt = now;
+    const deny = (message) => send(client, 'c4Denied', { message });
+    const position = sanitizeVector(data.position, null);
+    if (!position) { deny('Aim at flat ground in front of you.'); return; }
+    const infiniteUtility = isAdminRoom(room) && room.adminConfig?.infiniteUtility === true;
+    if (!player.utilityPurchasedThisLife) resetUtilityLife(player);
+    if (!infiniteUtility && (player.c4DeployedThisLife || 0) >= c4Allowance(room, player)) {
+      deny('You have no charge to plant.');
+      return;
+    }
+    const reach = Math.hypot(position.x - player.position.x, position.z - player.position.z);
+    if (reach > C4.deployRange + 6 || reach < C4.minRange - 3) {
+      deny('That is too far to plant a charge.');
+      return;
+    }
+    if (Math.abs(Number(position.y) - (Number(player.position.y) - 18)) > 40) {
+      deny('Aim at flat ground in front of you.');
+      return;
+    }
+    const charges = ensureRoomC4Charges(room);
+    if (charges.size >= C4.maxPerRoom) { deny('Too many charges are already planted.'); return; }
+    for (const existing of charges.values()) {
+      if (Math.hypot(existing.x - position.x, existing.z - position.z) < C4.spacing) {
+        deny('That is too close to another charge.');
+        return;
+      }
+    }
+    lockBuyRefunds(player);
+    clearSpawnProtection(player, now, client, 'utility');
+    room.c4Seq = (room.c4Seq || 0) + 1;
+    const charge = {
+      id: `c4_${room.c4Seq}`,
+      ownerId: client.id,
+      ownerTeam: player.team,
+      x: Number(position.x),
+      y: Number(position.y),
+      z: Number(position.z),
+      yaw: Number.isFinite(Number(data.yaw)) ? Number(data.yaw) : 0,
+      placedAt: now,
+      // The arming delay is the whole point of the gadget: it is a planted
+      // charge, not a grenade that happens to be triggered by hand.
+      armsAt: now + C4.armDelayMs,
+      health: C4.health,
+      maxHealth: C4.health
+    };
+    charges.set(charge.id, charge);
+    if (!infiniteUtility) player.c4DeployedThisLife = (player.c4DeployedThisLife || 0) + 1;
+    broadcastToRoom(client.roomCode, null, 'c4Placed', publicC4Charge(charge));
+    return;
+  }
+
+  if (type === 'detonateC4') {
+    if (player.waitingForNextRound) return;
+    if (!usesUtility(room)) return;
+    if ((player.health || 0) <= 0 || player.respawningUntil) return;
+    const now = Date.now();
+    player.activeAt = now;
+    const mine = Array.from(room.c4Charges?.values?.() || []).filter(charge => charge.ownerId === client.id);
+    if (!mine.length) return;
+    const armed = mine.filter(charge => now >= charge.armsAt);
+    if (!armed.length) {
+      send(client, 'c4Denied', { message: 'The charge is still arming.' });
+      return;
+    }
+    lockBuyRefunds(player);
+    clearSpawnProtection(player, now, client, 'utility');
+    for (const charge of armed) detonateC4Charge(client.roomCode, room, charge, now);
+    return;
+  }
+
+  if (type === 'c4Damage') {
+    if (player.waitingForNextRound) return;
+    if (!usesUtility(room)) return;
+    if ((player.health || 0) <= 0 || player.respawningUntil) return;
+    const now = Date.now();
+    player.activeAt = now;
+    const charge = room.c4Charges?.get(String(data.id || '').slice(0, 32));
+    if (!charge || charge.health <= 0) return;
+    const weapon = sanitizeWeaponName(data.weapon) || player.weapon;
+    const wdef = WEAPONS[weapon];
+    if (!wdef || wdef.type === 'utility') return;
+    const melee = wdef.type === 'melee';
+    const centre = { x: charge.x, y: charge.y + C4.height / 2, z: charge.z };
+    if (distanceBetweenVectors(player.position, centre) > (melee ? AC.MELEE_RANGE : AC.GUN_RANGE)) return;
+    if (!damageRateOk(player.ac, weapon, wdef, now, 'barricadeBucket')) return;
+    charge.health = Math.max(0, charge.health - (melee ? 45 : Math.max(1, Math.round(wdef.dmg.body))));
+    if (charge.health > 0) {
+      broadcastToRoom(client.roomCode, null, 'c4Health', { id: charge.id, health: charge.health, byId: client.id });
+      return;
+    }
+    // A shot-out charge is defused, not set off: destroying it must never hand
+    // the shooter a free explosion where the planter wanted one.
+    room.c4Charges.delete(charge.id);
+    broadcastToRoom(client.roomCode, null, 'c4Removed', { id: charge.id, reason: 'destroyed', byId: client.id });
     return;
   }
 
@@ -4648,6 +4751,12 @@ function handlePlayerHit(client, room, player, data) {
     resolvedWeapon = sanitizeGrenadeKind(data.grenadeKind) === 'molotov' ? 'Molotov' : (sanitizeGrenadeKind(data.grenadeKind) === 'flash' ? 'Flash' : (sanitizeGrenadeKind(data.grenadeKind) === 'smoke' ? 'Smoke' : 'Frag'));
     killContext.utility = true;
     killContext.headshot = data.part === 'head';
+  } else if (data.kind === 'c4') {
+    // Must correspond to a recent detonation by this player, near the target.
+    damage = c4DamageFor(room, client.id, target, now);
+    if (!damage) return;
+    resolvedWeapon = 'C4';
+    killContext.utility = true;
   } else if (data.kind === 'molotov') {
     damage = molotovDamageFor(room, client.id, target, now);
     if (!damage) return;
@@ -4886,19 +4995,102 @@ function applyBarricadeDamage(roomCode, room, barricade, amount, byId) {
   });
 }
 
-// Frag bursts chew through panels with the same falloff they apply to players.
-function damageBarricadesFromFrag(roomCode, room, position, byId) {
+// Blasts chew through panels with the same falloff they apply to players.
+function damageBarricadesFromBlast(roomCode, room, position, byId, radius, maxDamage, scale) {
   const barricades = room?.barricades;
   if (!barricades?.size || !position) return;
-  const { radius, maxDamage } = GRENADE.frag;
   for (const barricade of Array.from(barricades.values())) {
     const centre = { x: barricade.x, y: barricade.y + BARRICADE.height / 2, z: barricade.z };
     const dist = distanceBetweenVectors(centre, position);
     if (dist > radius) continue;
     const falloff = Math.max(0, 1 - dist / radius);
-    const damage = Math.round(maxDamage * falloff * BARRICADE.fragScale);
+    const damage = Math.round(maxDamage * falloff * scale);
     if (damage > 0) applyBarricadeDamage(roomCode, room, barricade, damage, byId);
   }
+}
+
+function damageBarricadesFromFrag(roomCode, room, position, byId) {
+  damageBarricadesFromBlast(roomCode, room, position, byId, GRENADE.frag.radius, GRENADE.frag.maxDamage, BARRICADE.fragScale);
+}
+
+// ---------------------------------------------------------------------------
+// Remote-detonated C4. Same authority split as the barricade, plus the two rules
+// that make it a charge rather than a grenade: it only arms after a delay, and
+// only its planter — alive, in this room — can set it off.
+// ---------------------------------------------------------------------------
+function ensureRoomC4Charges(room) {
+  if (!room.c4Charges) room.c4Charges = new Map();
+  return room.c4Charges;
+}
+
+function publicC4Charge(charge) {
+  return {
+    id: charge.id,
+    ownerId: charge.ownerId,
+    ownerTeam: charge.ownerTeam,
+    x: charge.x,
+    y: charge.y,
+    z: charge.z,
+    yaw: charge.yaw,
+    armsAt: charge.armsAt,
+    health: charge.health,
+    maxHealth: charge.maxHealth
+  };
+}
+
+function publicC4Charges(room) {
+  return Array.from(room?.c4Charges?.values?.() || []).map(publicC4Charge);
+}
+
+function clearRoomC4Charges(room) {
+  if (!room) return;
+  ensureRoomC4Charges(room).clear();
+  room.recentC4Bursts = [];
+}
+
+// An undetonated charge is dead weight once its planter is gone or down: it
+// fizzles rather than lingering as a mine nobody can trigger.
+function removeC4ChargesOwnedBy(roomCode, room, ownerId, reason) {
+  const charges = room?.c4Charges;
+  if (!charges?.size) return;
+  for (const [id, charge] of Array.from(charges.entries())) {
+    if (charge.ownerId !== ownerId) continue;
+    charges.delete(id);
+    broadcastToRoom(roomCode, null, 'c4Removed', { id, reason: reason || 'removed' });
+  }
+}
+
+function c4Allowance(room, player) {
+  const free = usesUtility(room) && !isCasualMode(room) ? 1 : 0;
+  return free + Number(player?.utilityPurchasedThisLife?.c4 || 0);
+}
+
+// Detonating records the burst so the planter's reported hits can be validated
+// against it, exactly as a frag burst is.
+function detonateC4Charge(roomCode, room, charge, now) {
+  room.c4Charges.delete(charge.id);
+  if (!room.recentC4Bursts) room.recentC4Bursts = [];
+  room.recentC4Bursts.push({ ts: now, ownerId: charge.ownerId, position: { x: charge.x, y: charge.y, z: charge.z } });
+  if (room.recentC4Bursts.length > 24) room.recentC4Bursts.shift();
+  const position = { x: charge.x, y: charge.y + C4.height / 2, z: charge.z };
+  damageBarricadesFromBlast(roomCode, room, position, charge.ownerId, C4.radius, C4.maxDamage, 1);
+  extinguishActiveFiresAt(room, position, C4.radius * 0.5);
+  broadcastToRoom(roomCode, null, 'c4Detonated', { id: charge.id, ownerId: charge.ownerId, position });
+}
+
+function c4DamageFor(room, ownerId, target, now) {
+  if (!room.recentC4Bursts || !room.recentC4Bursts.length) return 0;
+  let best = 0;
+  for (let i = room.recentC4Bursts.length - 1; i >= 0; i--) {
+    const burst = room.recentC4Bursts[i];
+    if (now - burst.ts > GRENADE_HIT_WINDOW_MS) break;
+    if (burst.ownerId !== ownerId) continue;
+    const dist = distanceBetweenVectors(burst.position, target.position);
+    if (dist > C4.radius + GRENADE_RADIUS_SLACK) continue;
+    const damage = Math.round(C4.maxDamage * Math.max(0, 1 - dist / C4.radius));
+    if (damage > best) best = damage;
+  }
+  return best;
 }
 
 // Validate frag-grenade damage: there must be a recent frag burst from this player
@@ -5175,6 +5367,9 @@ function joinRoom(client, roomCode, options = {}) {
       activeSmokes: [],
       barricades: new Map(),
       barricadeSeq: 0,
+      c4Charges: new Map(),
+      c4Seq: 0,
+      recentC4Bursts: [],
       brokenGlassPanes: new Set(),
       brokenVentIds: new Set(),
       openDoors: new Set(),
@@ -5311,6 +5506,7 @@ function joinRoom(client, roomCode, options = {}) {
     brokenVentIds: Array.from(room.brokenVentIds || []),
     openDoorIds: Array.from(room.openDoors || []),
     barricades: publicBarricades(room),
+    c4Charges: publicC4Charges(room),
     droppedItems: publicDroppedItems(room),
     adminDummies: publicAdminDummies(room),
     adminConfig: room.adminConfig || null,
@@ -5379,6 +5575,7 @@ function removePlayerFromRoom(id, reason, options = {}) {
   }
   room.players.delete(id);
   removeBarricadesOwnedBy(roomCode, room, id);
+  removeC4ChargesOwnedBy(roomCode, room, id, 'left');
   if (room.mapVote?.votes.delete(id)) {
     broadcastToRoom(roomCode, id, 'mapVoteUpdate', publicMapVotePayload(room));
   }
@@ -5530,6 +5727,7 @@ function getRoomState(roomCode) {
     brokenVentIds: Array.from(room.brokenVentIds || []),
     openDoorIds: Array.from(room.openDoors || []),
     barricades: publicBarricades(room),
+    c4Charges: publicC4Charges(room),
     droppedItems: publicDroppedItems(room),
     adminDummies: publicAdminDummies(room),
     adminConfig: room.adminConfig || null
@@ -5947,6 +6145,7 @@ function finishTimedRoundInner(roomCode, room) {
   room.activeSmokes = [];
   room.recentBursts = [];
   clearRoomBarricades(room);
+  clearRoomC4Charges(room);
   room.progressionSuppressedRound = false;
   room.progressionSuppressedReason = '';
   if (MODE_CONFIG[room.settings.gamemode]?.timed && !(roomCode === ADMIN_ROOM_CODE && ensureAdminConfig(room).infiniteRound)) {
@@ -6045,6 +6244,7 @@ function finishGunGameRound(roomCode, room, winnerPlayer) {
   room.activeSmokes = [];
   room.recentBursts = [];
   clearRoomBarricades(room);
+  clearRoomC4Charges(room);
   room.progressionSuppressedRound = false;
   room.progressionSuppressedReason = '';
   const spawns = batchRespawn(room);
@@ -6278,7 +6478,7 @@ function countTeam(room, team) {
 }
 
 function freshUtilityCounts() {
-  return { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0 };
+  return { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
 }
 
 function resetUtilityLife(player) {
@@ -6286,6 +6486,7 @@ function resetUtilityLife(player) {
   player.utilityPurchasedThisLife = freshUtilityCounts();
   // Deployed barricades outlive their owner's life; the allowance does not.
   player.barricadesDeployedThisLife = 0;
+  player.c4DeployedThisLife = 0;
 }
 
 function resetHealthshotLife(player) {
@@ -7237,6 +7438,7 @@ function startCasualRound(roomCode) {
   room.activeSmokes = [];
   room.recentBursts = [];
   clearRoomBarricades(room);
+  clearRoomC4Charges(room);
   room.progressionSuppressedRound = false;
   room.progressionSuppressedReason = '';
   clearDroppedItems(room);
@@ -7314,6 +7516,7 @@ function finishCasualRound(roomCode, room, winnerTeam, reason) {
   room.activeSmokes = [];
   room.recentBursts = [];
   clearRoomBarricades(room);
+  clearRoomC4Charges(room);
   room.progressionSuppressedRound = false;
   room.progressionSuppressedReason = '';
   st.nextRoundStartsAt = transitionEnd;
@@ -7733,6 +7936,7 @@ function respawnPlayer(roomCode, player, data = {}) {
   player.bountyActive = false;
 
   clearCosmeticActionState(player);
+  removeC4ChargesOwnedBy(roomCode, room, player.id, 'owner-died');
   player.stimCharges = 0;
   resetHealthshotLife(player);
   player.invulnerableUntil = Date.now() + DEATH_SPECTATE_MS + RESPAWN_PROTECTION_MS;
