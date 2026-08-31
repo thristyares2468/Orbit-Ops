@@ -84,3 +84,16 @@ spawns, and interactions. The corresponding license is preserved in
 The fan conversion's README states that its bundled original-game art was ripped. Orbit Ops does
 not include its images, fonts, tilesets, or Skeld TMX map. Only the public-domain source
 architecture was used as an implementation reference.
+
+## Subdivision C4 charge model
+
+The project owner supplied `basic_explosive.glb`, a Sketchfab-exported C4 charge model, for the
+Subdivision remote-charge utility. It ships as `games/subdivision/assets/weapons/c4.glb`. No license
+file accompanied the download, so it is treated as user-supplied third-party art and is not
+relicensed by Orbit Ops' GPL-3.0-only source license. If the Sketchfab listing carries a
+Creative Commons Attribution requirement, the author credit belongs in this section.
+
+Orbit Ops repacked the supplied file without altering its geometry or UVs: the Sketchfab display
+matrix was removed from the root node so the model sits axis-aligned for the weapon-asset loader,
+the two data maps were resampled to 512x512, and all three textures were re-encoded as JPEG. That
+took the asset from 1.9 MB to 736 KB, in line with the other shipped weapon models.

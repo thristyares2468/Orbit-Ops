@@ -105,9 +105,12 @@
     spacing: 6,         // minimum distance between two charges
     maxPerRoom: 8,
     health: 60,         // shootable: a spotted charge can be cleared
-    width: 2.8,
-    height: 1.8,
-    thickness: 1.8
+    // Collider box for the planted charge. Proportioned to the authored model
+    // (which is normalised to `height`) and a little wider, so bullets aimed at
+    // the visible charge always meet the box.
+    width: 2.0,
+    height: 3.6,
+    thickness: 1.5
   };
 
   // Weapon index order used by the snapshot encoder (`w` field). Index 0 = Knife.

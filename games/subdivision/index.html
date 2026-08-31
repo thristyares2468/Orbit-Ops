@@ -7288,7 +7288,8 @@
             'Frag': { path: '/assets/weapons/hegrenade.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.58, pos: [-0.34, 0.24, 0.72], rot: [1.2, 0.04, 1.28] }, tp: { length: 1.0, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'Smoke': { path: '/assets/weapons/smokegrenade.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.62, pos: [-0.32, 0.34, 0.8], rot: [1.04, 0, -1.38] }, tp: { length: 1.0, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'Flash': { path: '/assets/weapons/flashbang.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.68, pos: [-0.28, 0.22, 0.58], rot: [0.96, 0, 0.8] }, tp: { length: 1.0, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
-            'Molotov': { path: '/assets/models/molotov.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.72, pos: [-0.72, 0.76, 1.36], rot: [1.08, 0, 0] }, tp: { length: 1.15, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } }
+            'Molotov': { path: '/assets/models/molotov.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.72, pos: [-0.72, 0.76, 1.36], rot: [1.08, 0, 0] }, tp: { length: 1.15, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
+            'C4': { path: '/assets/weapons/c4.glb', axis: 'z', fp: { length: 1.05, pos: [-0.6, 0.32, 1.15], rot: [0.28, Math.PI + 0.24, 0.16] }, tp: { length: 1.4, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } }
         };
         const PROCEDURAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
         const PLAYER_STAND_EYE_HEIGHT = 18;
@@ -16650,6 +16651,9 @@
                 }
             }
             const equippedItem = equippedSkinItem(wp.name) || (wp.name === 'Knife' ? skinCatalogItem(defaultKnifeItemId()) : null);
+            // The C4 asset is the charge itself. Once one is planted the slot holds
+            // the detonator, which is procedural, so the asset must not replace it.
+            if (wp.kind === 'c4' && myLiveC4Charge()) return;
             attachWeaponAsset(weaponGroup, wp.name, 'firstPerson', equippedItem);
         }
 
@@ -22462,15 +22466,19 @@
                 return group;
             }
 
+            // Placeholder shape, shown until the authored charge model loads.
+            const placeholder = [];
             const brickMat = new THREE.MeshPhongMaterial({ color: 0xb08a4a });
             for (const offset of [-thickness * 0.26, thickness * 0.26]) {
                 const brick = new THREE.Mesh(new THREE.BoxGeometry(width * 0.82, height * 0.62, thickness * 0.34), brickMat);
                 brick.position.set(0, height * 0.42, offset);
                 group.add(brick);
+                placeholder.push(brick);
             }
             const tape = new THREE.Mesh(new THREE.BoxGeometry(width * 0.16, height + 0.1, thickness + 0.1), new THREE.MeshPhongMaterial({ color: 0x1d2126 }));
             tape.position.y = height / 2;
             group.add(tape);
+            placeholder.push(tape);
             const led = new THREE.Mesh(
                 new THREE.SphereGeometry(0.3, 8, 6),
                 new THREE.MeshBasicMaterial({ color: 0xffb347 })
@@ -22481,7 +22489,45 @@
             const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.5), new THREE.MeshPhongMaterial({ color: 0x11151a }));
             antenna.position.set(-width * 0.3, height + 0.7, 0);
             group.add(antenna);
+            placeholder.push(antenna);
+            group.userData.placeholder = placeholder;
+            attachPlantedC4Model(group);
             return group;
+        }
+
+        // The authored GLB is the charge itself, so the planted object can reuse the
+        // weapon asset. The placeholder box stays in the scene once the model lands —
+        // invisible, but still the thing bullets are traced against, because a
+        // detailed mesh in `objects` would be both slower and less predictable.
+        function attachPlantedC4Model(group) {
+            const promise = typeof loadWeaponAsset === 'function' ? loadWeaponAsset('C4') : null;
+            if (!promise) return;
+            promise.then((template) => {
+                if (!template || !group.parent) return;
+                const model = template.clone(true);
+                const box = new THREE.Box3().setFromObject(model);
+                const size = box.getSize(new THREE.Vector3());
+                const centre = box.getCenter(new THREE.Vector3());
+                const scale = C4.height / (Math.max(size.x, size.y, size.z) || 1);
+                model.scale.setScalar(scale);
+                model.position.set(-centre.x * scale, -centre.y * scale + (size.y * scale) / 2, -centre.z * scale);
+                model.traverse((child) => {
+                    if (!child.isMesh) return;
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                });
+                // Cloned from the shared weapon-asset cache: geometry and textures
+                // belong to the cache, so removal must not dispose them.
+                model.userData.isSharedAsset = true;
+                group.add(model);
+                const body = group.userData.body;
+                if (body?.material) {
+                    body.material.transparent = true;
+                    body.material.opacity = 0;
+                    body.material.depthWrite = false;
+                }
+                for (const part of group.userData.placeholder || []) part.visible = false;
+            }).catch(() => {});
         }
 
         // Arming is timed locally from the moment the placement lands, so a skewed
@@ -22528,11 +22574,14 @@
             const wasMine = group.userData.ownerId === mySocketId;
             const centre = group.position.clone().setY(group.position.y + C4.height / 2);
             group.removeFromParent?.();
-            group.traverse?.((child) => {
-                child.geometry?.dispose?.();
-                if (Array.isArray(child.material)) child.material.forEach(mat => mat?.dispose?.());
-                else child.material?.dispose?.();
-            });
+            for (const child of group.children) {
+                if (child.userData?.isSharedAsset) continue; // owned by the asset cache
+                child.traverse?.((node) => {
+                    node.geometry?.dispose?.();
+                    if (Array.isArray(node.material)) node.material.forEach(mat => mat?.dispose?.());
+                    else node.material?.dispose?.();
+                });
+            }
             if (options.destroyed) {
                 spawnBarricadeSparks(centre);
                 playNoise(0.22, 0.55, 2200, 300, centre, { channel: 'effects' });
