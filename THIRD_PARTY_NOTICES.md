@@ -85,15 +85,22 @@ The fan conversion's README states that its bundled original-game art was ripped
 not include its images, fonts, tilesets, or Skeld TMX map. Only the public-domain source
 architecture was used as an implementation reference.
 
-## Subdivision C4 charge model
+## Subdivision weapon models from Sketchfab
 
-The project owner supplied `basic_explosive.glb`, a Sketchfab-exported C4 charge model, for the
-Subdivision remote-charge utility. It ships as `games/subdivision/assets/weapons/c4.glb`. No license
-file accompanied the download, so it is treated as user-supplied third-party art and is not
-relicensed by Orbit Ops' GPL-3.0-only source license. If the Sketchfab listing carries a
-Creative Commons Attribution requirement, the author credit belongs in this section.
+Two Subdivision assets were supplied by the project owner as Sketchfab exports. Both carry their
+author and licence in the file's own `asset.extras` metadata, which the shipped copies preserve.
+Both are licensed **CC BY 4.0** (http://creativecommons.org/licenses/by/4.0/), which permits this
+use and requires the attribution below. Neither is relicensed by Orbit Ops' GPL-3.0-only source
+licence; each remains under CC BY 4.0.
 
-Orbit Ops repacked the supplied file without altering its geometry or UVs: the Sketchfab display
-matrix was removed from the root node so the model sits axis-aligned for the weapon-asset loader,
-the two data maps were resampled to 512x512, and all three textures were re-encoded as JPEG. That
-took the asset from 1.9 MB to 736 KB, in line with the other shipped weapon models.
+- **"Basic Explosive"** by **Blender3D** (https://sketchfab.com/Blender3D) —
+  https://sketchfab.com/3d-models/basic-explosive-e2ef33fefa4241b59c2aaf45c75a20ee
+  Ships as `games/subdivision/assets/weapons/c4.glb` as the remote C4 charge.
+  **Modified by Orbit Ops.** Geometry and UVs are untouched. The Sketchfab display matrix was
+  removed from the root node so the model sits axis-aligned for the weapon-asset loader, the normal
+  and occlusion/roughness maps were resampled to 512x512, and all three textures were re-encoded as
+  JPEG, taking the file from 1.9 MB to 736 KB.
+
+- **"Shotgun"** by **tinycomputer** (https://sketchfab.com/tinycomputer) —
+  https://sketchfab.com/3d-models/shotgun-cf4830cc5d09441495843ac79f005b73
+  Ships unmodified as `games/subdivision/assets/weapons/breacher.glb` as the Breacher shotgun.
