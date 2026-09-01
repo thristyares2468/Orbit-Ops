@@ -72,6 +72,13 @@ function glbWorldSize(file) {
 const client = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
+function primaryBuyIndexes() {
+  const match = client.match(/deathmatchMainWeaponIndexes = \[([^\]]*)\]/);
+  assert.ok(match, 'index.html must declare deathmatchMainWeaponIndexes');
+  return match[1].split(',').map(part => Number(part.trim()));
+}
+
+
 test('the two loads are borrowed, not copied', () => {
   const alt = core.SHOTGUN_ALT;
   assert.ok(alt, 'core must export SHOTGUN_ALT');
@@ -133,7 +140,7 @@ test('the client keeps the weapon entry describing the next pull', () => {
   assert.match(client, /resetBreacherLoad\(\);\n\s*ammoState = weapons\.map/, 'a respawn re-chambers buckshot');
   // The HUD has to say which load is up, or the spread change is the only tell.
   assert.match(client, /breacherSlugLoaded \? 'SLUG' : 'BUCK'/);
-  assert.match(client, /deathmatchMainWeaponIndexes = \[3, 4, 5, 6, 7, 8, 9, 10, 25\]/, 'it must be buyable');
+  assert.ok(primaryBuyIndexes().includes(25), 'it must be buyable as a primary');
 });
 
 test("an axis:'x' model is authored barrel-along-X, up-along-Z", () => {

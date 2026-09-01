@@ -1754,6 +1754,13 @@ function handleMessage(client, raw) {
       purchase = recordBuyPurchase(player, { type: 'weapon', slot, weapon, previousWeapon, price });
     }
     player.weapon = weapon;
+    // Remember the slot choice. This is the only server-owned record of what a
+    // player actually took, and the shield leans on it: `player.weapon` alone is
+    // whatever the last playerState packet claimed.
+    if (slot === 'main' || slot === 'sidearm' || slot === 'knife') {
+      if (!player.loadout) player.loadout = {};
+      player.loadout[slot] = weapon;
+    }
     player.dirty = true;
     send(client, 'weaponPurchased', { weapon, slot, money: player.money, purchaseId: purchase?.id || null });
     return;
@@ -4798,6 +4805,10 @@ function handlePlayerHit(client, room, player, data) {
     resolvedWeapon = weapon;
     const wdef = WEAPONS[weapon];
     if (!wdef) return;                          // unknown weapon — drop, no strike
+    // A shield primary carries a sidearm, not a rifle. Enforced here rather than
+    // trusted to the client, so a shield loadout cannot fight from behind cover
+    // with a long gun it should not have.
+    if (player.loadout?.main === SHIELD.weapon && !SHIELD.allowedWeaponTypes.includes(wdef.type)) return;
     const melee = wdef.type === 'melee';
     const corr = correlateHit(room, player, target, weapon, now, targetId, { wallbang: !!data.wallbang });
     let trustedHit = true;
@@ -5299,8 +5310,9 @@ function forwardFromRotation(rot) {
 function shieldBlockFraction(target, attackerPos, headshot, now) {
   if (!target || !attackerPos) return 0;
   if (target.weapon !== SHIELD.weapon) return 0;
-  // Only a shield that was actually bought this life protects anyone.
-  if (!(Number(target.utilityPurchasedThisLife?.shield) > 0)) return 0;
+  // And only for someone who actually took the shield as their primary, which
+  // the server recorded itself when the slot was chosen.
+  if (target.loadout?.main !== SHIELD.weapon) return 0;
   // Firing drops the guard, so a client cannot shoot and be covered at once.
   if (now - Number(target.lastShotAt || 0) < SHIELD.fireLockoutMs) return 0;
   const forward = forwardFromRotation(target.rotation || {});
@@ -7255,6 +7267,9 @@ function tryPickupDroppedItem(roomCode, room, player) {
     if (distanceBetweenVectors(player.position, item.position) > DROPPED_ITEM_PICKUP_RADIUS) continue;
     room.droppedItems.delete(item.id);
     player.weapon = item.weapon;
+    // Picking a gun up off the floor replaces the shield loadout, or its long-gun
+    // restriction would silently void every shot from the weapon just collected.
+    if (player.loadout?.main === SHIELD.weapon) player.loadout.main = item.weapon;
     player.dirty = true;
     const client = clients.get(player.id);
     if (client) send(client, 'weaponPickedUp', { item });
