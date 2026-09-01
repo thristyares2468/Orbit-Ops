@@ -4884,8 +4884,9 @@
             Object.assign(group.userData, {
                 isAdminDummy: true,
                 adminDummyId: id,
-                // Reuse the normal player model adapter without registering
-                // this stationary target as a network-interpolated player.
+                // Reuse the normal player model adapter. A dedicated stationary
+                // pose pass below advances its idle animation without treating
+                // the dummy as a network-interpolated room player.
                 isRemotePlayer: true,
                 remoteId: id,
                 health: Number(def.health) || 100,
@@ -4900,6 +4901,51 @@
             adminDummies.set(id, group);
             refreshRemoteThirdPersonWeapon(group);
             applyBackroomsCharacterModel(group);
+        }
+
+        function updateAdminDummyPoses(delta, time) {
+            const lerpSpeed = Math.min(1, 12 * delta);
+            adminDummies.forEach(group => {
+                const data = group?.userData;
+                if (!data || data.health <= 0) return;
+                data.isMoving = false;
+                data.isWalking = false;
+                data.isCrouching = false;
+                data.isJumping = false;
+                data.isReloading = false;
+                data.moveForwardAmount = 0;
+                data.moveRightAmount = 0;
+                if (data.shootUntil && time >= data.shootUntil) data.isShooting = false;
+
+                // Keep the procedural fallback in the same weapon-ready idle
+                // stance as a stationary remote player while its GLB streams.
+                if (!data.characterAsset?.visible && data.joints) {
+                    const joints = data.joints;
+                    const isKnife = data.weapon === 'Knife';
+                    joints.body.position.y = THREE.MathUtils.lerp(joints.body.position.y, 10, lerpSpeed);
+                    joints.body.rotation.x = THREE.MathUtils.lerp(joints.body.rotation.x, 0.04, lerpSpeed);
+                    joints.rightArm.rotation.x = THREE.MathUtils.lerp(joints.rightArm.rotation.x, isKnife ? Math.PI / 2.8 : Math.PI / 2.2, lerpSpeed);
+                    joints.leftArm.rotation.x = THREE.MathUtils.lerp(joints.leftArm.rotation.x, isKnife ? 0 : Math.PI / 2.2, lerpSpeed);
+                    joints.leftArm.rotation.y = THREE.MathUtils.lerp(joints.leftArm.rotation.y, isKnife ? 0 : -0.34, lerpSpeed);
+                    joints.rightArm.rotation.y = THREE.MathUtils.lerp(joints.rightArm.rotation.y, isKnife ? 0 : 0.34, lerpSpeed);
+                    joints.leftArm.rotation.z = THREE.MathUtils.lerp(joints.leftArm.rotation.z, isKnife ? 0 : 0.42, lerpSpeed);
+                    joints.rightArm.rotation.z = THREE.MathUtils.lerp(joints.rightArm.rotation.z, isKnife ? 0.15 : -0.42, lerpSpeed);
+                    joints.leftLeg.rotation.x = THREE.MathUtils.lerp(joints.leftLeg.rotation.x, 0, lerpSpeed);
+                    joints.rightLeg.rotation.x = THREE.MathUtils.lerp(joints.rightLeg.rotation.x, 0, lerpSpeed);
+                }
+
+                const joints = data.joints;
+                if (joints) {
+                    joints.hitHead.position.y = THREE.MathUtils.lerp(joints.hitHead.position.y, headHitboxY, lerpSpeed);
+                    joints.hitBody.position.y = THREE.MathUtils.lerp(joints.hitBody.position.y, 11, lerpSpeed);
+                    joints.hitLegs.position.y = THREE.MathUtils.lerp(joints.hitLegs.position.y, 5, lerpSpeed);
+                }
+                updateRemoteSpawnProtectionVisual(group, time);
+                // This is the same weapon-specific aim/idle mixer and grounding
+                // pass used for real remote players. Advancing it removes the
+                // source GLB T-pose and aligns its feet with the hitbox origin.
+                updateCharacterAssetAnimation(group, delta, time);
+            });
         }
 
         function applyAdminDummyVisual(group) {
@@ -23675,6 +23721,7 @@
             updateContainmentEnemies(delta, time);
             updateContainmentGateHint(time);
             updateRemotePlayerPoses(delta, time);
+            updateAdminDummyPoses(delta, time);
             updateGrenadeArc();
             updateBarricadePreview();
             updateBarricadeEffects(time, delta);

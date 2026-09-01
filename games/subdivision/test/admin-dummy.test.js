@@ -21,5 +21,15 @@ const spawnDummy = client.match(/function spawnAdminDummy\(def\) \{[\s\S]*?\n   
 assert.doesNotMatch(spawnDummy, /group\.scale\.setScalar/, 'dummy hitboxes must not be scaled away from normal player dimensions');
 assert.match(spawnDummy, /isRemotePlayer: true/, 'dummies should use the normal imported player-model adapter');
 assert.match(spawnDummy, /applyBackroomsCharacterModel\(group\)/, 'dummies should request the visible team player model');
+assert.match(
+  client,
+  /function updateAdminDummyPoses\(delta, time\)[\s\S]*?data\.isMoving = false;[\s\S]*?updateCharacterAssetAnimation\(group, delta, time\);/,
+  'stationary dummies should still advance the normal player idle/aim animation and grounding pass'
+);
+assert.match(
+  client,
+  /updateRemotePlayerPoses\(delta, time\);\s*updateAdminDummyPoses\(delta, time\);/,
+  'the gameplay frame loop should update dummy poses beside normal remote players'
+);
 
 console.log('admin dummy spawn tests passed');
