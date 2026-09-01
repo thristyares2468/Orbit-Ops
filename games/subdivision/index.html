@@ -7253,7 +7253,11 @@
         };
 
         const gunGameOrder = [8, 10, 7, 9, 4, 6, 3, 5, 2, 1, 0];
-        const WEAPON_ASSET_CACHE_VERSION = '2026-07-12-artwork-v3';
+        // Weapon assets are served `immutable, max-age=31536000`, so this query
+        // string is the ONLY way a replaced model reaches a browser that already
+        // loaded the old one. Bump it whenever an existing asset path changes
+        // content - a new path does not need it, a replaced file always does.
+        const WEAPON_ASSET_CACHE_VERSION = '2026-09-01-breacher-axes';
 
         // Long enough that a cold cache on a slow connection still wins - these
         // are multi-megabyte GLBs - but short enough that a decoder which dies

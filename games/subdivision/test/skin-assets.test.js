@@ -214,7 +214,12 @@ assert.match(indexHtml, /'AK47': \{ path: '\/assets\/weapons\/ak47\.glb',[^}]*de
 assert.match(indexHtml, /function applyDefaultWeaponMaterialSelection\(model, spec, skinItem = null\)[\s\S]*?rejectedMeshes[\s\S]*?removeFromParent\(\)/, 'default combined models should remove alternate prims so invisible meshes cannot distort framing');
 assert.match(indexHtml, /function loadSkinTexture\(item\)[\s\S]*?texture\.wrapS = THREE\.RepeatWrapping;[\s\S]*?texture\.wrapT = THREE\.RepeatWrapping;[\s\S]*?if \(item\?\.textureApplication === 'pattern'\)/, 'all authored replacement artwork and overlays should repeat like the source glTF sampler');
 assert.match(indexHtml, /function skinPatternZoom\(item\)[\s\S]*?configured \* 0\.25/, 'Case Hardened should use the closer quarter-repeat crop');
-assert.match(indexHtml, /const WEAPON_ASSET_CACHE_VERSION = '2026-07-12-artwork-v3'/, 'weapon assets should use the cache version for the corrected artwork sampling');
+// The point of this constant is that it changes: it is the only cache buster for
+// assets served immutable for a year, so pinning today's literal here would mean
+// no corrected model could ever reach a browser that had the old one. What has to
+// hold is that weapon assets are versioned at all, and that the version is
+// declared before startup requests the first model (asserted below).
+assert.match(indexHtml, /const WEAPON_ASSET_CACHE_VERSION = '[^']+'/, 'weapon assets must be cache-busted by a version constant');
 assert.ok(indexHtml.indexOf('const WEAPON_ASSET_CACHE_VERSION') < indexHtml.indexOf('init();'), 'weapon cache version must exist before startup requests the default AK asset');
 assert.match(
   indexHtml,
