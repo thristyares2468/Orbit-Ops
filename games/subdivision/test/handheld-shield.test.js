@@ -15,6 +15,13 @@ const ROOT = path.resolve(__dirname, '..');
 const client = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
+function primaryBuyIndexes() {
+  const match = client.match(/deathmatchMainWeaponIndexes = \[([^\]]*)\]/);
+  assert.ok(match, 'index.html must declare deathmatchMainWeaponIndexes');
+  return match[1].split(',').map(part => Number(part.trim()));
+}
+
+
 test('core carries one authoritative shield table', () => {
   const shield = core.SHIELD;
   assert.ok(shield, 'core must export SHIELD');
@@ -27,7 +34,10 @@ test('core carries one authoritative shield table', () => {
   assert.equal(core.WEAPONS.Shield.type, 'shield');
   assert.equal(core.WEAPONS.Shield.dmg.body, 0, 'a shield deals no damage');
   assert.equal(core.weaponIndexFromName('Shield'), 26);
-  assert.equal(core.UTILITY_LIFE_CAPS.shield, 1);
+  // A primary, not a utility kind: it is priced and slotted like a weapon.
+  assert.ok(core.WEAPON_PRICES.Shield > 0);
+  assert.equal(core.UTILITY_PRICES.shield, undefined);
+  assert.deepEqual(core.SHIELD.allowedWeaponTypes, ['pistol', 'melee', 'shield']);
 });
 
 test('the block arc covers the front and nothing else', () => {
@@ -48,7 +58,7 @@ test('every condition for cover is checked server-side', () => {
   const fn = server.slice(server.indexOf('function shieldBlockFraction'));
   const body = fn.slice(0, fn.indexOf('\n}\n'));
   assert.match(body, /target\.weapon !== SHIELD\.weapon/, 'the shield has to be the held weapon');
-  assert.match(body, /utilityPurchasedThisLife\?\.shield\) > 0/, 'and one that was actually bought this life');
+  assert.match(body, /target\.loadout\?\.main !== SHIELD\.weapon/, 'and taken as the primary, which the server recorded itself');
   assert.match(body, /now - Number\(target\.lastShotAt \|\| 0\) < SHIELD\.fireLockoutMs/, 'and not just used to shoot with');
   assert.match(body, /dot\(forwardFlat, toAttacker\) < SHIELD\.arcCos/, 'and hit from within the frontal arc');
   assert.match(body, /headshot\) return target\.crouching \? SHIELD\.crouchHeadBlock : SHIELD\.headBlock/);
@@ -66,14 +76,24 @@ test('cover applies to direct fire only', () => {
   assert.match(server, /damage = Math\.max\(1, Math\.round\(damage \* \(1 - blocked\)\)\)/, 'a blocked hit still chips');
 });
 
-test('the client holds it, never fires it, and cannot get one free', () => {
-  assert.match(client, /name: 'Shield', type: 'shield', kind: 'shield'/);
+test('a shield loadout cannot deal long-gun damage', () => {
+  // The rule that keeps `player.weapon` honest now that the shield is a free
+  // primary: claiming to hold one is worth nothing unless you actually gave up
+  // your rifle, and the server checks its own record of that rather than the
+  // packet's word for it.
+  assert.match(server, /player\.loadout\?\.main === SHIELD\.weapon && !SHIELD\.allowedWeaponTypes\.includes\(wdef\.type\)\) return;/);
+  assert.match(server, /player\.loadout\[slot\] = weapon;/, 'buyWeapon has to record the slot choice');
+  assert.match(server, /if \(player\.loadout\?\.main === SHIELD\.weapon\) player\.loadout\.main = item\.weapon;/,
+    'picking a gun up off the floor must clear the restriction with it');
+});
+
+test('the client carries it in the primary slot and never fires it', () => {
+  assert.match(client, /name: 'Shield', type: 'shield'/);
+  assert.doesNotMatch(client, /kind: 'shield'/, 'it is a weapon now, not a utility kind');
   assert.match(client, /if \(wp\.type === 'shield'\) return;/, 'shoot() must refuse the shield outright');
-  assert.match(client, /const PURCHASE_ONLY_UTILITY = new Set\(\['shield'\]\);/);
-  assert.match(client, /GRENADE_KINDS\.filter\(kind => !PURCHASE_ONLY_UTILITY\.has\(kind\)\)/,
-    'a spawn must not hand out a shield, since the server only honours a purchased one');
-  assert.match(client, /utilityShield: 'Digit0'/);
-  assert.match(client, /\['shield', 'utilityShield', 'Shield'\]/);
+  assert.ok(primaryBuyIndexes().includes(26), 'it belongs in the primary buy list');
+  assert.doesNotMatch(client, /GRENADE_KINDS = \[[^\]]*'shield'/, 'and out of the utility rows entirely');
+  assert.doesNotMatch(client, /utilityShield/);
   assert.match(client, /speedMult: 0\.72/, 'carrying a shield has to cost movement');
   // The standing/crouched rule is invisible unless the HUD says it.
   assert.match(client, /isCrouching \? 'FULL COVER' : 'HEAD EXPOSED'/);

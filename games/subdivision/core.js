@@ -44,17 +44,18 @@
     'AK47': 2700,
     'SSG 08': 1700,
     'AWP': 4750,
-    'Breacher': 2200
+    'Breacher': 2200,
+    'Shield': 900
   };
 
   // Grenade/utility prices. Server calls this UTILITY_PRICES; the client calls the
   // identical object GRENADE_PRICES. Exposed under both names to avoid churn.
-  const UTILITY_PRICES = { frag: 300, smoke: 150, flash: 200, molotov: 400, barricade: 500, c4: 600, shield: 900 };
+  const UTILITY_PRICES = { frag: 300, smoke: 150, flash: 200, molotov: 400, barricade: 500, c4: 600 };
 
   // Per-life buy caps by utility kind. Anything missing here uses the caller's
   // default (2 on both sides). The barricade is deliberately capped lower: it is
   // persistent cover, not a one-shot effect.
-  const UTILITY_LIFE_CAPS = { barricade: 1, c4: 1, shield: 1 };
+  const UTILITY_LIFE_CAPS = { barricade: 1, c4: 1 };
 
   // CT (0) / T (1) → spawn-point indexes. Must stay identical on both sides.
   const TEAM_SPAWN_IDS = { 0: [0, 1, 2, 3], 1: [4, 5, 6, 7] };
@@ -188,7 +189,11 @@
     // No protection immediately after firing: it is the rule that makes the
     // shield a choice rather than an accessory, and it also means a client that
     // claims to hold one while shooting gets nothing for it.
-    fireLockoutMs: 700
+    fireLockoutMs: 700,
+    // Taking the shield as your primary means giving up a long gun. The server
+    // accepts damage from these types only while it is your main slot, so a
+    // client cannot carry a shield loadout and fight with a rifle behind it.
+    allowedWeaponTypes: ['pistol', 'melee', 'shield']
   };
   WEAPONS.Shield = { type: 'shield', firerate: 0.5, pellets: 0, range: 0, dmg: { head: 0, body: 0, legs: 0 } };
 

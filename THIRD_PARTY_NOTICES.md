@@ -106,7 +106,8 @@ its provenance is still open.
   export with no accompanying `.mtl`, no texture and no author or licence metadata of any kind, so
   nothing here identifies where it came from. **This entry needs the owner to confirm the source and
   licence before the asset is distributed.** It ships as
-  `games/subdivision/assets/weapons/shield.glb`: Orbit Ops converted the OBJ to binary glTF
+  `games/subdivision/assets/weapons/shield.glb`, the handheld shield primary. Orbit Ops converted the
+  OBJ to binary glTF
   (fan-triangulated to 194 triangles, normals and UVs preserved) and authored a plain PBR material,
   since none was supplied. Geometry is unchanged.
 
