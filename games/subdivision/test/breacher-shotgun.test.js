@@ -11,6 +11,64 @@ const test = require('node:test');
 const core = require('../core');
 
 const ROOT = path.resolve(__dirname, '..');
+// Bounding box of a GLB in the orientation the loader will see: accessor extents
+// pushed through the node transforms, exactly as three.js does on load.
+function glbWorldSize(file) {
+  const buf = fs.readFileSync(file);
+  let off = 12;
+  let json = null;
+  while (off < buf.length) {
+    const len = buf.readUInt32LE(off);
+    if (buf.toString('utf8', off + 4, off + 8).trim() === 'JSON') json = JSON.parse(buf.toString('utf8', off + 8, off + 8 + len));
+    off += 8 + len;
+  }
+  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const multiply = (a, b) => {   // column-major, a then b
+    const out = new Array(16).fill(0);
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) out[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+    return out;
+  };
+  const nodeMatrix = (node) => {
+    if (node.matrix) return node.matrix;
+    const [tx, ty, tz] = node.translation || [0, 0, 0];
+    const [sx, sy, sz] = node.scale || [1, 1, 1];
+    const [qx, qy, qz, qw] = node.rotation || [0, 0, 0, 1];
+    const r = [
+      1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy + qz * qw), 2 * (qx * qz - qy * qw),
+      2 * (qx * qy - qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz + qx * qw),
+      2 * (qx * qz + qy * qw), 2 * (qy * qz - qx * qw), 1 - 2 * (qx * qx + qy * qy)
+    ];
+    return [
+      r[0] * sx, r[1] * sx, r[2] * sx, 0,
+      r[3] * sy, r[4] * sy, r[5] * sy, 0,
+      r[6] * sz, r[7] * sz, r[8] * sz, 0,
+      tx, ty, tz, 1
+    ];
+  };
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  const walk = (index, parent) => {
+    const node = json.nodes[index];
+    const world = multiply(parent, nodeMatrix(node));
+    if (Number.isInteger(node.mesh)) {
+      for (const prim of json.meshes[node.mesh].primitives) {
+        const acc = json.accessors[prim.attributes.POSITION];
+        for (let corner = 0; corner < 8; corner++) {
+          const p = [corner & 1 ? acc.max[0] : acc.min[0], corner & 2 ? acc.max[1] : acc.min[1], corner & 4 ? acc.max[2] : acc.min[2]];
+          for (let axis = 0; axis < 3; axis++) {
+            const v = world[axis] * p[0] + world[4 + axis] * p[1] + world[8 + axis] * p[2] + world[12 + axis];
+            min[axis] = Math.min(min[axis], v);
+            max[axis] = Math.max(max[axis], v);
+          }
+        }
+      }
+    }
+    for (const child of node.children || []) walk(child, world);
+  };
+  for (const root of json.scenes[json.scene || 0].nodes) walk(root, identity);
+  return { x: max[0] - min[0], y: max[1] - min[1], z: max[2] - min[2] };
+}
+
 const client = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
@@ -76,6 +134,18 @@ test('the client keeps the weapon entry describing the next pull', () => {
   // The HUD has to say which load is up, or the spread change is the only tell.
   assert.match(client, /breacherSlugLoaded \? 'SLUG' : 'BUCK'/);
   assert.match(client, /deathmatchMainWeaponIndexes = \[3, 4, 5, 6, 7, 8, 9, 10, 25\]/, 'it must be buyable');
+});
+
+test("an axis:'x' model is authored barrel-along-X, up-along-Z", () => {
+  // WEAPON_ASSET_X_FP_QUATERNION is shared by every axis:'x' weapon and maps
+  //   model +X -> forward, model +Z -> up, model +Y -> left.
+  // A Sketchfab export usually wraps the scene in a Z-up -> Y-up display matrix,
+  // which lands the gun on its side once that quaternion is applied. Stripping
+  // the wrapper is what fixes it, so the shipped file has to keep these axes.
+  const size = glbWorldSize(path.join(ROOT, 'assets/weapons/breacher.glb'));
+  assert.ok(size.x > size.y && size.x > size.z, 'the barrel must run along X');
+  assert.ok(size.z > size.y, 'the gun must be taller than it is wide, or it is rolled onto its side');
+  assert.match(client, /'Breacher': \{[^}]*axis: 'x'/);
 });
 
 test('the shipped model is wired up', () => {

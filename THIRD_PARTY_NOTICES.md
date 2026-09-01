@@ -103,4 +103,6 @@ licence; each remains under CC BY 4.0.
 
 - **"Shotgun"** by **tinycomputer** (https://sketchfab.com/tinycomputer) —
   https://sketchfab.com/3d-models/shotgun-cf4830cc5d09441495843ac79f005b73
-  Ships unmodified as `games/subdivision/assets/weapons/breacher.glb` as the Breacher shotgun.
+  Ships as `games/subdivision/assets/weapons/breacher.glb` as the Breacher shotgun.
+  **Modified by Orbit Ops.** Geometry, UVs and textures are untouched; only the Sketchfab display
+  matrix was removed from the root node, so the authored axes reach the weapon loader.
