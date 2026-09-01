@@ -3098,7 +3098,7 @@
             walk: 'ShiftLeft', reload: 'KeyR', scoreboard: 'Tab', captureCoords: 'KeyP',
             weapon1: 'Digit1', weapon2: 'Digit2', weapon3: 'Digit3',
             grenadeFrag: 'Digit4', grenadeSmoke: 'Digit5', grenadeFlash: 'Digit6', grenadeMolotov: 'Digit7',
-            utilityBarricade: 'Digit8', utilityC4: 'Digit9',
+            utilityBarricade: 'Digit8', utilityC4: 'Digit9', utilityShield: 'Digit0',
             healthshot: 'KeyX',
             interact: 'KeyE',
             buyMenu: 'KeyB'
@@ -3120,7 +3120,7 @@
             ['walk', 'Walk'], ['reload', 'Reload'], ['scoreboard', 'Scoreboard'], ['captureCoords', 'Capture Coords'],
             ['weapon1', 'Primary Slot'], ['weapon2', 'Secondary Slot'], ['weapon3', 'Knife Slot'],
             ['grenadeFrag', 'Frag Grenade'], ['grenadeSmoke', 'Smoke Grenade'], ['grenadeFlash', 'Flash Grenade'], ['grenadeMolotov', 'Molotov'],
-            ['utilityBarricade', 'Deployable Barricade'], ['utilityC4', 'Remote C4'],
+            ['utilityBarricade', 'Deployable Barricade'], ['utilityC4', 'Remote C4'], ['utilityShield', 'Handheld Shield'],
             ['healthshot', 'Health Shot'],
             ['interact', 'Interact / Open Door'],
             ['buyMenu', 'Buy Menu']
@@ -7194,7 +7194,11 @@
             // Alternating shotgun. The pellet/damage/spread fields below are the
             // buckshot load; applyBreacherLoad() swaps them for the slug between
             // pulls, so everything downstream describes the shot about to happen.
-            { id: 26, name: 'Breacher', type: 'shotgun', damage: 13, armorDamage: wdmg('Nova'), rangeMod: 0.80, firerate: 0.85, spreadBase: 0.05, spreadMove: 0.05, mag: 6, reserve: 30, auto: false, speedMult: 0.88, pellets: 9, reloadTime: 3.2, barrelOffset: new THREE.Vector3(0, 0.1, -2.0), muzzleOffset: new THREE.Vector3(0, 0.1, -2.05) }
+            { id: 26, name: 'Breacher', type: 'shotgun', damage: 13, armorDamage: wdmg('Nova'), rangeMod: 0.80, firerate: 0.85, spreadBase: 0.05, spreadMove: 0.05, mag: 6, reserve: 30, auto: false, speedMult: 0.88, pellets: 9, reloadTime: 3.2, barrelOffset: new THREE.Vector3(0, 0.1, -2.0), muzzleOffset: new THREE.Vector3(0, 0.1, -2.05) },
+            // Handheld shield. Its own type, because it is the one held item that
+            // never fires: shoot() refuses it outright rather than running the gun
+            // path with an empty magazine.
+            { id: 27, name: 'Shield', type: 'shield', kind: 'shield', damage: 0, rangeMod: 1.0, firerate: 0.5, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.72, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) }
         ];
 
         // ---- Breacher: alternating buckshot / slug ----
@@ -7338,7 +7342,8 @@
             'Flash': { path: '/assets/weapons/flashbang.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.68, pos: [-0.28, 0.22, 0.58], rot: [0.96, 0, 0.8] }, tp: { length: 1.0, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'Molotov': { path: '/assets/models/molotov.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.72, pos: [-0.72, 0.76, 1.36], rot: [1.08, 0, 0] }, tp: { length: 1.15, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'C4': { path: '/assets/weapons/c4.glb', axis: 'z', fp: { length: 1.05, pos: [-0.6, 0.32, 1.15], rot: [0.28, Math.PI + 0.24, 0.16] }, tp: { length: 1.4, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
-            'Breacher': { path: '/assets/weapons/breacher.glb', axis: 'x', fp: { length: 3.15, pos: [-0.28, -0.16, -0.78] }, tp: { length: 4.6, pos: [0, 0.04, -1.78] } }
+            'Breacher': { path: '/assets/weapons/breacher.glb', axis: 'x', fp: { length: 3.15, pos: [-0.28, -0.16, -0.78] }, tp: { length: 4.6, pos: [0, 0.04, -1.78] } },
+            'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.3, pos: [-2.55, 0.6, 0.4], rot: [0, 0.4, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } }
         };
         const PROCEDURAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
         const PLAYER_STAND_EYE_HEIGHT = 18;
@@ -7742,14 +7747,18 @@
         const TEAM_FRIENDLY_TINT = 0x2e7d3a;    // friendly uniform tint
         const TEAM_ENEMY_TINT = 0x7d2e2e;       // enemy uniform tint
 
-        const GRENADE_KINDS = ['frag', 'smoke', 'flash', 'molotov', 'barricade', 'c4'];
+        const GRENADE_KINDS = ['frag', 'smoke', 'flash', 'molotov', 'barricade', 'c4', 'shield'];
+        // Utility that a spawn does not hand out. The shield is strong enough that
+        // carrying one has to be a purchase, and the server only honours a shield
+        // it recorded a purchase for.
+        const PURCHASE_ONLY_UTILITY = new Set(['shield']);
         const GRENADE_PRICES = window.GameCore.GRENADE_PRICES; // shared with server UTILITY_PRICES (core.js)
         const GRENADE_CAP = 2;
         const GRENADE_LIFE_CAP = 2;
         const GRENADE_CHARGE_MS = 1250;
         const GRENADE_MIN_CHARGE = 0.3;
         const GRENADE_MAX_CHARGE = 1.45;
-        const grenadeWeaponIndex = { frag: 19, smoke: 20, flash: 21, molotov: 22, barricade: 23, c4: 24 };
+        const grenadeWeaponIndex = { frag: 19, smoke: 20, flash: 21, molotov: 22, barricade: 23, c4: 24, shield: 26 };
         const UTILITY_LIFE_CAPS = window.GameCore.UTILITY_LIFE_CAPS; // per-kind overrides (core.js)
         // Owned/per-life cap for one utility kind. Both caps are the same number,
         // so one helper covers the inventory cap and the buy-per-life cap.
@@ -7768,6 +7777,8 @@
         const BARRICADE = window.GameCore.BARRICADE;
         // Remote C4 charge: geometry, blast and arming delay, shared via core.js.
         const C4 = window.GameCore.C4;
+        // Handheld shield cover rules, shared with the server (core.js).
+        const SHIELD = window.GameCore.SHIELD;
         // Admin testing room: per-room overrides for prices / availability / mode /
         // map size. null in normal rooms (helpers fall back to the constants above).
         let isAdminRoom = false;
@@ -7806,8 +7817,8 @@
         }
         let myMoney = 200;
 
-        let grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
-        let grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
+        let grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, shield: 0 };
+        let grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, shield: 0 };
         let selectedGrenade = 'frag';
         const barricadeActors = new Map(); // id -> deployed panel group
         let barricadePreview = null;       // ghost panel shown while the barricade is out
@@ -8374,9 +8385,9 @@
                     event.preventDefault();
 
                     switchDeathmatchSlot(isBind(event, 'weapon1') ? 'main' : (isBind(event, 'weapon2') ? 'sidearm' : 'knife'));
-                } else if (usesUtility() && (isBind(event, 'grenadeFrag') || isBind(event, 'grenadeSmoke') || isBind(event, 'grenadeFlash') || isBind(event, 'grenadeMolotov') || isBind(event, 'utilityBarricade') || isBind(event, 'utilityC4'))) {
+                } else if (usesUtility() && (isBind(event, 'grenadeFrag') || isBind(event, 'grenadeSmoke') || isBind(event, 'grenadeFlash') || isBind(event, 'grenadeMolotov') || isBind(event, 'utilityBarricade') || isBind(event, 'utilityC4') || isBind(event, 'utilityShield'))) {
                     event.preventDefault();
-                    equipGrenade(isBind(event, 'grenadeFrag') ? 'frag' : (isBind(event, 'grenadeSmoke') ? 'smoke' : (isBind(event, 'grenadeFlash') ? 'flash' : (isBind(event, 'grenadeMolotov') ? 'molotov' : (isBind(event, 'utilityBarricade') ? 'barricade' : 'c4')))));
+                    equipGrenade(isBind(event, 'grenadeFrag') ? 'frag' : (isBind(event, 'grenadeSmoke') ? 'smoke' : (isBind(event, 'grenadeFlash') ? 'flash' : (isBind(event, 'grenadeMolotov') ? 'molotov' : (isBind(event, 'utilityBarricade') ? 'barricade' : (isBind(event, 'utilityC4') ? 'c4' : 'shield'))))));
                 } else if (usesUtility() && isBind(event, 'healthshot')) {
                     event.preventDefault();
                     if (!wasHeld) useHealthshot();
@@ -16131,6 +16142,7 @@
         function embeddedAgentWeaponAnimFamily(weapon = 'AK47') {
             if (weapon === 'Knife') return 'knife';
             if (['Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4'].includes(weapon)) return 'grenade';
+            if (weapon === 'Shield') return 'onehanded';
             if (['Glock', 'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver', 'Deagle'].includes(weapon)) return 'onehanded';
             if (['MAC10', 'P90'].includes(weapon)) return 'mp5';
             if (['Nova', 'XM1014', 'Breacher'].includes(weapon)) return 'shotgun';
@@ -16672,8 +16684,13 @@
                 case 'Flash': createMesh(new THREE.SphereGeometry(0.2, 10, 8), matSilver, 0, 0, -0.3); createMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.12), matDarkGrey, 0, 0.18, -0.3); break;
 
                 case 'Molotov': createMesh(new THREE.CylinderGeometry(0.08, 0.11, 0.62), new THREE.MeshPhongMaterial({ color: 0x31543a, transparent: true, opacity: 0.78 }), 0, 0, -0.35, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.16), matWood, 0, 0.02, -0.72, Math.PI/2); createMesh(new THREE.BoxGeometry(0.08, 0.16, 0.18), new THREE.MeshPhongMaterial({ color: 0xff6a20, emissive: 0x552000 }), 0, 0.15, -0.74); break;
-                // Carried folded, hazard stripe up, so it reads as a deployable
-                // and not as another grenade in the corner of the screen.
+                // Held out in front on the left, so it covers that side of the view.
+                case 'Shield': {
+                    const matPlate = new THREE.MeshPhongMaterial({ color: 0x4b535c, shininess: 30 });
+                    createMesh(new THREE.BoxGeometry(0.95, 1.5, 0.09), matPlate, -0.5, -0.1, -0.75);
+                    createMesh(new THREE.BoxGeometry(0.34, 0.2, 0.12), new THREE.MeshPhongMaterial({ color: 0x11161b }), -0.5, 0.3, -0.8);
+                    break;
+                }
                 // Holds the charge until one is planted, then the detonator.
                 case 'C4': {
                     const matCase = new THREE.MeshPhongMaterial({ color: 0x2b3138, shininess: 20 });
@@ -16690,6 +16707,8 @@
                     }
                     break;
                 }
+                // Carried folded, hazard stripe up, so it reads as a deployable
+                // and not as another grenade in the corner of the screen.
                 case 'Barricade': {
                     const matPanel = new THREE.MeshPhongMaterial({ color: 0x505d69, shininess: 24 });
                     const matStripe = new THREE.MeshPhongMaterial({ color: 0xd9a12b });
@@ -18756,7 +18775,7 @@
             myHealth = 100;
             updateHealthUI();
             stimCharges = 0;
-            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
+            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, shield: 0 };
             lastPurchaseId = null;
             resetAllAmmo();
             camera.position.set(0, 0, 0);
@@ -18766,7 +18785,7 @@
             weaponGroup.visible = !isZoomed;
             if (spawn) { controls.getObject().position.copy(spawn); repositioned = true; }
             if (usesUtility() && !isCasual()) {
-                GRENADE_KINDS.forEach(kind => {
+                GRENADE_KINDS.filter(kind => !PURCHASE_ONLY_UTILITY.has(kind)).forEach(kind => {
                     grenadeInventory[kind] = Math.min(utilityCap(kind), Math.max(grenadeInventory[kind] || 0, 1));
                 });
                 resetHealthshotState();
@@ -18872,6 +18891,12 @@
                 add(new THREE.BoxGeometry(0.25, 0.25, 2.8), matBlade, 0, 0, -1.0, -0.35);
                 add(new THREE.BoxGeometry(0.45, 0.45, 0.9), matDark, 0, -0.05, 0.55, -0.35);
                 attachWeaponAsset(parent, weaponName, 'thirdPerson', skinItem);
+                return;
+            }
+
+            if (weaponName === 'Shield') {
+                add(new THREE.BoxGeometry(2.4, 3.6, 0.24), matMetal, 0, 0.4, -0.35);
+                add(new THREE.BoxGeometry(0.8, 0.5, 0.3), matDark, 0, 1.35, -0.45);
                 return;
             }
 
@@ -19586,7 +19611,9 @@
             const activeWeapon = weapons[currentWeaponIndex];
             const weaponText = activeWeapon.name === SHOTGUN_ALT.weapon
                 ? `${activeWeapon.name} · ${breacherSlugLoaded ? 'SLUG' : 'BUCK'}`
-                : activeWeapon.name;
+                : (activeWeapon.name === SHIELD.weapon
+                    ? `${activeWeapon.name} · ${isCrouching ? 'FULL COVER' : 'HEAD EXPOSED'}`
+                    : activeWeapon.name);
             const ammoText = `${currentAmmo} / ${reserveAmmo}`;
             const modeText = isTimedMode() ? formatDeathmatchTimer() : `GUN: ${gunGameLevel + 1} / ${gunGameOrder.length}`;
             if (weaponText !== lastHudText.weapon) {
@@ -21043,6 +21070,8 @@
             if (bombActionActive) return;
             inspectState = null;
             let wp = weapons[currentWeaponIndex]; let time = performance.now();
+            // Held, never fired. Without this the gun path runs with a '-' magazine.
+            if (wp.type === 'shield') return;
             if (wp.type === 'grenade') {
                 if (time - lastFireTime < (wp.firerate || 0.8) * 1000) return;
                 lastFireTime = time;
@@ -21904,7 +21933,7 @@
             if (!usesUtility()) { hud.style.display = 'none'; return; }
             hud.style.display = 'block';
 
-            const rows = [['frag', 'grenadeFrag', 'Frag'], ['smoke', 'grenadeSmoke', 'Smoke'], ['flash', 'grenadeFlash', 'Flash'], ['molotov', 'grenadeMolotov', 'Molotov'], ['barricade', 'utilityBarricade', 'Barricade'], ['c4', 'utilityC4', 'C4']];
+            const rows = [['frag', 'grenadeFrag', 'Frag'], ['smoke', 'grenadeSmoke', 'Smoke'], ['flash', 'grenadeFlash', 'Flash'], ['molotov', 'grenadeMolotov', 'Molotov'], ['barricade', 'utilityBarricade', 'Barricade'], ['c4', 'utilityC4', 'C4'], ['shield', 'utilityShield', 'Shield']];
             hud.innerHTML = `<div class="util-money">${usesCasualEconomy() ? `$${myMoney}` : 'UTILITY'}</div>` + rows.map(([k, action, label]) => {
                 const sel = k === selectedGrenade;
                 const infiniteUtility = adminInfiniteUtilityEnabled();
@@ -22816,7 +22845,7 @@
         }
 
         function grenadeWeaponName(kind) {
-            return ({ frag: 'Frag', smoke: 'Smoke', flash: 'Flash', molotov: 'Molotov', barricade: 'Barricade', c4: 'C4' })[kind] || 'Frag';
+            return ({ frag: 'Frag', smoke: 'Smoke', flash: 'Flash', molotov: 'Molotov', barricade: 'Barricade', c4: 'C4', shield: 'Shield' })[kind] || 'Frag';
         }
 
         function disposeGrenadeProjectileModel(object) {
@@ -23539,8 +23568,8 @@
 
         function tdmResetState() {
 
-            grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
-            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
+            grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, shield: 0 };
+            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, shield: 0 };
             selectedGrenade = 'frag';
             grenadeAim = null;
             lastGrenadeChargeHud = -1;

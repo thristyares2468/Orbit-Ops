@@ -87,11 +87,12 @@ architecture was used as an implementation reference.
 
 ## Subdivision weapon models from Sketchfab
 
-Two Subdivision assets were supplied by the project owner as Sketchfab exports. Both carry their
-author and licence in the file's own `asset.extras` metadata, which the shipped copies preserve.
-Both are licensed **CC BY 4.0** (http://creativecommons.org/licenses/by/4.0/), which permits this
-use and requires the attribution below. Neither is relicensed by Orbit Ops' GPL-3.0-only source
-licence; each remains under CC BY 4.0.
+Three Subdivision weapon assets were supplied by the project owner. Two are Sketchfab exports that
+carry their author and licence in the file's own `asset.extras` metadata, which the shipped copies
+preserve: both are licensed **CC BY 4.0** (http://creativecommons.org/licenses/by/4.0/), which
+permits this use and requires the attribution below. Neither is relicensed by Orbit Ops'
+GPL-3.0-only source licence; each remains under CC BY 4.0. The third carries no metadata at all and
+its provenance is still open.
 
 - **"Basic Explosive"** by **Blender3D** (https://sketchfab.com/Blender3D) —
   https://sketchfab.com/3d-models/basic-explosive-e2ef33fefa4241b59c2aaf45c75a20ee
@@ -100,6 +101,14 @@ licence; each remains under CC BY 4.0.
   removed from the root node so the model sits axis-aligned for the weapon-asset loader, the normal
   and occlusion/roughness maps were resampled to 512x512, and all three textures were re-encoded as
   JPEG, taking the file from 1.9 MB to 736 KB.
+
+- **Shield** — provenance not recorded. Supplied by the project owner as `shield.obj`, a Blender OBJ
+  export with no accompanying `.mtl`, no texture and no author or licence metadata of any kind, so
+  nothing here identifies where it came from. **This entry needs the owner to confirm the source and
+  licence before the asset is distributed.** It ships as
+  `games/subdivision/assets/weapons/shield.glb`: Orbit Ops converted the OBJ to binary glTF
+  (fan-triangulated to 194 triangles, normals and UVs preserved) and authored a plain PBR material,
+  since none was supplied. Geometry is unchanged.
 
 - **"Shotgun"** by **tinycomputer** (https://sketchfab.com/tinycomputer) —
   https://sketchfab.com/3d-models/shotgun-cf4830cc5d09441495843ac79f005b73
