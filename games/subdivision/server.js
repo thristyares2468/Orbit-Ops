@@ -263,6 +263,11 @@ const VALID_GAMEMODES = new Set(Object.keys(MODE_CONFIG));
 // normalize to upper case).
 const ADMIN_ROOM_CODE = 'JIMS-ADMIN';
 const ADMIN_DUMMY_MAX = 24;
+// Admin dummy positions use the same feet-origin convention as rendered
+// remote players. Player network positions are eye positions, so convert once
+// on the server before the dummy is broadcast to every client.
+const ADMIN_DUMMY_STAND_EYE_HEIGHT = 18;
+const ADMIN_DUMMY_CROUCH_EYE_HEIGHT = 11;
 // In-game authority comes from accounts.role in Postgres. It is copied onto the
 // authenticated socket so every gameplay/admin gate remains synchronous.
 function accountRole(client) {
@@ -1899,8 +1904,14 @@ function handleMessage(client, raw) {
 
   if (type === 'adminSummonDummy') {
     if (client.roomCode !== ADMIN_ROOM_CODE || !isAdminUser(client)) return;
-    const position = sanitizeVector(data.position, player.position);
-    if (!position) return;
+    const eyePosition = sanitizeVector(data.eyePosition, player.position);
+    if (!eyePosition) return;
+    const crouching = Boolean(data.crouching);
+    const position = {
+      x: eyePosition.x,
+      y: eyePosition.y - (crouching ? ADMIN_DUMMY_CROUCH_EYE_HEIGHT : ADMIN_DUMMY_STAND_EYE_HEIGHT),
+      z: eyePosition.z
+    };
     if (!room.adminDummies) room.adminDummies = new Map();
     while (room.adminDummies.size >= ADMIN_DUMMY_MAX) {
       const oldest = room.adminDummies.keys().next().value;
@@ -1910,7 +1921,7 @@ function handleMessage(client, raw) {
     const dummy = {
       id: `dummy:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 7)}`,
       position,
-      yaw: Number.isFinite(Number(data.yaw)) ? Number(data.yaw) : 0,
+      yaw: Number.isFinite(Number(data.yaw)) ? Number(data.yaw) : (Number(player.rotation?.y) || 0),
       health: Math.max(1, Math.min(10000, Math.round(Number(data.health) || 100))),
       maxHealth: Math.max(1, Math.min(10000, Math.round(Number(data.health) || 100))),
       immune: !!data.immune,

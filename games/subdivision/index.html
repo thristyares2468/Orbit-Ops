@@ -4838,13 +4838,22 @@
         function summonAdminDummy() {
             if (!isAdminRoom || !controls || !camera) return;
             const eye = controls.getObject().position.clone();
-            let pos = eye.clone();
-            const grounded = findGroundSpawnAt(pos.x, pos.z);
-            pos.y = grounded ? grounded.y - playerHeight : eye.y - playerHeight;
+            const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
             const health = Math.max(1, Math.min(10000, Math.round(Number(document.getElementById('admin-dummy-health')?.value) || 100)));
             const team = Math.max(0, Math.min(1, Math.round(Number(document.getElementById('admin-dummy-team')?.value) || 0)));
             const immune = !!document.getElementById('admin-dummy-immune')?.checked;
-            sendPacket('adminSummonDummy', { position: vecObj(pos), yaw: camera.rotation.y || 0, health, team, immune });
+            // Keep the server's player state immediately ahead of the summon
+            // packet on this ordered WebSocket, then let it perform the shared
+            // eye-to-feet conversion used by normal remote players.
+            sendImmediatePlayerState();
+            sendPacket('adminSummonDummy', {
+                eyePosition: vecObj(eye),
+                yaw: euler.y || 0,
+                crouching: isCrouching,
+                health,
+                team,
+                immune
+            });
         }
 
         function clearAdminDummies() {
@@ -4872,10 +4881,13 @@
             const pos = def.position;
             const group = spawnPlayerTarget(Number(pos.x) || 0, Number(pos.y) || 0, Number(pos.z) || 0);
             group.rotation.y = Number(def.yaw) || 0;
-            group.scale.setScalar(0.72);
             Object.assign(group.userData, {
                 isAdminDummy: true,
                 adminDummyId: id,
+                // Reuse the normal player model adapter without registering
+                // this stationary target as a network-interpolated player.
+                isRemotePlayer: true,
+                remoteId: id,
                 health: Number(def.health) || 100,
                 maxHealth: Number(def.maxHealth || def.health) || 100,
                 adminDummyImmune: !!def.immune,
@@ -4886,6 +4898,8 @@
             });
             applyAdminDummyVisual(group);
             adminDummies.set(id, group);
+            refreshRemoteThirdPersonWeapon(group);
+            applyBackroomsCharacterModel(group);
         }
 
         function applyAdminDummyVisual(group) {
