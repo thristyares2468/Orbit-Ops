@@ -99,6 +99,25 @@ test('the client carries it in the primary slot and never fires it', () => {
   assert.match(client, /isCrouching \? 'FULL COVER' : 'HEAD EXPOSED'/);
 });
 
+test('the shield is presented square to the view, not held like a gun', () => {
+  // A yaw on the view model turns the panel across the body, which is what makes
+  // it read as a rifle carried sideways rather than cover held in front.
+  const spec = client.match(/'Shield': \{ path: '\/assets\/weapons\/shield\.glb'[^\n]*/);
+  assert.ok(spec, 'index.html must declare the shield asset spec');
+  const fpRot = spec[0].match(/fp: \{[^}]*rot: \[([^\]]*)\]/);
+  assert.ok(fpRot, 'the shield needs an explicit first-person rotation');
+  assert.deepEqual(fpRot[1].split(',').map(part => Number(part.trim())), [0, 0, 0]);
+  // And it is braced rather than swung, so the gun bob is damped.
+  assert.match(client, /const SHIELD_VIEW_BOB_SCALE = 0\.\d+;/);
+  assert.match(client, /type === 'shield' \? SHIELD_VIEW_BOB_SCALE : 1/);
+});
+
+test('a respawn restores utility to full', () => {
+  // Topping up to one of each meant re-buying the rest after every death.
+  assert.match(client, /GRENADE_KINDS\.forEach\(kind => \{\s*\n\s*grenadeInventory\[kind\] = utilityCap\(kind\);/);
+  assert.doesNotMatch(client, /grenadeInventory\[kind\] = Math\.min\(utilityCap\(kind\), Math\.max\(grenadeInventory\[kind\] \|\| 0, 1\)\)/);
+});
+
 test('the converted model ships in the shape the loader expects', () => {
   const glb = path.join(ROOT, 'assets/weapons/shield.glb');
   assert.ok(fs.existsSync(glb));
