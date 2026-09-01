@@ -1,0 +1,26 @@
+{
+  "version": "2026-09-01-breacher-axes",
+  "assets": {
+    "ak47.glb": "7cdd50c0bcdaf8f0",
+    "ak47_prim1.glb": "03b12339e3a3c61e",
+    "ak47_prim2.glb": "7b5a332dc829551c",
+    "awp.glb": "6e2ff5c07bec2636",
+    "awp_prim1.glb": "00d73c69e48ad182",
+    "awp_prim2.glb": "6a639ec43b56aac5",
+    "breacher.glb": "dbe9b03baf5b095f",
+    "c4.glb": "db2ee4c4c3548ad4",
+    "deagle.glb": "2f77f7a8496082bf",
+    "famas.glb": "0d1cb60315bf1724",
+    "flashbang.glb": "c8fd387f947eb822",
+    "glock18.glb": "91ea9aae186ed67d",
+    "hegrenade.glb": "887ab7f3bc708c11",
+    "knife.glb": "c21bb9c80985f5c5",
+    "mac10.glb": "73eee74a0f92ac4a",
+    "molotov.glb": "c63f5cf848f6dda9",
+    "nova.glb": "32c596b64276bfe5",
+    "p90.glb": "d6ce0ac0fa92249c",
+    "smokegrenade.glb": "6fba16ea5f071c52",
+    "ssg08.glb": "435b4d64142335bc",
+    "xm1014.glb": "c3a7f46efd66a13f"
+  }
+}
