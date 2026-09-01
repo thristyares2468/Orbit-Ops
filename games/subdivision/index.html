@@ -7358,7 +7358,9 @@
             'Molotov': { path: '/assets/models/molotov.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.72, pos: [-0.72, 0.76, 1.36], rot: [1.08, 0, 0] }, tp: { length: 1.15, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'C4': { path: '/assets/weapons/c4.glb', axis: 'z', fp: { length: 1.05, pos: [-0.6, 0.32, 1.15], rot: [0.28, Math.PI + 0.24, 0.16] }, tp: { length: 1.4, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'Breacher': { path: '/assets/weapons/breacher.glb', axis: 'x', fp: { length: 3.15, pos: [-0.28, -0.16, -0.78] }, tp: { length: 4.6, pos: [0, 0.04, -1.78] } },
-            'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.3, pos: [-2.55, 0.6, 0.4], rot: [0, 0.4, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } }
+            // rot [0,0,0] on purpose: the panel has to face square down the view.
+            // Any yaw here reads as carrying it at a gun's angle across the body.
+            'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.55, pos: [-2.6, 0.55, 0.5], rot: [0, 0, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } }
         };
         const PROCEDURAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
         const PLAYER_STAND_EYE_HEIGHT = 18;
@@ -7790,6 +7792,7 @@
         const C4 = window.GameCore.C4;
         // Handheld shield cover rules, shared with the server (core.js).
         const SHIELD = window.GameCore.SHIELD;
+        const SHIELD_VIEW_BOB_SCALE = 0.25;
         // Admin testing room: per-room overrides for prices / availability / mode /
         // map size. null in normal rooms (helpers fall back to the constants above).
         let isAdminRoom = false;
@@ -18796,8 +18799,11 @@
             weaponGroup.visible = !isZoomed;
             if (spawn) { controls.getObject().position.copy(spawn); repositioned = true; }
             if (usesUtility() && !isCasual()) {
+                // Respawn restores utility to full. Topping up to one of each meant
+                // re-buying the rest after every death, which is a click tax between
+                // fights rather than a decision.
                 GRENADE_KINDS.forEach(kind => {
-                    grenadeInventory[kind] = Math.min(utilityCap(kind), Math.max(grenadeInventory[kind] || 0, 1));
+                    grenadeInventory[kind] = utilityCap(kind);
                 });
                 resetHealthshotState();
             }
@@ -23935,7 +23941,11 @@
                 }
 
                 if (!isZoomed) {
-                    weaponGroup.position.set(wPosX + bobCurrentX, wPosY + bobCurrentY, wPosZ);
+                    // A shield is braced with both arms, not swung at the hip, so its
+                    // bob is damped: full weapon sway on a flat panel across half the
+                    // screen reads as carrying a gun sideways.
+                    const bobScale = weapons[currentWeaponIndex]?.type === 'shield' ? SHIELD_VIEW_BOB_SCALE : 1;
+                    weaponGroup.position.set(wPosX + bobCurrentX * bobScale, wPosY + bobCurrentY * bobScale, wPosZ);
                     weaponGroup.rotation.set(wRotX, wRotY, wRotZ);
                 }
 
