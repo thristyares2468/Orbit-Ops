@@ -241,6 +241,7 @@ const GRENADE = core.GRENADE; // authoritative grenade geometry, shared via core
 const BARRICADE = core.BARRICADE; // deployable barricade geometry, shared via core.js
 const C4 = core.C4; // remote-detonated charge geometry/timing, shared via core.js
 const SHOTGUN_ALT = core.SHOTGUN_ALT; // Breacher buckshot/slug tables, shared via core.js
+const SHIELD = core.SHIELD; // handheld shield cover rules, shared via core.js
 const UTILITY_LIFE_CAPS = core.UTILITY_LIFE_CAPS; // per-kind overrides (core.js)
 const GRENADE_HIT_WINDOW_MS = 2000;
 const GRENADE_RADIUS_SLACK = 45;
@@ -4627,6 +4628,7 @@ function handlePlayerShoot(client, room, player, data) {
   clearSpawnProtection(player, now, client, 'shoot');
   cancelBombAction(room, player.id);
   const weapon = String(data.weapon || player.weapon).slice(0, 32);
+  player.lastShotAt = now; // drops the shield guard, see shieldBlockFraction()
   const start = sanitizeVector(data.start, null);
   const target = sanitizeVector(data.target, null);
   const wdef = WEAPONS[weapon];
@@ -4848,6 +4850,13 @@ function handlePlayerHit(client, room, player, data) {
       // never the slug.
       damage = (corr.shot?.load?.dmg || wdef.dmg)[part];
       killContext.headshot = part === 'head';
+    }
+    // Shields cover direct fire only. A frag or a C4 goes straight through, so
+    // utility stays the answer to someone hiding behind one.
+    const blocked = shieldBlockFraction(target, player.position, killContext.headshot, now);
+    if (blocked > 0) {
+      killContext.shieldBlocked = true;
+      damage = Math.max(1, Math.round(damage * (1 - blocked)));
     }
   }
   if (data.wallbang) damage = Math.max(1, Math.round(damage * 0.62));
@@ -5293,6 +5302,29 @@ function normalizeVec(v) {
 function forwardFromRotation(rot) {
   const px = rot.x || 0, py = rot.y || 0;
   return { x: -Math.cos(px) * Math.sin(py), y: Math.sin(px), z: -Math.cos(px) * Math.cos(py) };
+}
+
+// How much of a direct hit the target's shield soaks, 0 if it does not cover it.
+// Everything this reads is server-owned: the purchase, the held weapon, the
+// carrier's facing and whether they are crouched. A client cannot ask for cover.
+function shieldBlockFraction(target, attackerPos, headshot, now) {
+  if (!target || !attackerPos) return 0;
+  if (target.weapon !== SHIELD.weapon) return 0;
+  // Only a shield that was actually bought this life protects anyone.
+  if (!(Number(target.utilityPurchasedThisLife?.shield) > 0)) return 0;
+  // Firing drops the guard, so a client cannot shoot and be covered at once.
+  if (now - Number(target.lastShotAt || 0) < SHIELD.fireLockoutMs) return 0;
+  const forward = forwardFromRotation(target.rotation || {});
+  const forwardFlat = normalizeVec({ x: forward.x, y: 0, z: forward.z });
+  const toAttacker = normalizeVec({
+    x: attackerPos.x - target.position.x,
+    y: 0,
+    z: attackerPos.z - target.position.z
+  });
+  if (!forwardFlat || !toAttacker) return 0;
+  if (dot(forwardFlat, toAttacker) < SHIELD.arcCos) return 0; // came from outside the arc
+  if (headshot) return target.crouching ? SHIELD.crouchHeadBlock : SHIELD.headBlock;
+  return SHIELD.bodyBlock;
 }
 
 function isBackstab(attackerPos, target) {
@@ -6521,7 +6553,7 @@ function countTeam(room, team) {
 }
 
 function freshUtilityCounts() {
-  return { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
+  return { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, shield: 0 };
 }
 
 function resetUtilityLife(player) {

@@ -21,7 +21,7 @@
 
   // Bump on any change to authoritative rules/shape so stale clients can reject
   // mismatched game data before subtle desyncs happen.
-  const VERSION = '5';
+  const VERSION = '6';
 
   // Buy-menu prices (identical on both sides today).
   const WEAPON_PRICES = {
@@ -49,12 +49,12 @@
 
   // Grenade/utility prices. Server calls this UTILITY_PRICES; the client calls the
   // identical object GRENADE_PRICES. Exposed under both names to avoid churn.
-  const UTILITY_PRICES = { frag: 300, smoke: 150, flash: 200, molotov: 400, barricade: 500, c4: 600 };
+  const UTILITY_PRICES = { frag: 300, smoke: 150, flash: 200, molotov: 400, barricade: 500, c4: 600, shield: 900 };
 
   // Per-life buy caps by utility kind. Anything missing here uses the caller's
   // default (2 on both sides). The barricade is deliberately capped lower: it is
   // persistent cover, not a one-shot effect.
-  const UTILITY_LIFE_CAPS = { barricade: 1, c4: 1 };
+  const UTILITY_LIFE_CAPS = { barricade: 1, c4: 1, shield: 1 };
 
   // CT (0) / T (1) → spawn-point indexes. Must stay identical on both sides.
   const TEAM_SPAWN_IDS = { 0: [0, 1, 2, 3], 1: [4, 5, 6, 7] };
@@ -118,7 +118,7 @@
   const WEAPON_NAMES = [
     'Knife', 'Glock', 'Deagle', 'MAC10', 'P90', 'Nova', 'XM1014', 'FAMAS', 'AK47', 'SSG 08', 'AWP',
     'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver',
-    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4', 'Breacher'
+    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4', 'Breacher', 'Shield'
   ];
 
   const SNAPSHOT_FLAGS = {
@@ -174,6 +174,24 @@
     buckshot: { pellets: WEAPONS.Nova.pellets, dmg: WEAPONS.Nova.dmg },
     slug: { pellets: 1, dmg: WEAPONS['SSG 08'].dmg }
   };
+  // Handheld ballistic shield. Held instead of a gun: it cannot fire, it slows
+  // the carrier down, and it soaks direct fire that arrives from the front.
+  // Explosions are deliberately not blocked - utility is the counter to a shield.
+  const SHIELD = {
+    weapon: 'Shield',
+    // Frontal cover, as the cosine of the half-angle so the server can compare it
+    // straight against a dot product.
+    arcCos: Math.cos((110 * Math.PI / 180) / 2),
+    bodyBlock: 0.85,        // share of a blocked body/leg hit that is absorbed
+    headBlock: 0,           // standing, the head sits above the shield
+    crouchHeadBlock: 0.85,  // crouched, the carrier is behind it completely
+    // No protection immediately after firing: it is the rule that makes the
+    // shield a choice rather than an accessory, and it also means a client that
+    // claims to hold one while shooting gets nothing for it.
+    fireLockoutMs: 700
+  };
+  WEAPONS.Shield = { type: 'shield', firerate: 0.5, pellets: 0, range: 0, dmg: { head: 0, body: 0, legs: 0 } };
+
   WEAPONS.Breacher = {
     type: 'shotgun',
     firerate: 0.85,
@@ -253,6 +271,7 @@
     GRENADE,
     BARRICADE,
     C4,
+    SHIELD,
     SHOTGUN_ALT,
     WEAPON_NAMES,
     SNAPSHOT_FLAGS,
