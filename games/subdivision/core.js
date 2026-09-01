@@ -21,7 +21,7 @@
 
   // Bump on any change to authoritative rules/shape so stale clients can reject
   // mismatched game data before subtle desyncs happen.
-  const VERSION = '4';
+  const VERSION = '5';
 
   // Buy-menu prices (identical on both sides today).
   const WEAPON_PRICES = {
@@ -43,7 +43,8 @@
     'FAMAS': 2050,
     'AK47': 2700,
     'SSG 08': 1700,
-    'AWP': 4750
+    'AWP': 4750,
+    'Breacher': 2200
   };
 
   // Grenade/utility prices. Server calls this UTILITY_PRICES; the client calls the
@@ -117,7 +118,7 @@
   const WEAPON_NAMES = [
     'Knife', 'Glock', 'Deagle', 'MAC10', 'P90', 'Nova', 'XM1014', 'FAMAS', 'AK47', 'SSG 08', 'AWP',
     'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver',
-    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4'
+    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4', 'Breacher'
   ];
 
   const SNAPSHOT_FLAGS = {
@@ -158,6 +159,27 @@
     'Molotov': { type: 'utility', firerate: 0.8,  pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },
     'Barricade': { type: 'utility', firerate: 0.8, pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },
     'C4':      { type: 'utility', firerate: 0.8,  pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } }
+  };
+
+  // The Breacher is a shotgun that alternates between two loads: every odd
+  // trigger pull is buckshot, every even one is a slug. Both tables are borrowed
+  // rather than copied, so a buckshot pull is always exactly a Nova shot and a
+  // slug always lands for the SSG 08's numbers, whatever those become.
+  const SHOTGUN_ALT = {
+    weapon: 'Breacher',
+    // One pull sprays several pellets, each of which is reported as its own
+    // shot. Reports this close together are the same pull; anything later is a
+    // new one. Well above the pellet burst, well below the 0.85s fire rate.
+    pullWindowMs: 300,
+    buckshot: { pellets: WEAPONS.Nova.pellets, dmg: WEAPONS.Nova.dmg },
+    slug: { pellets: 1, dmg: WEAPONS['SSG 08'].dmg }
+  };
+  WEAPONS.Breacher = {
+    type: 'shotgun',
+    firerate: 0.85,
+    pellets: SHOTGUN_ALT.buckshot.pellets,
+    range: 1000,
+    dmg: SHOTGUN_ALT.buckshot.dmg
   };
 
   // ==========================================================================
@@ -231,6 +253,7 @@
     GRENADE,
     BARRICADE,
     C4,
+    SHOTGUN_ALT,
     WEAPON_NAMES,
     SNAPSHOT_FLAGS,
     WEAPONS,

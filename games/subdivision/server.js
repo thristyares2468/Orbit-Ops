@@ -240,6 +240,7 @@ const CASUAL_BOMB_SITES = [
 const GRENADE = core.GRENADE; // authoritative grenade geometry, shared via core.js
 const BARRICADE = core.BARRICADE; // deployable barricade geometry, shared via core.js
 const C4 = core.C4; // remote-detonated charge geometry/timing, shared via core.js
+const SHOTGUN_ALT = core.SHOTGUN_ALT; // Breacher buckshot/slug tables, shared via core.js
 const UTILITY_LIFE_CAPS = core.UTILITY_LIFE_CAPS; // per-kind overrides (core.js)
 const GRENADE_HIT_WINDOW_MS = 2000;
 const GRENADE_RADIUS_SLACK = 45;
@@ -4585,6 +4586,28 @@ function deathBarrierY(room) {
 // ---------------------------------------------------------------------------
 // Anti-cheat: shooting + hits
 // ---------------------------------------------------------------------------
+// A Breacher pull alternates buckshot / slug. The pull is identified by time,
+// not by anything the client says: one pull reports each pellet as its own shot,
+// all within a couple of milliseconds, while the next pull cannot arrive for
+// another fire-rate interval. So the parity advances once per pull, server-side,
+// and the client has no say in which load it gets.
+function resolveShotgunLoad(player, weapon, now) {
+  if (weapon !== SHOTGUN_ALT.weapon) return null;
+  if (!player.shotgunPull || now - player.shotgunPull.at > SHOTGUN_ALT.pullWindowMs) {
+    // First pull of a life is buckshot; every pull after that flips.
+    player.shotgunPull = { at: now, slug: player.shotgunPull ? !player.shotgunPull.slug : false };
+  } else {
+    player.shotgunPull.at = now;
+  }
+  return player.shotgunPull.slug ? SHOTGUN_ALT.slug : SHOTGUN_ALT.buckshot;
+}
+
+// A fresh life always starts on buckshot, so the two runtimes cannot drift apart
+// permanently once a round or a death has reset them both.
+function resetShotgunLoad(player) {
+  if (player) player.shotgunPull = null;
+}
+
 function handlePlayerShoot(client, room, player, data) {
   if ((player.health || 0) <= 0 || player.respawningUntil) return;
   const now = Date.now();
@@ -4597,13 +4620,19 @@ function handlePlayerShoot(client, room, player, data) {
   const target = sanitizeVector(data.target, null);
   const wdef = WEAPONS[weapon];
   if (start && target && wdef) {
-    const playerPenetration = (Number(wdef.pellets) || 1) === 1 && Number(wdef.dmg?.body || 0) > 40;
+    // The load decides how many hits this shot may pay out and how hard they
+    // land, so it is stamped on the shot and read back when a hit correlates.
+    const load = resolveShotgunLoad(player, weapon, now);
+    const pellets = Math.max(1, Number((load ? load.pellets : wdef.pellets) || 1));
+    const dmg = load ? load.dmg : wdef.dmg;
+    const playerPenetration = pellets === 1 && Number(dmg?.body || 0) > 40;
     player.ac.recentShots.push({
       ts: now,
       weapon,
       start,
       target,
-      pellets: Math.max(1, Number(wdef.pellets || 1)),
+      pellets,
+      load,
       hitsUsed: 0,
       playerPenetration,
       hitTargets: new Set()
@@ -4803,7 +4832,10 @@ function handlePlayerHit(client, room, player, data) {
       if (weapon === 'Knife' && isBackstab(player.position, target)) damage *= 2;
     } else {
       const part = data.part === 'head' || data.part === 'legs' ? data.part : 'body'; // default to body
-      damage = wdef.dmg[part];
+      // A Breacher hit is worth whatever the pull it came from was loaded with.
+      // Falling back to the weapon table means an uncorrelated hit is buckshot,
+      // never the slug.
+      damage = (corr.shot?.load?.dmg || wdef.dmg)[part];
       killContext.headshot = part === 'head';
     }
   }
@@ -6487,6 +6519,7 @@ function resetUtilityLife(player) {
   // Deployed barricades outlive their owner's life; the allowance does not.
   player.barricadesDeployedThisLife = 0;
   player.c4DeployedThisLife = 0;
+  resetShotgunLoad(player);
 }
 
 function resetHealthshotLife(player) {

@@ -28,7 +28,7 @@ test('core carries one authoritative C4 table', () => {
 });
 
 test('C4 is appended to the weapon tables without moving existing indexes', () => {
-  assert.deepEqual(core.WEAPON_NAMES.slice(19), ['Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4']);
+  assert.deepEqual(core.WEAPON_NAMES.slice(19, 25), ['Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4']);
   assert.equal(core.weaponIndexFromName('C4'), 24);
   assert.equal(core.WEAPONS.C4.type, 'utility');
 });

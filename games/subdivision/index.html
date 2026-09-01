@@ -6414,6 +6414,7 @@
             MAC10: ['/assets/audio/weapons/mac10/mac10_01.wav', '/assets/audio/weapons/mac10/mac10_02.wav'],
             P90: ['/assets/audio/weapons/p90/p90_01.wav', '/assets/audio/weapons/p90/p90_02.wav'],
             Nova: ['/assets/audio/weapons/nova/nova-1.wav'],
+            Breacher: ['/assets/audio/weapons/nova/nova-1.wav'],
             XM1014: ['/assets/audio/weapons/xm1014/xm1014-1.wav']
         };
         const weaponDrawSfx = {
@@ -6427,6 +6428,7 @@
             MAC10: ['/assets/audio/weapons/mac10/mac10_draw.wav'],
             P90: ['/assets/audio/weapons/p90/p90_draw.mp3'],
             Nova: ['/assets/audio/weapons/nova/nova_draw.mp3'],
+            Breacher: ['/assets/audio/weapons/nova/nova_draw.mp3'],
             XM1014: ['/assets/audio/weapons/xm1014/xm1014_draw.mp3'],
             Frag: ['/assets/audio/weapons/hegrenade/he_draw.wav'],
             Smoke: ['/assets/audio/weapons/smokegrenade/smokegrenade_draw.wav'],
@@ -6443,6 +6445,7 @@
             MAC10: { out: ['/assets/audio/weapons/mac10/mac10_clipout.wav'], insert: ['/assets/audio/weapons/mac10/mac10_clipin.mp3'], action: ['/assets/audio/weapons/mac10/mac10_boltforward.wav'] },
             P90: { out: ['/assets/audio/weapons/p90/p90_clipout.wav'], insert: ['/assets/audio/weapons/p90/p90_clipin.wav'], action: ['/assets/audio/weapons/p90/p90_boltforward.wav'] },
             Nova: { out: ['/assets/audio/weapons/nova/nova_insertshell_01.mp3'], insert: ['/assets/audio/weapons/nova/nova_insertshell_03.mp3'], action: ['/assets/audio/weapons/nova/nova_pump.mp3'] },
+            Breacher: { out: ['/assets/audio/weapons/nova/nova_insertshell_01.mp3'], insert: ['/assets/audio/weapons/nova/nova_insertshell_03.mp3'], action: ['/assets/audio/weapons/nova/nova_pump.mp3'] },
             XM1014: { out: ['/assets/audio/weapons/xm1014/xm1014_insertshell_01.mp3'], insert: ['/assets/audio/weapons/xm1014/xm1014_insertshell_03.mp3'], action: ['/assets/audio/weapons/xm1014/xm1014_catch_03.mp3'] }
         };
         const weaponInspectSfx = {
@@ -6973,7 +6976,7 @@
             if(wpName==='AWP' || wpName==='SSG 08') { playNoise(0.8, 1.5, 3000, 100, pos, spatial); playNoise(0.2, 1.0, 8000, 1000, pos, spatial); }
             else if(wpName==='AK47' || wpName==='FAMAS') { playNoise(0.4, 1.0, 5000, 300, pos, spatial); playTone(150, 'sawtooth', 0.2, 0.5, pos, spatial); }
             else if(['Glock', 'Deagle', 'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver'].includes(wpName)) { playNoise(0.2, 0.8, 6000, 400, pos, spatial); playTone(200, 'square', 0.1, 0.4, pos, spatial); }
-            else if(wpName==='Nova' || wpName==='XM1014') { playNoise(0.6, 1.2, 2000, 100, pos, spatial); playNoise(0.3, 0.8, 7000, 500, pos, spatial); }
+            else if(wpName==='Nova' || wpName==='XM1014' || wpName==='Breacher') { playNoise(0.6, 1.2, 2000, 100, pos, spatial); playNoise(0.3, 0.8, 7000, 500, pos, spatial); }
             else if(wpName==='Knife') { playNoise(0.1, 0.5, 8000, 2000, pos, spatial); }
             else { playNoise(0.3, 0.8, 5000, 500, pos, spatial); }
         }
@@ -7187,8 +7190,49 @@
             { id: 24, name: 'Barricade', type: 'grenade', kind: 'barricade', damage: 0, rangeMod: 1.0, firerate: 0.9, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.88, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
             // Remote charge. Same utility typing as the barricade; the slot holds
             // the charge until one is planted and the detonator afterwards.
-            { id: 25, name: 'C4', type: 'grenade', kind: 'c4', damage: 0, rangeMod: 1.0, firerate: 0.6, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.94, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) }
+            { id: 25, name: 'C4', type: 'grenade', kind: 'c4', damage: 0, rangeMod: 1.0, firerate: 0.6, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.94, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
+            // Alternating shotgun. The pellet/damage/spread fields below are the
+            // buckshot load; applyBreacherLoad() swaps them for the slug between
+            // pulls, so everything downstream describes the shot about to happen.
+            { id: 26, name: 'Breacher', type: 'shotgun', damage: 13, armorDamage: wdmg('Nova'), rangeMod: 0.80, firerate: 0.85, spreadBase: 0.05, spreadMove: 0.05, mag: 6, reserve: 30, auto: false, speedMult: 0.88, pellets: 9, reloadTime: 3.2, barrelOffset: new THREE.Vector3(0, 0.1, -2.0), muzzleOffset: new THREE.Vector3(0, 0.1, -2.05) }
         ];
+
+        // ---- Breacher: alternating buckshot / slug ----
+        // The server decides which load a pull actually fires and owns the damage
+        // for it; this side keeps the weapon entry describing the same load so the
+        // pellet count, spread, crosshair and HUD all agree with what is coming.
+        const SHOTGUN_ALT = window.GameCore.SHOTGUN_ALT;
+        const BREACHER_LOADS = {
+            buckshot: {
+                pellets: SHOTGUN_ALT.buckshot.pellets,
+                damage: SHOTGUN_ALT.buckshot.dmg.body,
+                armorDamage: SHOTGUN_ALT.buckshot.dmg,
+                spreadBase: 0.05,
+                spreadMove: 0.05
+            },
+            slug: {
+                pellets: SHOTGUN_ALT.slug.pellets,
+                damage: SHOTGUN_ALT.slug.dmg.body,
+                armorDamage: SHOTGUN_ALT.slug.dmg,
+                spreadBase: 0.004,
+                spreadMove: 0.1
+            }
+        };
+        let breacherSlugLoaded = false; // false = the next pull is buckshot
+
+        function applyBreacherLoad(slug) {
+            const wp = weapons.find(weapon => weapon.name === SHOTGUN_ALT.weapon);
+            if (!wp) return;
+            breacherSlugLoaded = !!slug;
+            Object.assign(wp, BREACHER_LOADS[breacherSlugLoaded ? 'slug' : 'buckshot']);
+            lastHudText.weapon = null; // the HUD tag has to redraw with the load
+            if (gameStarted) updateUI();
+        }
+
+        // A life always starts on buckshot, matching the server's own reset, so the
+        // two cannot stay out of step past a death or a round.
+        function resetBreacherLoad() { applyBreacherLoad(false); }
+        function advanceBreacherLoad() { applyBreacherLoad(!breacherSlugLoaded); }
 
         const MOVEMENT_INACCURACY_MULT = 1.55;
         const AIR_INACCURACY_MULT = 2.75;
@@ -7289,7 +7333,8 @@
             'Smoke': { path: '/assets/weapons/smokegrenade.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.62, pos: [-0.32, 0.34, 0.8], rot: [1.04, 0, -1.38] }, tp: { length: 1.0, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'Flash': { path: '/assets/weapons/flashbang.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.68, pos: [-0.28, 0.22, 0.58], rot: [0.96, 0, 0.8] }, tp: { length: 1.0, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'Molotov': { path: '/assets/models/molotov.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.72, pos: [-0.72, 0.76, 1.36], rot: [1.08, 0, 0] }, tp: { length: 1.15, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
-            'C4': { path: '/assets/weapons/c4.glb', axis: 'z', fp: { length: 1.05, pos: [-0.6, 0.32, 1.15], rot: [0.28, Math.PI + 0.24, 0.16] }, tp: { length: 1.4, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } }
+            'C4': { path: '/assets/weapons/c4.glb', axis: 'z', fp: { length: 1.05, pos: [-0.6, 0.32, 1.15], rot: [0.28, Math.PI + 0.24, 0.16] }, tp: { length: 1.4, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
+            'Breacher': { path: '/assets/weapons/breacher.glb', axis: 'x', fp: { length: 3.15, pos: [-0.28, -0.16, -0.78] }, tp: { length: 4.6, pos: [0, 0.04, -1.78] } }
         };
         const PROCEDURAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
         const PLAYER_STAND_EYE_HEIGHT = 18;
@@ -7677,7 +7722,7 @@
         const REMOTE_STALE_AFTER_MS = 30000;
         const SPAWN_NEAR_PLAYER_RADIUS = 170;
         const SPAWN_NEAR_PLAYER_VERTICAL_RADIUS = 260;
-        const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10];
+        const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10, 25];
         const baseSidearmIndexes = [1, 2];
         const casualSidearmIndexes = baseSidearmIndexes;
         const CASUAL_ONLY_SIDEARMS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
@@ -16084,7 +16129,7 @@
             if (['Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4'].includes(weapon)) return 'grenade';
             if (['Glock', 'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver', 'Deagle'].includes(weapon)) return 'onehanded';
             if (['MAC10', 'P90'].includes(weapon)) return 'mp5';
-            if (['Nova', 'XM1014'].includes(weapon)) return 'shotgun';
+            if (['Nova', 'XM1014', 'Breacher'].includes(weapon)) return 'shotgun';
             if (weapon === 'AK47') return 'ak47';
             return 'rifle';
         }
@@ -16612,6 +16657,7 @@
                 case 'MAC10': createMesh(new THREE.BoxGeometry(0.25, 0.45, 1.2), matDarkGrey, 0, 0, 0); createMesh(new THREE.BoxGeometry(0.12, 1.0, 0.25), matBlack, 0, -0.6, 0.11); createMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5), matBlack, 0, 0.05, -0.81, Math.PI/2); createMesh(new THREE.BoxGeometry(0.3, 0.05, 1.0), matSilver, 0, 0.26, 0.5); break;
                 case 'P90': createMesh(new THREE.BoxGeometry(0.3, 0.5, 2.0), matBlack, 0, 0, 0); createMesh(new THREE.BoxGeometry(0.2, 0.1, 1.4), matSilver, 0, 0.31, -0.2); createMesh(new THREE.BoxGeometry(0.18, 0.7, 0.4), matBlack, 0, -0.4, -0.5, -0.3); createMesh(new THREE.BoxGeometry(0.18, 0.7, 0.4), matBlack, 0, -0.4, 0.3, 0.2); createMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.4), matDarkGrey, 0, 0.1, -1.21, Math.PI/2); break;
                 case 'Nova': createMesh(new THREE.BoxGeometry(0.22, 0.35, 1.5), matGrey, 0, 0, 0.5); createMesh(new THREE.CylinderGeometry(0.07, 0.07, 2.2), matDarkGrey, 0, 0.1, -1.01, Math.PI/2); createMesh(new THREE.BoxGeometry(0.28, 0.25, 0.8), matWood, 0, -0.1, -0.81); createMesh(new THREE.BoxGeometry(0.18, 0.35, 1.2), matWood, 0, -0.21, 1.51, -0.05); break;
+                case 'Breacher': createMesh(new THREE.BoxGeometry(0.24, 0.36, 1.7), matGrey, 0, 0, 0.4); createMesh(new THREE.CylinderGeometry(0.075, 0.075, 2.4), matDarkGrey, 0, 0.1, -1.1, Math.PI/2); createMesh(new THREE.BoxGeometry(0.26, 0.22, 0.9), matDarkGrey, 0, -0.12, -0.7); createMesh(new THREE.BoxGeometry(0.2, 0.36, 1.15), matWood, 0, -0.2, 1.5, -0.05); break;
                 case 'XM1014': createMesh(new THREE.BoxGeometry(0.22, 0.35, 1.5), matGrey, 0, 0, 0.5); createMesh(new THREE.CylinderGeometry(0.07, 0.07, 1.8), matBlack, 0, 0.1, -0.81, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.05, 0.05, 1.6), matDarkGrey, 0, -0.1, -0.81, Math.PI/2); createMesh(new THREE.BoxGeometry(0.18, 0.25, 1.0), matBlack, 0, -0.11, 1.51); break;
                 case 'FAMAS': createMesh(new THREE.BoxGeometry(0.22, 0.35, 2.2), matBlack, 0, 0, 0); createMesh(new THREE.BoxGeometry(0.08, 0.3, 1.5), matBlack, 0, 0.36, -0.1); createMesh(new THREE.BoxGeometry(0.12, 0.5, 0.3), matGrey, 0, -0.3, 0.81, 0.1); createMesh(new THREE.BoxGeometry(0.15, 0.6, 0.3), matBlack, 0, -0.4, -0.2, 0.1); createMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.6), matDarkGrey, 0, 0, -1.41, Math.PI/2); break;
                 case 'AK47': createMesh(new THREE.BoxGeometry(0.22, 0.35, 1.8), matDarkGrey, 0, 0, 0); createMesh(new THREE.CylinderGeometry(0.04, 0.04, 1.8), matGrey, 0, 0.08, -1.5, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.025, 0.025, 0.8), matGrey, 0, 0.16, -1.0, Math.PI/2); createMesh(new THREE.BoxGeometry(0.04, 0.15, 0.05), matDarkGrey, 0, 0.24, -2.3); createMesh(new THREE.BoxGeometry(0.18, 0.3, 1.2), matWood, 0, -0.1, 1.52, -0.05); createMesh(new THREE.BoxGeometry(0.24, 0.24, 1.0), matWood, 0, 0.04, -0.8); createMesh(new THREE.BoxGeometry(0.14, 0.8, 0.35), matBlack, 0, -0.52, -0.21, 0.2); break;
@@ -18854,7 +18900,7 @@
 
             const pistolNames = ['Glock', 'Deagle', 'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'R8 Revolver'];
             const isPistol = pistolNames.includes(weaponName);
-            const isShotgun = ['Nova', 'XM1014'].includes(weaponName);
+            const isShotgun = ['Nova', 'XM1014', 'Breacher'].includes(weaponName);
             const isSniper = ['SSG 08', 'AWP'].includes(weaponName);
             const length = weaponName === 'Deagle' || weaponName === 'R8 Revolver' ? 2.65 : isPistol ? 2.2 : isShotgun ? 4.8 : isSniper ? 6.2 : 4.5;
 
@@ -19215,6 +19261,7 @@
             isReloading = false;
             reloadTimer = 0;
             reloadDuration = 0;
+            resetBreacherLoad();
             ammoState = weapons.map(w => ({ mag: w.mag, reserve: w.reserve }));
             currentAmmo = ammoState[currentWeaponIndex].mag;
             reserveAmmo = ammoState[currentWeaponIndex].reserve;
@@ -19532,7 +19579,10 @@
         }
 
         function updateUI() {
-            const weaponText = weapons[currentWeaponIndex].name;
+            const activeWeapon = weapons[currentWeaponIndex];
+            const weaponText = activeWeapon.name === SHOTGUN_ALT.weapon
+                ? `${activeWeapon.name} · ${breacherSlugLoaded ? 'SLUG' : 'BUCK'}`
+                : activeWeapon.name;
             const ammoText = `${currentAmmo} / ${reserveAmmo}`;
             const modeText = isTimedMode() ? formatDeathmatchTimer() : `GUN: ${gunGameLevel + 1} / ${gunGameOrder.length}`;
             if (weaponText !== lastHudText.weapon) {
@@ -19612,7 +19662,7 @@
             if (weaponName === 'Knife') return 'kf-knife';
             if (['Frag', 'Molotov', 'Flash', 'Smoke', 'C4', 'Barricade'].includes(weaponName)) return 'kf-shotgun';
             if (['Glock', 'Deagle', 'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver'].includes(weaponName)) return 'kf-pistol';
-            if (['Nova', 'XM1014'].includes(weaponName)) return 'kf-shotgun';
+            if (['Nova', 'XM1014', 'Breacher'].includes(weaponName)) return 'kf-shotgun';
             if (['SSG 08', 'AWP'].includes(weaponName)) return 'kf-sniper';
             if (['MAC10', 'P90'].includes(weaponName)) return 'kf-smg';
             return 'kf-rifle';
@@ -21237,6 +21287,8 @@
                 sendShotPacket();
                 if (wp.type !== 'melee') spawnBullet(targetPoint, hitDist);
             }
+            // One trigger pull done: chamber the other load for the next one.
+            if (wp.name === SHOTGUN_ALT.weapon) advanceBreacherLoad();
             if (hitSomething) showHitmarker(bestHitContext || {});
         }
 
