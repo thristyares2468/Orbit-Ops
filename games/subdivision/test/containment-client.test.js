@@ -26,11 +26,11 @@ test('server-owned enemies are rendered, interpolated, and shootable', () => {
   assert.match(html, /group\.userData\?\.isRemotePlayer \|\| group\.userData\?\.isContainmentEnemy/u);
   assert.match(html, /assets\/characters\/zombies\/nuketown-zombies\.glb/u,
     'the supplied four-variant Nuketown zombie GLB remains available for later repair');
-  assert.match(html, /const USE_IMPORTED_CONTAINMENT_ZOMBIE_MODELS = false;/u,
-    'Zombies should temporarily use the original procedural model');
+  assert.match(html, /function useImportedContainmentZombieModels\(\) \{\s*return isAdminRoom;\s*\}/u,
+    'only the admin testing room should preview the imported COD zombies');
   assert.match(html, /function attachContainmentZombieModel\(actor, id\)/u);
-  assert.match(html, /if \(USE_IMPORTED_CONTAINMENT_ZOMBIE_MODELS\) attachContainmentZombieModel\(actor, id\);/u,
-    'the imported COD overlay should remain dormant behind an explicit switch');
+  assert.match(html, /if \(useImportedContainmentZombieModels\(\)\) attachContainmentZombieModel\(actor, id\);/u,
+    'normal Zombies rooms should retain the procedural model');
   assert.match(html, /function buildContainmentZombieRig\(model\)/u, 'the imported skeletons receive runtime animation rigs');
   assert.match(html, /function updateContainmentZombieRig\(actor, time, blend/u, 'idle, locomotion, attack and hit poses update each frame');
   assert.match(html, /function animateContainmentZombieDeath\(actor\)/u, 'kills play a rigged fall before removing the actor');
