@@ -7636,6 +7636,10 @@
         const containmentEnemyActors = new Map();
         const containmentGateActors = new Map();
         const CONTAINMENT_ZOMBIE_MODEL = '/assets/characters/zombies/nuketown-zombies.glb?v=20260825';
+        // Temporary presentation switch: keep the imported COD variants and
+        // loader available for their later rig/grounding repair, but use the
+        // original procedural zombie that is already aligned to gameplay.
+        const USE_IMPORTED_CONTAINMENT_ZOMBIE_MODELS = false;
         let containmentZombieTemplatePromise = null;
         let containmentCredits = 0;
         let containmentWeaponPrices = {};
@@ -12141,7 +12145,7 @@
             });
             actor.userData.ogColors = actor.userData.flashObjects.map(mesh => mesh.material.color.clone());
             containmentEnemyActors.set(id, actor);
-            attachContainmentZombieModel(actor, id);
+            if (USE_IMPORTED_CONTAINMENT_ZOMBIE_MODELS) attachContainmentZombieModel(actor, id);
             return actor;
         }
 
