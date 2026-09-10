@@ -62,6 +62,13 @@ test('RPG uses a dedicated layered fiery explosion cloud', () => {
   assert.match(client, /for \(let i = 0; i < 13; i\+\+\) addCloudPuff\(\{ fire: false/);
   assert.match(client, /for \(let i = 0; i < 18; i\+\+\)/);
   assert.match(client, /if \(f\.cloud\)[\s\S]{0,900}?f\.mesh\.material\.color\.lerpColors/);
+  assert.match(client, /const blastRadius = Math\.max\(24, Number\(radius\) \|\| GRENADE_CONFIG\.rpg\.radius\)/);
+  assert.match(client, /spawnFragFlash\(point, 0xfff0a0, blastRadius \* 0\.22\)/);
+  assert.match(client, /spawnFragShockwave\(point, blastRadius, true\)/);
+  assert.match(client, /const radialStart = blastRadius \*/);
+  assert.match(client, /const endScale = blastRadius \*/);
+  assert.match(client, /direction\.multiplyScalar\(blastRadius \*/);
+  assert.match(client, /matchRadius \? Math\.max\(18, radius \/ 1\.2 - 1\)/);
 });
 
 test('supplied GLB is installed and contains launcher and rocket materials', () => {
