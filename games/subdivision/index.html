@@ -7442,7 +7442,10 @@
             // rot [0,0,0] on purpose: the panel has to face square down the view.
             // Any yaw here reads as carrying it at a gun's angle across the body.
             'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.55, pos: [-2.6, 0.55, 0.5], rot: [0, 0, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } },
-            'RPG': { path: '/assets/weapons/rpg.glb', axis: 'z', fp: { length: 4.4, pos: [-0.55, -0.35, -1.15], rot: [0, Math.PI, 0] }, tp: { length: 5.2, pos: [0, 0.1, -1.8], rot: [0, Math.PI, 0] } }
+            // Source tube/rocket run along +Y. The shared Y-axis path rotates the
+            // muzzle toward -Z; no extra 180deg yaw is needed. Positive FP X keeps
+            // the shoulder-fired launcher on the player's right, like the rifles.
+            'RPG': { path: '/assets/weapons/rpg.glb', axis: 'y', fp: { length: 4.4, pos: [0.82, -0.42, -1.15] }, tp: { length: 5.2, pos: [0.18, 0.08, -1.8] } }
         };
         const PROCEDURAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
         const PLAYER_STAND_EYE_HEIGHT = 18;
@@ -14717,6 +14720,14 @@
             } else if (type === 'grenadeThrown') {
                 if (data.ownerId !== mySocketId && data.start && data.velocity) {
                     spawnGrenadeProjectile(data.id, data.kind, data.start, data.velocity, false);
+                    if (data.kind === 'rpg') {
+                        const remote = remotePlayers.get(data.ownerId);
+                        syncHeldRpgRocket(remote, false);
+                        setTimeout(() => {
+                            const currentRemote = remotePlayers.get(data.ownerId);
+                            if (currentRemote?.userData?.weapon === 'RPG') syncHeldRpgRocket(currentRemote, true);
+                        }, 2800);
+                    }
                     if (shouldHearRemoteGrenadeVoice(data.ownerTeam)) playGrenadeVoice(data.kind, Number(data.ownerTeam), data.start);
                 }
             } else if (type === 'grenadeBurst') {
@@ -16825,8 +16836,21 @@
                 if (parent.userData?.isAgentWeaponHolder) applyAgentHeldWeaponTransform(parent, rig, weaponName);
                 clearObjectChildren(parent);
                 parent.add(rig);
+                if (weaponName === 'RPG') syncHeldRpgRocket(rig, view === 'firstPerson' ? null : true);
             }).catch(() => {});
             return true;
+        }
+
+        function syncHeldRpgRocket(root = weaponGroup, loadedOverride = null) {
+            if (!root) return;
+            const loaded = loadedOverride === null ? Number(currentAmmo) > 0 : !!loadedOverride;
+            root.traverse(obj => {
+                if (!obj.isMesh) return;
+                const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+                const names = materials.map(mat => String(mat?.name || '')).join(' ');
+                if (/rocket_?\.001/i.test(names)) obj.visible = false;
+                else if (/(^|\s)rocket($|\s)/i.test(names)) obj.visible = loaded;
+            });
         }
 
         // THE ORIGINAL, RESTORED GUN MODELS
@@ -19837,6 +19861,7 @@
                 currentAmmo += fromReserve; if (reserveAmmo !== '-') reserveAmmo -= fromReserve;
                 isReloading = false;
                 clearRpgReloadRocket();
+                if (wp.name === 'RPG') syncHeldRpgRocket();
                 updateUI();
             };
             if (insta) {
@@ -21335,6 +21360,7 @@
                 }
                 currentAmmo--;
                 ammoState[currentWeaponIndex] = { mag: currentAmmo, reserve: reserveAmmo };
+                syncHeldRpgRocket();
                 updateUI();
                 clearLocalSpawnProtectionForAction();
                 lastFireTime = time;
@@ -23169,7 +23195,7 @@
                     rocket.scale.setScalar(scale);
                     const scaledBox = new THREE.Box3().setFromObject(rocket);
                     rocket.position.sub(scaledBox.getCenter(new THREE.Vector3()));
-                    rocket.rotation.x = Math.PI / 2;
+                    rocket.rotation.x = -Math.PI / 2;
                     group.remove(fallback);
                     fallback.geometry.dispose();
                     fallback.material.dispose();
