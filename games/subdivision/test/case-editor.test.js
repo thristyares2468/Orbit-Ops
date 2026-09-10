@@ -67,6 +67,10 @@ assert.ok(skins.CASE_DESIGNS.some(({ id }) => id === 'tradie-esky'), 'case desig
 for (const id of ['gardener-case', 'lawn-care-case', 'mulch-case', 'nuke-case', 'warehouse-case']) {
   assert.ok(skins.CASE_DESIGNS.some((design) => design.id === id), `case designs should include ${id}`);
 }
+assert.ok(skins.CASE_DESIGNS.some(({ id }) => id === 'curry-case'), 'case designs should include the Curry Case');
+assert.ok(fs.existsSync(path.join(ROOT, 'assets/ui/cases/curry-case.jpg')), 'Curry Case artwork should ship with the game');
+assert.match(indexHtml, /\['curry-case', 'Curry Case'\]/, 'client fallback designs should include the Curry Case');
+assert.match(indexHtml, /\/\(curry\|turmeric\|saffron\|spice\)\//, 'legacy Curry cases should resolve to the authored artwork');
 assert.strictEqual(customCase.discountPrice, 300, 'case sanitizer should preserve a bounded discount price');
 assert.strictEqual(customCase.finalDiscountMinutes, 120, 'case sanitizer should preserve final availability discount duration');
 const finalDiscountCase = { ...customCase, marketVisible: true };

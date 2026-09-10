@@ -11282,7 +11282,7 @@
             ['signal-static', 'Signal Static'], ['tradie-esky', 'Tradie Esky'],
             ['gardener-case', 'Gardener Case'], ['lawn-care-case', 'Lawn-Care Case'],
             ['mulch-case', 'Mulch Case'], ['nuke-case', 'Nuke Case'],
-            ['warehouse-case', 'Warehouse Case']
+            ['warehouse-case', 'Warehouse Case'], ['curry-case', 'Curry Case']
         ].map(([id, displayName]) => ({ id, displayName }));
         const CASE_DESIGN_IDS_CLIENT = new Set(CASE_DESIGNS_CLIENT.map(({ id }) => id));
 
@@ -11310,6 +11310,7 @@
             if (/(mulch|compost|bark)/.test(text)) return 'mulch-case';
             if (/(nuke|nuclear|atomic)/.test(text)) return 'nuke-case';
             if (/(warehouse|logistics|cargo)/.test(text)) return 'warehouse-case';
+            if (/(curry|turmeric|saffron|spice)/.test(text)) return 'curry-case';
             if (/(garden|lawn|yard|backyard|mower|mowing)/.test(text)) return 'garden-bloom';
             if (/(tradie|esky|cooler|worksite|toolbox)/.test(text)) return 'tradie-esky';
             if (/(green|emerald|leaf|lotus|bio)/.test(text)) return 'bio-dome';
