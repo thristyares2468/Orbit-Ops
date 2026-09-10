@@ -63,6 +63,10 @@ const MSG_LIMITS = {
   // is only a little looser than the write because it reloads after each edit.
   adminInventoryLookup: { ratePerSec: 1, burst: 4 },
   adminInventoryEdit: { ratePerSec: 0.5, burst: 3 },
+  // Privilege escalation, so slower than the other owner tools even though it
+  // only ever runs at human-click pace anyway.
+  adminListRoles: { ratePerSec: 1, burst: 4 },
+  adminSetRole: { ratePerSec: 0.25, burst: 2 },
   getSkinInventory: { ratePerSec: 1, burst: 3 },
   marketList: { ratePerSec: 1, burst: 3 },
   marketCreateListing: { ratePerSec: 0.5, burst: 2 },

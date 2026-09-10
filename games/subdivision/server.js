@@ -866,6 +866,81 @@ function handleMessage(client, raw) {
     return;
   }
 
+  // Granting admin/owner is privilege escalation, so unlike every other tool
+  // on this list it is gated on isOwnerAdminUser rather than isAdminUser - a
+  // plain admin must not be able to mint more admins, let alone take the
+  // single owner slot.
+  if (type === 'adminListRoles') {
+    if (!isOwnerAdminUser(client) || !db.isEnabled()) return;
+    db.listAccountRoles({ search: data?.search, limit: data?.limit })
+      .then((accounts) => send(client, 'adminRoles', { accounts }))
+      .catch((error) => {
+        console.error('[owner-tools] role list failed:', error.message);
+        send(client, 'adminToolsStatus', { ok: false, message: 'Could not load roles.' });
+      });
+    return;
+  }
+
+  if (type === 'adminSetRole') {
+    if (!isOwnerAdminUser(client) || !db.isEnabled()) return;
+    const accountId = Number(data?.accountId);
+    const role = String(data?.role || '').trim().toLowerCase();
+    if (!Number.isInteger(accountId) || accountId <= 0) {
+      send(client, 'adminToolsStatus', { ok: false, message: 'Choose a valid account.' });
+      return;
+    }
+    if (!['user', 'admin', 'owner'].includes(role)) {
+      send(client, 'adminToolsStatus', { ok: false, message: 'Choose a valid role.' });
+      return;
+    }
+    // The single-owner invariant depends on this: the only way to lose owner
+    // status is to be replaced by a transfer, which always leaves exactly one
+    // owner. Letting the owner target themselves would open a path to zero.
+    if (accountId === Number(client.accountId)) {
+      send(client, 'adminToolsStatus', { ok: false, message: 'You cannot change your own role.' });
+      return;
+    }
+    db.setAccountRole({ accountId, role })
+      .then((result) => {
+        if (!result.ok) {
+          const message = result.reason === 'missing' ? 'That account no longer exists.' : 'Could not change that role.';
+          send(client, 'adminToolsStatus', { ok: false, message });
+          return;
+        }
+        console.log(`[owner-tools] ${client.username} set account ${accountId} (${result.account.username}) role to ${role}`);
+        try { db.logIpEvent({ event: 'admin_set_role', accountId: client.accountId, detail: `${accountId}:${role}` }); } catch {}
+        send(client, 'adminToolsStatus', {
+          ok: true,
+          message: result.previousOwnerId
+            ? `${result.account.username} is now Owner. You are now Admin.`
+            : `${result.account.username} is now ${role}.`
+        });
+        send(client, 'adminRoleUpdated', { accountId, role });
+        // Pushed live rather than waiting for the next sign-in: a role that
+        // silently takes effect later reads as the tool not having worked.
+        const target = findClientByAccountId(String(accountId));
+        if (target) {
+          target.accountRole = role;
+          send(target, 'accountRoleUpdated', { role, isAdmin: isAdminUser(target), isOwnerAdmin: isOwnerAdminUser(target) });
+        }
+        // An ownership transfer demotes whoever held it before - which, given
+        // the self-target block above, is always someone other than the
+        // caller's target but may be the caller themselves.
+        if (result.previousOwnerId) {
+          const previousOwner = findClientByAccountId(String(result.previousOwnerId));
+          if (previousOwner) {
+            previousOwner.accountRole = 'admin';
+            send(previousOwner, 'accountRoleUpdated', { role: 'admin', isAdmin: true, isOwnerAdmin: false });
+          }
+        }
+      })
+      .catch((error) => {
+        console.error('[owner-tools] set role failed:', error.message);
+        send(client, 'adminToolsStatus', { ok: false, message: 'Could not change that role.' });
+      });
+    return;
+  }
+
   if (type === 'adminSetMowbucks') {
     if (!isAdminUser(client) || !db.isEnabled()) return;
     const accountId = Number(data?.accountId);

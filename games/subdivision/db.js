@@ -633,6 +633,71 @@ async function setMowbucks(accountId, amount) {
   return Number(rows[0]?.mowbucks ?? 0);
 }
 
+async function listAccountRoles({ search = '', limit = 100 } = {}) {
+  const term = String(search || '').trim().toLowerCase();
+  const { rows } = await query(
+    `SELECT id, username, role
+       FROM accounts
+      WHERE ($1 = '' OR lower(username) LIKE '%' || $1 || '%')
+      ORDER BY (role = 'owner') DESC, (role = 'admin') DESC, username ASC
+      LIMIT $2`,
+    [term, Math.max(1, Math.min(500, Number(limit) || 100))]
+  );
+  return rows.map((row) => ({ accountId: Number(row.id), username: row.username, role: row.role }));
+}
+
+// Roles are user/admin/owner, and owner is a singleton - a partial unique
+// index (uq_accounts_single_owner) forbids two accounts holding it at once.
+// Promoting a new owner is therefore an ownership *transfer*, not just a
+// grant: the current holder is stepped down to admin in the same transaction
+// so the index is never violated and there is never a moment with two owners.
+//
+// There is no path here that can reach zero owners. The only way to lose
+// owner status is to be replaced by this same transfer, which always leaves
+// exactly one. The caller in server.js additionally refuses to let an owner
+// target themselves, which is what stops an owner demoting themselves into
+// that gap by hand.
+async function setAccountRole({ accountId, role }) {
+  const nextRole = String(role || '').trim().toLowerCase();
+  if (!['user', 'admin', 'owner'].includes(nextRole)) return { ok: false, reason: 'invalid' };
+  if (!pool) throw new Error('Database not configured (DATABASE_URL missing)');
+  const id = Number(accountId);
+  if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, reason: 'invalid' };
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const target = await client.query(`SELECT id FROM accounts WHERE id = $1 FOR UPDATE`, [id]);
+    if (!target.rows[0]) { await client.query('ROLLBACK'); return { ok: false, reason: 'missing' }; }
+
+    let previousOwnerId = null;
+    if (nextRole === 'owner') {
+      const demoted = await client.query(
+        `UPDATE accounts SET role = 'admin' WHERE role = 'owner' AND id <> $1 RETURNING id`,
+        [id]
+      );
+      previousOwnerId = demoted.rows[0] ? Number(demoted.rows[0].id) : null;
+    }
+
+    const updated = await client.query(
+      `UPDATE accounts SET role = $2 WHERE id = $1 RETURNING id, username, role`,
+      [id, nextRole]
+    );
+    await client.query('COMMIT');
+    const row = updated.rows[0];
+    return {
+      ok: true,
+      account: { id: Number(row.id), username: row.username, role: row.role },
+      previousOwnerId
+    };
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function findAccountByUsername(username) {
   const { rows } = await query(
     'SELECT id, username, role FROM accounts WHERE lower(username) = lower($1) LIMIT 1',
@@ -4151,6 +4216,8 @@ module.exports = {
   setSkinLoadout,
   clearSkinLoadout,
   clearPlayerInventory,
+  listAccountRoles,
+  setAccountRole,
   adminInventorySnapshot,
   adminSetSkinWear,
   adminRemoveSkinInstance,

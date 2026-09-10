@@ -45,6 +45,15 @@
         /* A locked item is still shown - knowing it exists is the point - but
            the controls that would break the commitment are disabled. */
         .inv-editor-lock { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 3px; background: #4a3410; color: #ffc46a; font-size: 11px; letter-spacing: .04em; }
+
+        /* Player roles. Reuses the inv-editor row shape; the role select gets
+           its own styling so choosing Owner reads as a bigger decision than
+           choosing Admin, without needing a popup to say so. */
+        .role-row { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid #3a3f3b; }
+        .role-row .role-name { flex: 1; text-align: left; font: 13px 'Courier New', monospace; color: #dfe8e2; }
+        .role-select { background: #101010; border: 1px solid #555; color: #fff; border-radius: 4px; padding: 6px 8px; font: 12px 'Courier New', monospace; }
+        .role-select[data-role="owner"] { border-color: #ffaa00; color: #ffaa00; }
+        .role-note { font-size: 11px; color: #ffc46a; margin-top: -4px; text-align: left; }
         .menu-status { min-height: 22px; margin-top: 8px; color: #cfcfcf; font-family: 'Courier New', Courier, monospace; font-size: 14px; }
         .username-input { width: 100%; box-sizing: border-box; padding: 14px; margin-bottom: 15px; background: #101010; border: 1px solid #555; color: white; border-radius: 4px; font-size: 16px; text-align: center; font-family: 'Courier New', Courier, monospace; }
         .username-input:focus { outline: none; border-color: #ffaa00; box-shadow: 0 0 0 2px rgba(255,170,0,0.2); }
@@ -1813,6 +1822,10 @@
             <button class="menu-btn primary" id="btn-owner-grant-skin" type="button" style="display:none;">Grant Skin</button>
             <button class="menu-btn primary" id="btn-owner-balances" type="button" style="display:none;">Player Balances</button>
             <button class="menu-btn primary" id="btn-owner-inventory-editor" type="button" style="display:none;">Inventory Editor</button>
+            <!-- Owner-only, not admin-only: granting admin or owner is
+                 privilege escalation, so a plain admin must not reach this
+                 even to look at it. -->
+            <button class="menu-btn primary" id="btn-owner-player-roles" type="button" style="display:none;">Player Roles</button>
             <button class="menu-btn" id="btn-owner-recovery-lookup" type="button" style="display:none;">Admin Recovery Lookup</button>
             <button class="menu-btn danger" id="btn-owner-reset-all-xp" type="button" style="display:none;">Reset All XP</button>
             <div id="owner-only-section" style="display:none;">
@@ -1841,6 +1854,21 @@
             <button class="menu-btn" id="btn-balances-refresh" type="button">Refresh</button>
             <div id="balances-list" class="admin-list"></div>
             <div class="menu-status" id="balances-status"></div>
+        </div>
+
+        <!-- Owner-only: user/admin/owner for any registered account. Owner is a
+             singleton, so choosing it is a transfer - the current owner steps
+             down to admin, and the panel says so before it happens rather than
+             behind a window.confirm(), which Chrome's dialog-suppression can
+             leave permanently returning false and reading as a broken button. -->
+        <div id="player-roles-menu" class="menu-container">
+            <button class="panel-close" id="btn-player-roles-back" type="button" aria-label="Close">×</button>
+            <div class="menu-title" style="color: var(--jim-green-lite);">PLAYER ROLES</div>
+            <div class="host-menu-note">Set any account to User, Admin, or Owner. Owner is one seat — promoting someone new steps you down to Admin.</div>
+            <input id="player-roles-search" class="username-input" maxlength="20" placeholder="Filter by username" autocomplete="off" spellcheck="false">
+            <button class="menu-btn" id="btn-player-roles-refresh" type="button">Refresh</button>
+            <div id="player-roles-list" class="admin-list"></div>
+            <div class="menu-status" id="player-roles-status"></div>
         </div>
 
         <!-- Per-item counterpart to the whole-account "clear inventory" in the
@@ -4312,6 +4340,12 @@
             if (caseId) invEditorSend('grantCase', { caseId, quantity });
         });
         document.getElementById('btn-owner-balances').addEventListener('click', () => showBalances('title'));
+        document.getElementById('btn-owner-player-roles').addEventListener('click', () => showPlayerRoles('title'));
+        document.getElementById('btn-player-roles-back').addEventListener('click', closeOverlayPanel);
+        document.getElementById('btn-player-roles-refresh').addEventListener('click', requestPlayerRoles);
+        document.getElementById('player-roles-search').addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') requestPlayerRoles();
+        });
         document.getElementById('btn-grant-skin-back').addEventListener('click', closeOverlayPanel);
         document.getElementById('btn-balances-back').addEventListener('click', closeOverlayPanel);
         document.getElementById('btn-balances-refresh').addEventListener('click', requestBalances);
@@ -4632,7 +4666,7 @@
             return [accountMenu, createGameMenu, serverBrowser, settingsMenu, leaderboardMenu,
                 document.getElementById('profile-menu'), ownerAdminMenu, banManagerMenu, caseEditorMenu, dailyChallengeEditorMenu,
                 document.getElementById('grant-skin-menu'), document.getElementById('balances-menu'),
-                document.getElementById('inventory-editor-menu'),
+                document.getElementById('inventory-editor-menu'), document.getElementById('player-roles-menu'),
                 friendsMenu, inventoryMenu, tradeUpMenu, marketplaceMenu, newsMenu];
         }
 
@@ -7408,10 +7442,7 @@
             // rot [0,0,0] on purpose: the panel has to face square down the view.
             // Any yaw here reads as carrying it at a gun's angle across the body.
             'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.55, pos: [-2.6, 0.55, 0.5], rot: [0, 0, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } },
-            // Source tube/rocket run along +Y. The shared Y-axis path rotates the
-            // muzzle toward -Z; no extra 180deg yaw is needed. Positive FP X keeps
-            // the shoulder-fired launcher on the player's right, like the rifles.
-            'RPG': { path: '/assets/weapons/rpg.glb', axis: 'y', fp: { length: 4.4, pos: [0.82, -0.42, -1.15] }, tp: { length: 5.2, pos: [0.18, 0.08, -1.8] } }
+            'RPG': { path: '/assets/weapons/rpg.glb', axis: 'z', fp: { length: 4.4, pos: [-0.55, -0.35, -1.15], rot: [0, Math.PI, 0] }, tp: { length: 5.2, pos: [0, 0.1, -1.8], rot: [0, Math.PI, 0] } }
         };
         const PROCEDURAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
         const PLAYER_STAND_EYE_HEIGHT = 18;
@@ -9389,6 +9420,39 @@
             }
             setAuthStatus(data.message || 'Something went wrong. Try again.', false);
         }
+        // Every place role determines what is visible in the account/owner UI,
+        // pulled into one function so it can run both after login and when a
+        // live accountRoleUpdated packet changes a role mid-session - without
+        // this, a promoted-or-demoted admin would need to relog to see it.
+        function applyAccountRoleUI() {
+            document.getElementById('hub-account-meta').textContent = isGuest ? 'Guest' : (accountIsOwnerAdmin ? 'Owner' : (accountIsAdmin ? 'Admin' : 'Account'));
+            document.getElementById('account-menu-meta').textContent = isGuest
+                ? 'Guest session'
+                : `${accountIsOwnerAdmin ? 'Owner administrator' : (accountIsAdmin ? 'Administrator' : 'Registered account')}${myAccountId ? ` · Account ${myAccountId}` : ''}`;
+            document.getElementById('btn-account-settings').style.display = isGuest ? 'none' : 'block';
+            // Each tool keeps the permission it had before the move.
+            const adminOnly = accountIsAdmin ? 'block' : 'none';
+            document.getElementById('btn-owner-recovery-lookup').style.display = adminOnly;
+            document.getElementById('btn-owner-case-editor').style.display = adminOnly;
+            document.getElementById('btn-owner-daily-challenges').style.display = adminOnly;
+            document.getElementById('btn-owner-reset-all-xp').style.display = adminOnly;
+            document.getElementById('btn-owner-grant-skin').style.display = adminOnly;
+            document.getElementById('btn-owner-balances').style.display = adminOnly;
+            document.getElementById('btn-owner-inventory-editor').style.display = adminOnly;
+            // Owner-only, unlike everything above: granting admin or owner is
+            // privilege escalation, not routine moderation.
+            document.getElementById('btn-owner-player-roles').style.display = accountIsOwnerAdmin ? 'block' : 'none';
+            document.getElementById('owner-only-section').style.display = accountIsOwnerAdmin ? 'block' : 'none';
+            const profileButton = document.getElementById('btn-profile');
+            if (profileButton) profileButton.style.display = isGuest ? 'none' : 'block';
+            // The account menu now has one way in rather than two. It has to open
+            // for a plain admin as well as the owner, or moving the ban manager
+            // behind an owner-only entry would lock admins out of moderation.
+            ownerAdminButton.style.display = (accountIsAdmin || accountIsOwnerAdmin) ? 'block' : 'none';
+            banManagerButton.style.display = accountIsAdmin ? 'block' : 'none';
+            updateAdminRoomJoinButton();
+        }
+
         function applyAuthOk(data) {
             const wasReconnecting = netState === 'reconnecting';
             isAuthed = true; isGuest = !!data.guest; myAccountId = data.accountId || null; accountIsAdmin = !!data.isAdmin; accountIsOwnerAdmin = !!data.isOwnerAdmin;
@@ -9509,29 +9573,7 @@
             myStats.name = username; if (typeof updateLocalPlayerName === 'function') updateLocalPlayerName();
             document.getElementById('account-name').textContent = username;
             document.getElementById('account-menu-name').textContent = username;
-            document.getElementById('hub-account-meta').textContent = isGuest ? 'Guest' : (accountIsOwnerAdmin ? 'Owner' : (accountIsAdmin ? 'Admin' : 'Account'));
-            document.getElementById('account-menu-meta').textContent = isGuest
-                ? 'Guest session'
-                : `${accountIsOwnerAdmin ? 'Owner administrator' : (accountIsAdmin ? 'Administrator' : 'Registered account')}${myAccountId ? ` · Account ${myAccountId}` : ''}`;
-            document.getElementById('btn-account-settings').style.display = isGuest ? 'none' : 'block';
-            // Each tool keeps the permission it had before the move.
-            const adminOnly = accountIsAdmin ? 'block' : 'none';
-            document.getElementById('btn-owner-recovery-lookup').style.display = adminOnly;
-            document.getElementById('btn-owner-case-editor').style.display = adminOnly;
-            document.getElementById('btn-owner-daily-challenges').style.display = adminOnly;
-            document.getElementById('btn-owner-reset-all-xp').style.display = adminOnly;
-            document.getElementById('btn-owner-grant-skin').style.display = adminOnly;
-            document.getElementById('btn-owner-balances').style.display = adminOnly;
-            document.getElementById('btn-owner-inventory-editor').style.display = adminOnly;
-            document.getElementById('owner-only-section').style.display = accountIsOwnerAdmin ? 'block' : 'none';
-            const profileButton = document.getElementById('btn-profile');
-            if (profileButton) profileButton.style.display = isGuest ? 'none' : 'block';
-            // The account menu now has one way in rather than two. It has to open
-            // for a plain admin as well as the owner, or moving the ban manager
-            // behind an owner-only entry would lock admins out of moderation.
-            ownerAdminButton.style.display = (accountIsAdmin || accountIsOwnerAdmin) ? 'block' : 'none';
-            banManagerButton.style.display = accountIsAdmin ? 'block' : 'none';
-            updateAdminRoomJoinButton();
+            applyAccountRoleUI();
             chatHint.innerText = 'Return: team chat · Shift+Return: all chat';
             if (data.stats) renderProfile(data.stats, username);
             loadLocalDailyChallengeProgress();
@@ -9870,6 +9912,104 @@
                 item.append(name, add);
                 list.append(item);
             }
+        }
+
+        // --- owner tools: player roles ---------------------------------------
+        //
+        // User/admin/owner for any registered account. Owner-gated at every
+        // layer that matters - the button's own visibility, the server's
+        // packet handlers - because handing out admin is privilege escalation,
+        // not routine moderation.
+        let playerRolesRows = [];
+
+        function showPlayerRoles(from = 'title') {
+            if (!accountIsOwnerAdmin) return;
+            showExperimentalPanel(document.getElementById('player-roles-menu'), 'btn-account-menu', from === 'pause' ? 'pause' : 'title');
+            document.getElementById('player-roles-status').textContent = '';
+            requestPlayerRoles();
+        }
+
+        function requestPlayerRoles() {
+            const list = document.getElementById('player-roles-list');
+            list.replaceChildren();
+            const loading = document.createElement('div');
+            loading.className = 'leader-empty';
+            loading.textContent = 'Loading…';
+            list.append(loading);
+            sendPacket('adminListRoles', { search: document.getElementById('player-roles-search').value.trim() });
+        }
+
+        function renderPlayerRoles(accounts) {
+            playerRolesRows = Array.isArray(accounts) ? accounts : [];
+            const list = document.getElementById('player-roles-list');
+            list.replaceChildren();
+            if (!playerRolesRows.length) {
+                const empty = document.createElement('div');
+                empty.className = 'leader-empty';
+                empty.textContent = 'No accounts match that.';
+                list.append(empty);
+                return;
+            }
+            for (const row of playerRolesRows) {
+                const item = document.createElement('div');
+                item.className = 'role-row';
+                const name = document.createElement('span');
+                name.className = 'role-name';
+                // You cannot target yourself - the single-owner invariant
+                // depends on it - so say why the row has no controls rather
+                // than leaving a select that would just be rejected. Account
+                // ids arrive as a Postgres bigint over one path and a plain
+                // number over the other, so this compares numerically rather
+                // than trusting both sides to already agree on type.
+                const isSelf = Number(row.accountId) === Number(myAccountId);
+                name.textContent = isSelf ? `${row.username} (you)` : row.username;
+                item.append(name);
+
+                if (isSelf) {
+                    const badge = document.createElement('span');
+                    badge.className = 'inv-editor-lock';
+                    badge.textContent = row.role;
+                    item.append(badge);
+                    list.append(item);
+                    continue;
+                }
+
+                const select = document.createElement('select');
+                select.className = 'role-select';
+                select.dataset.role = row.role;
+                for (const value of ['user', 'admin', 'owner']) {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = value === 'user' ? 'User' : (value === 'admin' ? 'Admin' : 'Owner');
+                    if (value === row.role) option.selected = true;
+                    select.append(option);
+                }
+                select.addEventListener('change', () => { select.dataset.role = select.value; });
+
+                const save = document.createElement('button');
+                save.className = 'menu-btn';
+                save.type = 'button';
+                save.textContent = 'Save';
+                save.addEventListener('click', () => {
+                    const chosen = select.value;
+                    if (chosen === row.role) return;
+                    document.getElementById('player-roles-status').textContent =
+                        chosen === 'owner' ? 'Transferring ownership…' : 'Working…';
+                    sendPacket('adminSetRole', { accountId: row.accountId, role: chosen });
+                });
+
+                item.append(select, save);
+                list.append(item);
+            }
+        }
+
+        function applyPlayerRoleUpdate(accountId, role) {
+            const row = playerRolesRows.find((entry) => entry.accountId === accountId);
+            if (row) row.role = role;
+            // A transfer changes a second row too - whoever held Owner before -
+            // and the server does not repeat that row's id in this packet, so
+            // the list is simply reloaded rather than patched by hand.
+            if (document.getElementById('player-roles-menu').style.display !== 'none') requestPlayerRoles();
         }
 
         function showGrantSkin(from = 'title') {
@@ -14031,7 +14171,7 @@
                 const row = document.querySelector(`#balances-list .owner-row[data-account-id="${data?.accountId}"] input`);
                 if (row) row.value = String(data?.mowbucks ?? row.value);
             } else if (type === 'adminToolsStatus') {
-                for (const id of ['grant-skin-status', 'balances-status']) {
+                for (const id of ['grant-skin-status', 'balances-status', 'player-roles-status']) {
                     const node = document.getElementById(id);
                     if (node && node.closest('.menu-container').style.display !== 'none') node.textContent = data?.message || '';
                 }
@@ -14039,6 +14179,18 @@
                 applyInventoryEditorData(data || {});
             } else if (type === 'adminInventoryStatus') {
                 document.getElementById('inv-editor-status').textContent = data?.message || '';
+            } else if (type === 'adminRoles') {
+                renderPlayerRoles(data?.accounts || []);
+            } else if (type === 'adminRoleUpdated') {
+                applyPlayerRoleUpdate(Number(data?.accountId), data?.role);
+            } else if (type === 'accountRoleUpdated') {
+                // The server changed this session's own role, mid-session. Applied
+                // live so an admin who is promoted or demoted sees their tools
+                // appear or disappear immediately, with no relog required.
+                accountIsAdmin = !!data?.isAdmin;
+                accountIsOwnerAdmin = !!data?.isOwnerAdmin;
+                applyAccountRoleUI();
+                if (document.getElementById('player-roles-menu').style.display !== 'none') requestPlayerRoles();
             } else if (type === 'mowbucksUpdated') {
                 // An owner changed this account's balance while it was online.
                 accountMowbucks = Math.max(0, Number(data?.mowbucks ?? accountMowbucks));
@@ -14565,14 +14717,6 @@
             } else if (type === 'grenadeThrown') {
                 if (data.ownerId !== mySocketId && data.start && data.velocity) {
                     spawnGrenadeProjectile(data.id, data.kind, data.start, data.velocity, false);
-                    if (data.kind === 'rpg') {
-                        const remote = remotePlayers.get(data.ownerId);
-                        syncHeldRpgRocket(remote, false);
-                        setTimeout(() => {
-                            const currentRemote = remotePlayers.get(data.ownerId);
-                            if (currentRemote?.userData?.weapon === 'RPG') syncHeldRpgRocket(currentRemote, true);
-                        }, 2800);
-                    }
                     if (shouldHearRemoteGrenadeVoice(data.ownerTeam)) playGrenadeVoice(data.kind, Number(data.ownerTeam), data.start);
                 }
             } else if (type === 'grenadeBurst') {
@@ -16681,21 +16825,8 @@
                 if (parent.userData?.isAgentWeaponHolder) applyAgentHeldWeaponTransform(parent, rig, weaponName);
                 clearObjectChildren(parent);
                 parent.add(rig);
-                if (weaponName === 'RPG') syncHeldRpgRocket(rig, view === 'firstPerson' ? null : true);
             }).catch(() => {});
             return true;
-        }
-
-        function syncHeldRpgRocket(root = weaponGroup, loadedOverride = null) {
-            if (!root) return;
-            const loaded = loadedOverride === null ? Number(currentAmmo) > 0 : !!loadedOverride;
-            root.traverse(obj => {
-                if (!obj.isMesh) return;
-                const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
-                const names = materials.map(mat => String(mat?.name || '')).join(' ');
-                if (/rocket_?\.001/i.test(names)) obj.visible = false;
-                else if (/(^|\s)rocket($|\s)/i.test(names)) obj.visible = loaded;
-            });
         }
 
         // THE ORIGINAL, RESTORED GUN MODELS
@@ -19706,7 +19837,6 @@
                 currentAmmo += fromReserve; if (reserveAmmo !== '-') reserveAmmo -= fromReserve;
                 isReloading = false;
                 clearRpgReloadRocket();
-                if (wp.name === 'RPG') syncHeldRpgRocket();
                 updateUI();
             };
             if (insta) {
@@ -21205,7 +21335,6 @@
                 }
                 currentAmmo--;
                 ammoState[currentWeaponIndex] = { mag: currentAmmo, reserve: reserveAmmo };
-                syncHeldRpgRocket();
                 updateUI();
                 clearLocalSpawnProtectionForAction();
                 lastFireTime = time;
@@ -23040,7 +23169,7 @@
                     rocket.scale.setScalar(scale);
                     const scaledBox = new THREE.Box3().setFromObject(rocket);
                     rocket.position.sub(scaledBox.getCenter(new THREE.Vector3()));
-                    rocket.rotation.x = -Math.PI / 2;
+                    rocket.rotation.x = Math.PI / 2;
                     group.remove(fallback);
                     fallback.geometry.dispose();
                     fallback.material.dispose();
