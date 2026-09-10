@@ -1502,14 +1502,16 @@ function handleMessage(client, raw) {
     const start = sanitizeVector(data.start, null);
     const velocity = sanitizeVector(data.velocity, null);
     if (!id || !start || !velocity) return;
+    let rpgInfiniteAmmo = false;
     if (kind === 'rpg') {
       if (!isAdminRoom(room) || player.weapon !== 'RPG') return;
       if (player.rpgShotsRemaining === undefined) resetUtilityLife(player);
-      if ((player.rpgShotsRemaining || 0) <= 0 || now - Number(player.lastRpgShotAt || 0) < 950) return;
+      rpgInfiniteAmmo = ensureAdminConfig(room).infiniteAmmo === true;
+      if ((!rpgInfiniteAmmo && (player.rpgShotsRemaining || 0) <= 0) || now - Number(player.lastRpgShotAt || 0) < 950) return;
       const originDistance = distanceBetweenVectors(start, player.position);
       const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
       if (originDistance > 32 || Math.abs(speed - GRENADE.rpg.speed) > 45) return;
-      player.rpgShotsRemaining -= 1;
+      if (!rpgInfiniteAmmo) player.rpgShotsRemaining -= 1;
       player.lastRpgShotAt = now;
       player.recentRpgShots = (player.recentRpgShots || []).filter(shot => now - shot.ts <= GRENADE.rpg.maxLifeMs + 1000);
       player.recentRpgShots.push({ id, ts: now, start, velocity, burst: false });
@@ -1522,6 +1524,7 @@ function handleMessage(client, raw) {
       kind,
       ownerId: client.id,
       ownerTeam: player.team,
+      rpgInfiniteAmmo,
       start,
       velocity
     });

@@ -24,7 +24,7 @@ test('RPG is a three-shot admin-room primary weapon', () => {
 
 test('RPG flight and explosion are validated instead of trusting client damage', () => {
   assert.match(client, /if \(kind === 'rpg'\) return \{ start, vel \}/);
-  assert.match(client, /if \(wp\.type === 'launcher'\)[\s\S]{0,700}?fireRpgProjectile\(\)/);
+  assert.match(client, /if \(wp\.type === 'launcher'\)[\s\S]{0,1800}?fireRpgProjectile\(\)/);
   assert.match(client, /currentAmmo--/);
   assert.match(client, /if \(reserveAmmo > 0\) reloadWeapon\(\)/);
   assert.match(client, /reloadTime: 2\.8/);
@@ -43,6 +43,16 @@ test('RPG flight and explosion are validated instead of trusting client damage',
   assert.match(server, /Math\.sqrt\(lateralSq\) > 42/);
   assert.match(server, /damage = rpgDamageFor\(room, client\.id, target, now\)/);
   assert.doesNotMatch(server, /data\.kind === 'rpg'[\s\S]{0,180}data\.damage/);
+});
+
+test('admin-room infinite ammo applies to RPG client and server authority', () => {
+  assert.match(client, /const infiniteRpgAmmo = adminInfiniteAmmoEnabled\(\)/);
+  assert.match(client, /if \(infiniteRpgAmmo\)[\s\S]{0,500}?syncHeldRpgRocket\(weaponGroup, false\)/);
+  assert.match(client, /if \(weapons\[currentWeaponIndex\]\?\.name === 'RPG' && adminInfiniteAmmoEnabled\(\)\)/);
+  assert.match(client, /data\.rpgInfiniteAmmo \? 180 : 2800/);
+  assert.match(server, /rpgInfiniteAmmo = ensureAdminConfig\(room\)\.infiniteAmmo === true/);
+  assert.match(server, /if \(!rpgInfiniteAmmo\) player\.rpgShotsRemaining -= 1/);
+  assert.match(server, /rpgInfiniteAmmo,\s*\n\s*start,/);
 });
 
 test('supplied GLB is installed and contains launcher and rocket materials', () => {

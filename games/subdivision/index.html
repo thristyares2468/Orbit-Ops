@@ -14734,7 +14734,7 @@
                         setTimeout(() => {
                             const currentRemote = remotePlayers.get(data.ownerId);
                             if (currentRemote?.userData?.weapon === 'RPG') syncHeldRpgRocket(currentRemote, true);
-                        }, 2800);
+                        }, data.rpgInfiniteAmmo ? 180 : 2800);
                     }
                     if (shouldHearRemoteGrenadeVoice(data.ownerTeam)) playGrenadeVoice(data.kind, Number(data.ownerTeam), data.start);
                 }
@@ -21361,14 +21361,31 @@
             }
             if (wp.type === 'launcher') {
                 if (isReloading || time - lastFireTime < wp.firerate * 1000) return;
+                const infiniteRpgAmmo = adminInfiniteAmmoEnabled();
+                if (infiniteRpgAmmo && currentAmmo <= 0) {
+                    currentAmmo = wp.mag;
+                    reserveAmmo = wp.reserve;
+                    ammoState[currentWeaponIndex] = { mag: currentAmmo, reserve: reserveAmmo };
+                }
                 if (currentAmmo <= 0) {
                     if (reserveAmmo > 0) reloadWeapon();
                     else flashToast('RPG ammunition replenishes when you respawn.');
                     return;
                 }
-                currentAmmo--;
-                ammoState[currentWeaponIndex] = { mag: currentAmmo, reserve: reserveAmmo };
-                syncHeldRpgRocket();
+                if (infiniteRpgAmmo) {
+                    // The round leaves the tube, but infinite ammo immediately
+                    // chambers a replacement without consuming HUD ammunition.
+                    syncHeldRpgRocket(weaponGroup, false);
+                    setTimeout(() => {
+                        if (weapons[currentWeaponIndex]?.name === 'RPG' && adminInfiniteAmmoEnabled()) {
+                            syncHeldRpgRocket(weaponGroup, true);
+                        }
+                    }, 180);
+                } else {
+                    currentAmmo--;
+                    ammoState[currentWeaponIndex] = { mag: currentAmmo, reserve: reserveAmmo };
+                    syncHeldRpgRocket();
+                }
                 updateUI();
                 clearLocalSpawnProtectionForAction();
                 lastFireTime = time;
