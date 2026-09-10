@@ -4824,6 +4824,7 @@
         function applyAdminRoom(isAdmin, cfg) {
             isAdminRoom = !!isAdmin;
             adminConfig = cfg || (isAdminRoom ? { weaponPrices: {}, grenadePrices: {}, weaponDisabled: [], grenadeDisabled: [] } : null);
+            grenadeInventory.rpg = isAdminRoom ? Math.max(grenadeInventory.rpg || 0, utilityCap('rpg')) : 0;
             if (!isAdminRoom) clearAdminDummies();
             if (adminControlsButton) adminControlsButton.style.display = 'none';
             renderBuyMenu();
@@ -7259,7 +7260,8 @@
             // with your sidearm. Its own type, because it is the one held item that
             // never fires - shoot() refuses it rather than running the gun path
             // with an empty magazine.
-            { id: 27, name: 'Shield', type: 'shield', damage: 0, rangeMod: 1.0, firerate: 0.5, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.72, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) }
+            { id: 27, name: 'Shield', type: 'shield', damage: 0, rangeMod: 1.0, firerate: 0.5, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.72, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
+            { id: 28, name: 'RPG', type: 'grenade', kind: 'rpg', damage: 0, rangeMod: 1.0, firerate: 1.1, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.68, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) }
         ];
 
         // ---- Breacher: alternating buckshot / slug ----
@@ -7322,7 +7324,7 @@
         // string is the ONLY way a replaced model reaches a browser that already
         // loaded the old one. Bump it whenever an existing asset path changes
         // content - a new path does not need it, a replaced file always does.
-        const WEAPON_ASSET_CACHE_VERSION = '2026-09-01-breacher-axes';
+        const WEAPON_ASSET_CACHE_VERSION = '2026-09-10-admin-rpg';
 
         // Long enough that a cold cache on a slow connection still wins - these
         // are multi-megabyte GLBs - but short enough that a decoder which dies
@@ -7406,7 +7408,8 @@
             'Breacher': { path: '/assets/weapons/breacher.glb', axis: 'x', fp: { length: 3.15, pos: [-0.28, -0.16, -0.78] }, tp: { length: 4.6, pos: [0, 0.04, -1.78] } },
             // rot [0,0,0] on purpose: the panel has to face square down the view.
             // Any yaw here reads as carrying it at a gun's angle across the body.
-            'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.55, pos: [-2.6, 0.55, 0.5], rot: [0, 0, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } }
+            'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.55, pos: [-2.6, 0.55, 0.5], rot: [0, 0, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } },
+            'RPG': { path: '/assets/weapons/rpg.glb', axis: 'z', fp: { length: 4.4, pos: [-0.55, -0.35, -1.15], rot: [0, Math.PI, 0] }, tp: { length: 5.2, pos: [0, 0.1, -1.8], rot: [0, Math.PI, 0] } }
         };
         const PROCEDURAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
         const PLAYER_STAND_EYE_HEIGHT = 18;
@@ -7813,14 +7816,14 @@
         const TEAM_FRIENDLY_TINT = 0x2e7d3a;    // friendly uniform tint
         const TEAM_ENEMY_TINT = 0x7d2e2e;       // enemy uniform tint
 
-        const GRENADE_KINDS = ['frag', 'smoke', 'flash', 'molotov', 'barricade', 'c4'];
+        const GRENADE_KINDS = ['frag', 'smoke', 'flash', 'molotov', 'barricade', 'c4', 'rpg'];
         const GRENADE_PRICES = window.GameCore.GRENADE_PRICES; // shared with server UTILITY_PRICES (core.js)
         const GRENADE_CAP = 2;
         const GRENADE_LIFE_CAP = 2;
         const GRENADE_CHARGE_MS = 1250;
         const GRENADE_MIN_CHARGE = 0.3;
         const GRENADE_MAX_CHARGE = 1.45;
-        const grenadeWeaponIndex = { frag: 19, smoke: 20, flash: 21, molotov: 22, barricade: 23, c4: 24 };
+        const grenadeWeaponIndex = { frag: 19, smoke: 20, flash: 21, molotov: 22, barricade: 23, c4: 24, rpg: 27 };
         const UTILITY_LIFE_CAPS = window.GameCore.UTILITY_LIFE_CAPS; // per-kind overrides (core.js)
         // Owned/per-life cap for one utility kind. Both caps are the same number,
         // so one helper covers the inventory cap and the buy-per-life cap.
@@ -7833,7 +7836,8 @@
             frag:  { fuse: 1.6, radius: 125, maxDamage: 125, throwSpeed: 360, lobSpeed: 200, color: 0x4a5a3a },
             smoke: { fuse: 1.8, radius: 38, throwSpeed: 305, lobSpeed: 165, color: 0x9aa0a6 },
             flash: { fuse: 1.6, radius: 310, throwSpeed: 305, lobSpeed: 165, color: 0xdfe3e6 },
-            molotov: { fuse: 0.9, radius: 82, dps: 34, tickMs: 350, duration: 8500, throwSpeed: 315, lobSpeed: 170, color: 0x8b3a16 }
+            molotov: { fuse: 0.9, radius: 82, dps: 34, tickMs: 350, duration: 8500, throwSpeed: 315, lobSpeed: 170, color: 0x8b3a16 },
+            rpg: { fuse: 4.2, radius: 145, maxDamage: 180, throwSpeed: 520, lobSpeed: 520, color: 0x56604a }
         };
         // Deployable barricade geometry/health, shared with the server (core.js).
         const BARRICADE = window.GameCore.BARRICADE;
@@ -7865,6 +7869,7 @@
             return !(Array.isArray(adminConfig?.weaponDisabled) && adminConfig.weaponDisabled.includes(name));
         }
         function isGrenadeEnabled(kind) {
+            if (kind === 'rpg' && !isAdminRoom) return false;
             return !(Array.isArray(adminConfig?.grenadeDisabled) && adminConfig.grenadeDisabled.includes(kind));
         }
         function adminInfiniteAmmoEnabled() {
@@ -7884,8 +7889,8 @@
         }
         let myMoney = 200;
 
-        let grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
-        let grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
+        let grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, rpg: 0 };
+        let grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, rpg: 0 };
         let selectedGrenade = 'frag';
         const barricadeActors = new Map(); // id -> deployed panel group
         let barricadePreview = null;       // ghost panel shown while the barricade is out
@@ -18842,7 +18847,7 @@
             myHealth = 100;
             updateHealthUI();
             stimCharges = 0;
-            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
+            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, rpg: 0 };
             lastPurchaseId = null;
             resetAllAmmo();
             camera.position.set(0, 0, 0);
@@ -18858,6 +18863,7 @@
                 GRENADE_KINDS.forEach(kind => {
                     grenadeInventory[kind] = utilityCap(kind);
                 });
+                if (!isAdminRoom) grenadeInventory.rpg = 0;
                 resetHealthshotState();
             }
             if (repositioned) {
@@ -22060,7 +22066,7 @@
             selectedGrenade = kind;
             // A spent C4 slot is still worth drawing: it is the detonator.
             const holdsDetonator = kind === 'c4' && !!myLiveC4Charge();
-            if (adminInfiniteUtilityEnabled() || (grenadeInventory[kind] || 0) > 0 || holdsDetonator) {
+            if ((kind !== 'rpg' && adminInfiniteUtilityEnabled()) || (grenadeInventory[kind] || 0) > 0 || holdsDetonator) {
                 switchWeapon(grenadeWeaponIndex[kind], true);
             }
             updateGrenadeHud();
@@ -22068,7 +22074,8 @@
 
         function throwGrenade(kind, isAlt) {
             if (kind === 'c4') { useC4(); return; }
-            if (!usesUtility() || (!adminInfiniteUtilityEnabled() && (grenadeInventory[kind] || 0) <= 0)) return;
+            const infiniteUtility = kind !== 'rpg' && adminInfiniteUtilityEnabled();
+            if (!usesUtility() || (!infiniteUtility && (grenadeInventory[kind] || 0) <= 0)) return;
             if (kind === 'barricade') { attemptDeployBarricade(); return; }
             throwGrenadeWithCharge(kind, isAlt, 1);
         }
@@ -22079,9 +22086,16 @@
             // Checked before the inventory guard: with a charge already planted the
             // slot is a detonator, and holds nothing to spend.
             if (wp.kind === 'c4') { useC4(); return; }
-            if (!adminInfiniteUtilityEnabled() && (grenadeInventory[wp.kind] || 0) <= 0) return;
+            const infiniteUtility = wp.kind !== 'rpg' && adminInfiniteUtilityEnabled();
+            if (!infiniteUtility && (grenadeInventory[wp.kind] || 0) <= 0) return;
             // The barricade is placed, not thrown: no charge, no arc, no fuse.
             if (wp.kind === 'barricade') { attemptDeployBarricade(); return; }
+            if (wp.kind === 'rpg') {
+                if (performance.now() - lastFireTime < wp.firerate * 1000) return;
+                lastFireTime = performance.now();
+                throwGrenadeWithCharge('rpg', false, 1);
+                return;
+            }
             if (grenadeAim) return;
             grenadeAim = { kind: wp.kind, alt: !!isAlt, startedAt: performance.now() };
             playSfxSample(grenadeHandlingSfx[wp.kind]?.pin, null, 'effects', { volumeScale: 0.66, cooldownKey: 'grenade:pin', cooldownMs: 250 });
@@ -22107,8 +22121,11 @@
         }
 
         function throwGrenadeWithCharge(kind, isAlt, charge = 1) {
-            const infiniteUtility = adminInfiniteUtilityEnabled();
             if (kind === 'barricade' || kind === 'c4') return; // deployed, never thrown
+            // RPG ammunition is deliberately finite even when the admin-room
+            // infinite-utility sandbox option is enabled: it has three rockets
+            // for this life and only a respawn restores them.
+            const infiniteUtility = kind !== 'rpg' && adminInfiniteUtilityEnabled();
             if (!usesUtility() || (!infiniteUtility && (grenadeInventory[kind] || 0) <= 0)) return;
             clearLocalSpawnProtectionForAction();
             if (!infiniteUtility) grenadeInventory[kind] -= 1;
@@ -22138,6 +22155,7 @@
             const start = camPos.clone().addScaledVector(dir, 2.5);
             const speed = (isAlt ? cfg.lobSpeed : cfg.throwSpeed) * charge;
             const vel = dir.clone().multiplyScalar(speed);
+            if (kind === 'rpg') return { start, vel };
             vel.y += (isAlt ? 45 : 16) * Math.min(charge, 1) + Math.max(0, charge - 1) * (isAlt ? 18 : 10);
             return { start, vel };
         }
@@ -22915,7 +22933,7 @@
         }
 
         function grenadeWeaponName(kind) {
-            return ({ frag: 'Frag', smoke: 'Smoke', flash: 'Flash', molotov: 'Molotov', barricade: 'Barricade', c4: 'C4' })[kind] || 'Frag';
+            return ({ frag: 'Frag', smoke: 'Smoke', flash: 'Flash', molotov: 'Molotov', barricade: 'Barricade', c4: 'C4', rpg: 'RPG' })[kind] || 'Frag';
         }
 
         function disposeGrenadeProjectileModel(object) {
@@ -22939,6 +22957,37 @@
             );
             fallback.userData.isGrenadeFallback = true;
             group.add(fallback);
+            if (kind === 'rpg') {
+                fallback.geometry.dispose();
+                fallback.geometry = new THREE.CylinderGeometry(0.32, 0.5, 3.5, 10);
+                fallback.rotation.x = Math.PI / 2;
+                loadWeaponAsset('RPG')?.then(template => {
+                    if (!group.parent) return;
+                    const rocket = template.clone(true);
+                    const remove = [];
+                    rocket.traverse(obj => {
+                        if (!obj.isMesh) return;
+                        const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+                        if (!materials.some(mat => /rocket/i.test(String(mat?.name || '')))) remove.push(obj);
+                    });
+                    remove.forEach(obj => obj.parent?.remove(obj));
+                    let meshCount = 0;
+                    rocket.traverse(obj => { if (obj.isMesh) meshCount += 1; });
+                    if (!meshCount) return;
+                    const box = new THREE.Box3().setFromObject(rocket);
+                    const size = box.getSize(new THREE.Vector3());
+                    const scale = 3.8 / Math.max(size.x, size.y, size.z, 0.001);
+                    rocket.scale.setScalar(scale);
+                    const scaledBox = new THREE.Box3().setFromObject(rocket);
+                    rocket.position.sub(scaledBox.getCenter(new THREE.Vector3()));
+                    rocket.rotation.x = Math.PI / 2;
+                    group.remove(fallback);
+                    fallback.geometry.dispose();
+                    fallback.material.dispose();
+                    group.add(rocket);
+                }).catch(() => {});
+                return group;
+            }
             const weaponName = grenadeWeaponName(kind);
             if (attachWeaponAsset(group, weaponName, 'thirdPerson')) {
                 group.scale.setScalar(kind === 'molotov' ? 2.15 : 1.9);
@@ -23008,7 +23057,7 @@
         function updateGrenades(delta, time) {
             for (let i = grenades.length - 1; i >= 0; i--) {
                 const g = grenades[i];
-                g.vel.y -= 400 * delta;
+                if (g.kind !== 'rpg') g.vel.y -= 400 * delta;
                 const step = g.vel.clone().multiplyScalar(delta);
                 const stepLen = step.length();
                 if (stepLen > 0.0001 && mapObjects.length) {
@@ -23024,7 +23073,10 @@
                         g.mesh.position.copy(hits[0].point).addScaledVector(n, 1.0);
                         const intoSurface = g.vel.dot(n);
                         if (intoSurface < 0) {
-                            if (g.kind === 'molotov') {
+                            if (g.kind === 'rpg') {
+                                g.vel.set(0, 0, 0);
+                                g.forceDetonate = true;
+                            } else if (g.kind === 'molotov') {
                                 g.vel.set(0, 0, 0);
                                 g.bounces = (g.bounces || 0) + 1;
                                 g.forceDetonate = true;
@@ -23047,11 +23099,17 @@
                 } else {
                     g.mesh.position.add(step);
                 }
-                g.mesh.rotation.x += delta * 7; g.mesh.rotation.z += delta * 5;
-                reportGrenadeContactHits(g);
+                if (g.kind === 'rpg' && g.vel.lengthSq() > 0.001) {
+                    g.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), g.vel.clone().normalize());
+                } else {
+                    g.mesh.rotation.x += delta * 7; g.mesh.rotation.z += delta * 5;
+                }
+                if (g.kind !== 'rpg') reportGrenadeContactHits(g);
 
                 if (g.isLocal) {
-                    if (g.kind === 'smoke' || g.kind === 'molotov') {
+                    if (g.kind === 'rpg') {
+                        if (g.forceDetonate || time >= g.fuseAt) { detonateLocalGrenade(g); continue; }
+                    } else if (g.kind === 'smoke' || g.kind === 'molotov') {
                         // Smoke rests before bursting; molotov breaks on first solid impact.
                         // 5s hard cap so a projectile that never settles can't live forever.
                         if (g.forceDetonate || grenadeSettledOnGround(g) || time - g.born > 5000) { detonateLocalGrenade(g); continue; }
@@ -23094,7 +23152,7 @@
             // Client reports utility hits because the browser has the rendered map
             // LOS/position context; server validates recent burst ownership/radius.
             const cfg = GRENADE_CONFIG[kind];
-            if (kind === 'frag') {
+            if (kind === 'frag' || kind === 'rpg') {
                 remotePlayers.forEach((remote, id) => {
                     if (isTDM() && remote.userData.team === myTeam) return;
                     if ((remote.userData.health || 0) <= 0) return;
@@ -23103,14 +23161,15 @@
                     if (d > cfg.radius) return;
                     if (!hasLineOfSight(pos, center)) return;
                     const dmg = Math.round(cfg.maxDamage * (1 - d / cfg.radius));
-                    if (dmg > 0) sendPacket('playerHit', { targetId: id, kind: 'grenade', damage: dmg });
+                    if (dmg > 0) sendPacket('playerHit', { targetId: id, kind: kind === 'rpg' ? 'rpg' : 'grenade', damage: dmg });
                 });
                 if (controls) {
                     const myPos = controls.getObject().position.clone();
                     const ds = myPos.distanceTo(pos);
                     if (ds <= cfg.radius && hasLineOfSight(pos, myPos)) {
-                        const dmg = Math.round(cfg.maxDamage * (1 - ds / cfg.radius) * 0.6);
-                        if (dmg > 0) sendPacket('selfDamage', { amount: dmg });
+                        const selfScale = kind === 'rpg' ? Number(window.GameCore.GRENADE.rpg.selfScale || 0.65) : 0.6;
+                        const dmg = Math.round(cfg.maxDamage * (1 - ds / cfg.radius) * selfScale);
+                        if (dmg > 0) sendPacket('selfDamage', { amount: dmg, reason: kind });
                     }
                 }
             } else if (kind === 'flash') {
@@ -23168,11 +23227,12 @@
                 spawnMolotovFire(pos, ownedByLocal);
                 return;
             }
-            if (kind === 'frag') {
+            if (kind === 'frag' || kind === 'rpg') {
                 playSpatialSample(grenadeSfx.frag, pos, 'effects', { refDistance: 34, maxDistance: 950, edgeStartDistance: 680, rolloffFactor: 1.05, occludedVolumeScale: 0.36, volumeScale: 0.78 });
-                disturbSmokeAt(new THREE.Vector3(pos.x, pos.y, pos.z), GRENADE_CONFIG.frag.radius * 1.35, 3400, 38);
-                spawnFragFlash(pos, 0xffaa33, 16);
-                spawnFragShockwave(pos, GRENADE_CONFIG.frag.radius);
+                const radius = GRENADE_CONFIG[kind].radius;
+                disturbSmokeAt(new THREE.Vector3(pos.x, pos.y, pos.z), radius * 1.35, 3400, 38);
+                spawnFragFlash(pos, kind === 'rpg' ? 0xffcc66 : 0xffaa33, kind === 'rpg' ? 24 : 16);
+                spawnFragShockwave(pos, radius);
                 spawnFragParticles(pos);
                 return;
             }
@@ -23638,8 +23698,8 @@
 
         function tdmResetState() {
 
-            grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
-            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
+            grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, rpg: 0 };
+            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, rpg: 0 };
             selectedGrenade = 'frag';
             grenadeAim = null;
             lastGrenadeChargeHud = -1;

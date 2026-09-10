@@ -1421,16 +1421,34 @@ function handleMessage(client, raw) {
     if (player.waitingForNextRound) return;
     if (!usesUtility(room)) return;
     if ((player.health || 0) <= 0) return;
-    player.activeAt = Date.now();
+    const now = Date.now();
+    const id = String(data.id || '').slice(0, 16);
+    const kind = sanitizeGrenadeKind(data.kind);
+    const start = sanitizeVector(data.start, null);
+    const velocity = sanitizeVector(data.velocity, null);
+    if (!id || !start || !velocity) return;
+    if (kind === 'rpg') {
+      if (!isAdminRoom(room) || player.weapon !== 'RPG') return;
+      if (player.rpgShotsRemaining === undefined) resetUtilityLife(player);
+      if ((player.rpgShotsRemaining || 0) <= 0 || now - Number(player.lastRpgShotAt || 0) < 950) return;
+      const originDistance = distanceBetweenVectors(start, player.position);
+      const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+      if (originDistance > 32 || Math.abs(speed - GRENADE.rpg.speed) > 45) return;
+      player.rpgShotsRemaining -= 1;
+      player.lastRpgShotAt = now;
+      player.recentRpgShots = (player.recentRpgShots || []).filter(shot => now - shot.ts <= GRENADE.rpg.maxLifeMs + 1000);
+      player.recentRpgShots.push({ id, ts: now, start, velocity, burst: false });
+    }
+    player.activeAt = now;
     lockBuyRefunds(player);
     clearSpawnProtection(player, Date.now(), client, 'throw');
     broadcastToRoom(client.roomCode, client.id, 'grenadeThrown', {
-      id: String(data.id || '').slice(0, 16),
-      kind: sanitizeGrenadeKind(data.kind),
+      id,
+      kind,
       ownerId: client.id,
       ownerTeam: player.team,
-      start: sanitizeVector(data.start, null),
-      velocity: sanitizeVector(data.velocity, null)
+      start,
+      velocity
     });
     return;
   }
@@ -1447,6 +1465,25 @@ function handleMessage(client, raw) {
     clearSpawnProtection(player, burstAt, client, 'utility');
     const kind = sanitizeGrenadeKind(data.kind);
     const position = sanitizeVector(data.position, null);
+    if (kind === 'rpg') {
+      if (!isAdminRoom(room) || !position) return;
+      const id = String(data.id || '').slice(0, 16);
+      const shot = (player.recentRpgShots || []).find(candidate => candidate.id === id && !candidate.burst);
+      if (!shot) return;
+      const age = burstAt - shot.ts;
+      if (age < 0 || age > GRENADE.rpg.maxLifeMs + 900) return;
+      const speed = Math.hypot(shot.velocity.x, shot.velocity.y, shot.velocity.z);
+      if (speed < 1) return;
+      const dir = { x: shot.velocity.x / speed, y: shot.velocity.y / speed, z: shot.velocity.z / speed };
+      const delta = { x: position.x - shot.start.x, y: position.y - shot.start.y, z: position.z - shot.start.z };
+      const forward = delta.x * dir.x + delta.y * dir.y + delta.z * dir.z;
+      const lateralSq = Math.max(0, delta.x * delta.x + delta.y * delta.y + delta.z * delta.z - forward * forward);
+      if (forward < -5 || forward > speed * (age / 1000) + 90 || Math.sqrt(lateralSq) > 42) return;
+      shot.burst = true;
+      if (!room.recentRpgBursts) room.recentRpgBursts = [];
+      room.recentRpgBursts = room.recentRpgBursts.filter(burst => burstAt - burst.ts <= GRENADE_HIT_WINDOW_MS);
+      room.recentRpgBursts.push({ ts: burstAt, ownerId: client.id, position });
+    }
     // Record damaging utility bursts so damage can be server-validated against them.
     if (kind === 'frag' && position) damageBarricadesFromFrag(client.roomCode, room, position, client.id);
     if ((kind === 'frag' || kind === 'molotov') && position) {
@@ -1696,6 +1733,7 @@ function handleMessage(client, raw) {
     player.activeAt = Date.now();
     const kind = sanitizeUtilityKind(data.kind);
     if (!kind) return;
+    if (kind === 'rpg' && !isAdminRoom(room)) return;
     if (isGrenadeDisabledByAdmin(room, kind)) {
       send(client, 'utilityDenied', { kind, money: player.money, message: 'That utility is disabled.' });
       return;
@@ -1822,13 +1860,15 @@ function handleMessage(client, raw) {
     if (player.waitingForNextRound) return;
     const now = Date.now();
     if (player.invulnerableUntil && player.invulnerableUntil > now) return;
-    const amount = clampNumber(data.amount, 0, 500);
+    const amount = data.reason === 'rpg'
+      ? Math.round(rpgDamageFor(room, client.id, player, now) * GRENADE.rpg.selfScale)
+      : clampNumber(data.amount, 0, 500);
     if (!amount) return;
     player.health = Math.max(0, player.health - amount);
     broadcastToRoom(client.roomCode, null, 'playerHealth', { id: client.id, health: player.health });
     if (player.health <= 0) {
       if (MODE_CONFIG[room.settings.gamemode]?.casual && !isCasualWarmup(room)) addScore(player, -50);
-      respawnPlayer(client.roomCode, player, { reason: data.reason === 'molotov' ? 'molotov' : 'frag', skipStats: isCasualWarmup(room) });
+      respawnPlayer(client.roomCode, player, { reason: data.reason === 'molotov' ? 'molotov' : (data.reason === 'rpg' ? 'RPG' : 'frag'), skipStats: isCasualWarmup(room) });
       checkCasualElimination(client.roomCode, room);
     }
     return;
@@ -4795,6 +4835,11 @@ function handlePlayerHit(client, room, player, data) {
     if (!damage) return; // no valid recent burst / out of blast radius — silently ignore
     resolvedWeapon = 'Frag';
     killContext.utility = true;
+  } else if (data.kind === 'rpg') {
+    damage = rpgDamageFor(room, client.id, target, now);
+    if (!damage) return;
+    resolvedWeapon = 'RPG';
+    killContext.utility = true;
   } else if (data.kind === 'grenadeImpact') {
     damage = data.part === 'head' ? 5 : 1;
     resolvedWeapon = sanitizeGrenadeKind(data.grenadeKind) === 'molotov' ? 'Molotov' : (sanitizeGrenadeKind(data.grenadeKind) === 'flash' ? 'Flash' : (sanitizeGrenadeKind(data.grenadeKind) === 'smoke' ? 'Smoke' : 'Frag'));
@@ -5170,6 +5215,21 @@ function grenadeDamageFor(room, ownerId, target, now) {
     if (d > radius + GRENADE_RADIUS_SLACK) continue;
     const dmg = Math.round(maxDamage * Math.max(0, 1 - d / radius));
     if (dmg > best) best = dmg;
+  }
+  return best;
+}
+
+function rpgDamageFor(room, ownerId, target, now) {
+  if (!isAdminRoom(room) || !room.recentRpgBursts?.length) return 0;
+  const { radius, maxDamage } = GRENADE.rpg;
+  let best = 0;
+  for (let i = room.recentRpgBursts.length - 1; i >= 0; i--) {
+    const burst = room.recentRpgBursts[i];
+    if (now - burst.ts > GRENADE_HIT_WINDOW_MS) break;
+    if (burst.ownerId !== ownerId) continue;
+    const distance = distanceBetweenVectors(burst.position, target.position);
+    if (distance > radius + GRENADE_RADIUS_SLACK) continue;
+    best = Math.max(best, Math.round(maxDamage * Math.max(0, 1 - distance / radius)));
   }
   return best;
 }
@@ -6565,7 +6625,7 @@ function countTeam(room, team) {
 }
 
 function freshUtilityCounts() {
-  return { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, shield: 0 };
+  return { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, shield: 0, rpg: 0 };
 }
 
 function resetUtilityLife(player) {
@@ -6574,6 +6634,9 @@ function resetUtilityLife(player) {
   // Deployed barricades outlive their owner's life; the allowance does not.
   player.barricadesDeployedThisLife = 0;
   player.c4DeployedThisLife = 0;
+  player.rpgShotsRemaining = UTILITY_LIFE_CAPS.rpg;
+  player.recentRpgShots = [];
+  player.lastRpgShotAt = 0;
   resetShotgunLoad(player);
 }
 
@@ -7825,6 +7888,7 @@ function broadcastCasualState(roomCode, room) {
 }
 
 function sanitizeGrenadeKind(value) {
+  if (value === 'rpg') return value;
   return value === 'smoke' || value === 'flash' || value === 'molotov' ? value : 'frag';
 
 }

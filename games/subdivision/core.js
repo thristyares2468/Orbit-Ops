@@ -21,7 +21,7 @@
 
   // Bump on any change to authoritative rules/shape so stale clients can reject
   // mismatched game data before subtle desyncs happen.
-  const VERSION = '6';
+  const VERSION = '7';
 
   // Buy-menu prices (identical on both sides today).
   const WEAPON_PRICES = {
@@ -50,12 +50,12 @@
 
   // Grenade/utility prices. Server calls this UTILITY_PRICES; the client calls the
   // identical object GRENADE_PRICES. Exposed under both names to avoid churn.
-  const UTILITY_PRICES = { frag: 300, smoke: 150, flash: 200, molotov: 400, barricade: 500, c4: 600 };
+  const UTILITY_PRICES = { frag: 300, smoke: 150, flash: 200, molotov: 400, barricade: 500, c4: 600, rpg: 0 };
 
   // Per-life buy caps by utility kind. Anything missing here uses the caller's
   // default (2 on both sides). The barricade is deliberately capped lower: it is
   // persistent cover, not a one-shot effect.
-  const UTILITY_LIFE_CAPS = { barricade: 1, c4: 1 };
+  const UTILITY_LIFE_CAPS = { barricade: 1, c4: 1, rpg: 3 };
 
   // CT (0) / T (1) → spawn-point indexes. Must stay identical on both sides.
   const TEAM_SPAWN_IDS = { 0: [0, 1, 2, 3], 1: [4, 5, 6, 7] };
@@ -69,6 +69,7 @@
   // numbers are authoritative and re-validated server-side).
   const GRENADE = {
     frag: { radius: 125, maxDamage: 125 },
+    rpg: { radius: 145, maxDamage: 180, selfScale: 0.65, speed: 520, maxLifeMs: 4200 },
     smoke: { radius: 38, durationMs: 18000 },
     molotov: { radius: 82, dps: 34, tickMs: 350, durationMs: 8500 }
   };
@@ -119,7 +120,7 @@
   const WEAPON_NAMES = [
     'Knife', 'Glock', 'Deagle', 'MAC10', 'P90', 'Nova', 'XM1014', 'FAMAS', 'AK47', 'SSG 08', 'AWP',
     'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver',
-    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4', 'Breacher', 'Shield'
+    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4', 'Breacher', 'Shield', 'RPG'
   ];
 
   const SNAPSHOT_FLAGS = {
@@ -196,6 +197,7 @@
     allowedWeaponTypes: ['pistol', 'melee', 'shield']
   };
   WEAPONS.Shield = { type: 'shield', firerate: 0.5, pellets: 0, range: 0, dmg: { head: 0, body: 0, legs: 0 } };
+  WEAPONS.RPG = { type: 'utility', firerate: 1.1, pellets: 0, range: 0, dmg: { head: 0, body: 0, legs: 0 } };
 
   WEAPONS.Breacher = {
     type: 'shotgun',
