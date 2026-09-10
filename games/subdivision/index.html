@@ -3344,6 +3344,11 @@
         }
 
         let settingsSyncTimer = null;
+        // Declared here rather than beside the admin-room helpers far below:
+        // `let` sits in a temporal dead zone until its declaration runs, and
+        // this is read by challengeCountsEnabled() and availableGamemodeCycle()
+        // well above that point. Same trap that once blanked every skin preview.
+        let isAdminRoom = false;
 
         function saveSettings() {
             keyBindings = normalizeKeyBindings(keyBindings);
@@ -6292,8 +6297,20 @@
             return cycle[(idx + 1) % cycle.length];
         }
 
+        // Modes a room may be switched to from its own controls.
+        //
+        // refreshModeSelectOptions() treats this as an allow-list and DELETES
+        // any option missing from it, so a mode absent here is unreachable even
+        // though its <option> is in the markup. That is what kept Zombies out of
+        // the admin room: the option existed, then was stripped on every render.
+        //
+        // The admin room gets its own list because Zombies is still being fitted
+        // there - it is the only room that shows the imported zombie variants,
+        // and public rooms keep the procedural model until those are finished.
         function availableGamemodeCycle() {
-            return ['gunGame', 'deathmatch', 'tdm'];
+            const cycle = ['gunGame', 'deathmatch', 'tdm'];
+            if (isAdminRoom) cycle.push('containment');
+            return cycle;
         }
 
         function refreshModeSelectOptions(select) {
@@ -7897,7 +7914,6 @@
         const SHIELD_VIEW_BOB_SCALE = 0.25;
         // Admin testing room: per-room overrides for prices / availability / mode /
         // map size. null in normal rooms (helpers fall back to the constants above).
-        let isAdminRoom = false;
 
         function useImportedContainmentZombieModels() {
             return isAdminRoom;

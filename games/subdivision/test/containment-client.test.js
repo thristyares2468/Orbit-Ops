@@ -141,3 +141,43 @@ test('the spawn hold sits in Host Controls, not on the HUD', () => {
     'containmentSpawnPaused must be declared before renderHostControls reads it'
   );
 });
+
+test('Zombies is selectable in the admin room, and only there', () => {
+  // refreshModeSelectOptions() treats availableGamemodeCycle() as an allow-list
+  // and DELETES any <option> missing from it. Zombies was in the markup of both
+  // the admin-room and host mode selects and was stripped on every render, so
+  // the mode could not be chosen from either - which is why the admin room
+  // never showed the imported zombie variants even though its model gate was
+  // already correct.
+  assert.match(html, /function availableGamemodeCycle\(\) \{[\s\S]*?const cycle = \['gunGame', 'deathmatch', 'tdm'\];[\s\S]*?if \(isAdminRoom\) cycle\.push\('containment'\);/u,
+    'the admin room gets containment added to its mode cycle');
+
+  // The stripping behaviour is the reason the above matters; if it ever stops
+  // removing unlisted options this test still passes but the coupling is gone,
+  // so pin it too.
+  assert.match(html, /if \(!allowed\.has\(option\.value\)\) option\.remove\(\);/u);
+
+  // Public rooms must not gain the mode by accident.
+  const cycle = html.match(/function availableGamemodeCycle\(\) \{[\s\S]*?\n        \}/u)[0];
+  assert.doesNotMatch(cycle, /^\s*const cycle = \[[^\]]*containment/mu,
+    'containment must not be in the base list, only pushed for the admin room');
+});
+
+test('the imported-model gate and the mode gate agree on the admin room', () => {
+  // Both keyed off the same flag: if one is admin-only and the other is not,
+  // you get a room that can select Zombies but renders the procedural model,
+  // or vice versa.
+  assert.match(html, /function useImportedContainmentZombieModels\(\) \{\s*\n\s*return isAdminRoom;\s*\n\s*\}/u);
+});
+
+test('isAdminRoom is declared before the functions that read it', () => {
+  // `let` is in a temporal dead zone until its declaration runs, and this flag
+  // is read by challengeCountsEnabled() and availableGamemodeCycle() thousands
+  // of lines above where it used to be declared.
+  const declaration = html.indexOf('let isAdminRoom = false;');
+  assert.ok(declaration > 0, 'the flag is declared exactly once');
+  assert.equal(html.indexOf('let isAdminRoom', declaration + 1), -1, 'and only once');
+  for (const reader of ['function challengeCountsEnabled', 'function availableGamemodeCycle']) {
+    assert.ok(declaration < html.indexOf(reader), `${reader} reads it, so must come after it`);
+  }
+});
