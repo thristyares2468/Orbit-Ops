@@ -141,6 +141,55 @@ const FAMAS_VARIANTS = [
   }
 ];
 
+function equipmentPatternSkin({ id, weapon, displayName, texture, materialNames, patternZoom = 1 }) {
+  const sourceModel = weapon === 'Breacher' ? 'breacher' : weapon.toLowerCase();
+  return {
+    id,
+    weapon,
+    kind: 'skin',
+    displayName,
+    rarity: 'common',
+    texturePath: `/assets/skins/imported/patterns/${texture}.png`,
+    modelPath: `/assets/weapons/${sourceModel}.glb`,
+    baseModelPath: `/assets/weapons/${sourceModel}.glb`,
+    textureApplication: 'pattern',
+    textureMaterialNames: materialNames,
+    patternZoom,
+    patternSeed: 0,
+    imported: false
+  };
+}
+
+// These newer weapons share the established procedural pattern/wear pipeline.
+// Targeted material lists preserve the RPG's rocket, sights and small hardware
+// instead of flattening the entire multi-material model into one texture.
+const NEW_EQUIPMENT_SKINS = [
+  equipmentPatternSkin({
+    id: 'shield_aurora_aegis', weapon: 'Shield', displayName: 'Shield | Aurora Aegis',
+    texture: 'bright_water', materialNames: ['Shield'], patternZoom: 1.35
+  }),
+  equipmentPatternSkin({
+    id: 'shield_crimson_bulwark', weapon: 'Shield', displayName: 'Shield | Crimson Bulwark',
+    texture: 'crimson_web', materialNames: ['Shield'], patternZoom: 1.6
+  }),
+  equipmentPatternSkin({
+    id: 'breacher_ember_entry', weapon: 'Breacher', displayName: 'Breacher | Ember Entry',
+    texture: 'pyrotechnic', materialNames: ['Material.001'], patternZoom: 1.25
+  }),
+  equipmentPatternSkin({
+    id: 'breacher_night_entry', weapon: 'Breacher', displayName: 'Breacher | Night Entry',
+    texture: 'urban_ddpat', materialNames: ['Material.001'], patternZoom: 1.45
+  }),
+  equipmentPatternSkin({
+    id: 'rpg_orbital_energy', weapon: 'RPG', displayName: 'RPG | Orbital Energy',
+    texture: 'gamma_energy', materialNames: ['launcher', 'launcher_wooden_body', 'handles', 'handle_grips'], patternZoom: 1.15
+  }),
+  equipmentPatternSkin({
+    id: 'rpg_launch_control', weapon: 'RPG', displayName: 'RPG | Launch Control',
+    texture: 'control_pane', materialNames: ['launcher', 'launcher_wooden_body', 'handles', 'handle_grips'], patternZoom: 1.4
+  })
+];
+
 const DEFAULT_KNIFE_ITEM_IDS = Object.freeze(['knife_default_ct_vanilla', 'knife_default_t_vanilla']);
 
 const KNIFE_VARIANTS = [
@@ -270,6 +319,7 @@ const ITEMS = Object.freeze(uniqueCatalogItems([
   ...AWP_SKINS,
   SOVEREIGN_FLAME,
   ...FAMAS_VARIANTS,
+  ...NEW_EQUIPMENT_SKINS,
   ...KNIFE_VARIANTS,
   ...IMPORTED_PUBLIC_SKINS
 ]).map(enrichCatalogItem));
