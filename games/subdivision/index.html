@@ -23483,11 +23483,18 @@
                 spawnMolotovFire(pos, ownedByLocal);
                 return;
             }
-            if (kind === 'frag' || kind === 'rpg') {
+            if (kind === 'rpg') {
+                playSpatialSample(grenadeSfx.frag, pos, 'effects', { refDistance: 42, maxDistance: 1100, edgeStartDistance: 760, rolloffFactor: 1.0, occludedVolumeScale: 0.38, volumeScale: 0.9 });
+                const radius = GRENADE_CONFIG.rpg.radius;
+                disturbSmokeAt(new THREE.Vector3(pos.x, pos.y, pos.z), radius * 1.5, 3900, 46);
+                spawnRpgExplosionCloud(pos, radius);
+                return;
+            }
+            if (kind === 'frag') {
                 playSpatialSample(grenadeSfx.frag, pos, 'effects', { refDistance: 34, maxDistance: 950, edgeStartDistance: 680, rolloffFactor: 1.05, occludedVolumeScale: 0.36, volumeScale: 0.78 });
                 const radius = GRENADE_CONFIG[kind].radius;
                 disturbSmokeAt(new THREE.Vector3(pos.x, pos.y, pos.z), radius * 1.35, 3400, 38);
-                spawnFragFlash(pos, kind === 'rpg' ? 0xffcc66 : 0xffaa33, kind === 'rpg' ? 24 : 16);
+                spawnFragFlash(pos, 0xffaa33, 16);
                 spawnFragShockwave(pos, radius);
                 spawnFragParticles(pos);
                 return;
@@ -23542,6 +23549,76 @@
             }
         }
 
+        function spawnRpgExplosionCloud(pos, radius) {
+            const point = new THREE.Vector3(Number(pos.x) || 0, Number(pos.y) || 0, Number(pos.z) || 0);
+            spawnFragFlash(point, 0xfff0a0, 30);
+            spawnFragShockwave(point, radius * 1.08);
+            const now = performance.now();
+            const addCloudPuff = ({ fire, index, count }) => {
+                const angle = (index / count) * Math.PI * 2 + Math.random() * 0.7;
+                const outward = fire ? 3 + Math.random() * 8 : 5 + Math.random() * 12;
+                const startScale = fire ? 1.8 + Math.random() * 2.1 : 2.4 + Math.random() * 2.8;
+                const endScale = fire ? 7 + Math.random() * 6 : 11 + Math.random() * 10;
+                const startColor = new THREE.Color(fire
+                    ? [0xfff08a, 0xffa21f, 0xff5a12][index % 3]
+                    : [0x332d2a, 0x493a32, 0x241f1e][index % 3]);
+                const endColor = new THREE.Color(fire ? 0x8f1d08 : 0x111315);
+                const mesh = new THREE.Mesh(
+                    new THREE.SphereGeometry(1, 7, 6),
+                    new THREE.MeshBasicMaterial({
+                        color: startColor,
+                        transparent: true,
+                        opacity: fire ? 0.92 : 0.48,
+                        depthWrite: false,
+                        blending: fire ? THREE.AdditiveBlending : THREE.NormalBlending,
+                        fog: !fire
+                    })
+                );
+                mesh.position.copy(point).add(new THREE.Vector3(
+                    Math.cos(angle) * outward * 0.22,
+                    1.8 + Math.random() * 4.5,
+                    Math.sin(angle) * outward * 0.22
+                ));
+                mesh.scale.setScalar(startScale);
+                scene.add(mesh);
+                fragFlashes.push({
+                    mesh,
+                    born: now + (fire ? Math.random() * 70 : 90 + Math.random() * 180),
+                    lastAt: now,
+                    dur: fire ? 520 + Math.random() * 380 : 1550 + Math.random() * 900,
+                    cloud: true,
+                    fire,
+                    startScale,
+                    endScale,
+                    baseOpacity: fire ? 0.92 : 0.48,
+                    startColor,
+                    endColor,
+                    velocity: new THREE.Vector3(
+                        Math.cos(angle) * outward,
+                        fire ? 9 + Math.random() * 16 : 6 + Math.random() * 10,
+                        Math.sin(angle) * outward
+                    ),
+                    drag: fire ? 2.6 : 1.3
+                });
+            };
+            for (let i = 0; i < 15; i++) addCloudPuff({ fire: true, index: i, count: 15 });
+            for (let i = 0; i < 13; i++) addCloudPuff({ fire: false, index: i, count: 13 });
+            // Fast incandescent fragments give the slower billowing cloud a hard,
+            // explosive leading edge without multiplying expensive smoke puffs.
+            for (let i = 0; i < 18; i++) {
+                const spark = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.16, 0.16, 1.2 + Math.random() * 1.8),
+                    new THREE.MeshBasicMaterial({ color: i % 3 ? 0xffb129 : 0xffffff, transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending })
+                );
+                spark.position.copy(point).setY(point.y + 2.5);
+                const direction = new THREE.Vector3(Math.random() - 0.5, 0.25 + Math.random() * 0.8, Math.random() - 0.5).normalize();
+                const velocity = direction.multiplyScalar(45 + Math.random() * 70);
+                spark.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), velocity.clone().normalize());
+                scene.add(spark);
+                fragFlashes.push({ mesh: spark, born: now, dur: 420 + Math.random() * 300, particle: true, dust: false, velocity, spin: new THREE.Vector3() });
+            }
+        }
+
         function updateFragFlashes(time) {
             for (let i = fragFlashes.length - 1; i >= 0; i--) {
                 const f = fragFlashes[i];
@@ -23549,6 +23626,25 @@
                 if (p >= 1) {
                     scene.remove(f.mesh); f.mesh.geometry.dispose(); f.mesh.material.dispose();
                     fragFlashes.splice(i, 1);
+                    continue;
+                }
+                if (p < 0) {
+                    f.mesh.visible = false;
+                    continue;
+                }
+                f.mesh.visible = true;
+                if (f.cloud) {
+                    const dt = Math.min(0.05, Math.max(0, (time - Math.max(f.lastAt || f.born, f.born)) / 1000));
+                    f.lastAt = time;
+                    f.velocity.multiplyScalar(Math.max(0, 1 - f.drag * dt));
+                    f.velocity.y += (f.fire ? 2.5 : 4.5) * dt;
+                    f.mesh.position.addScaledVector(f.velocity, dt);
+                    const eased = 1 - Math.pow(1 - p, f.fire ? 2.2 : 1.35);
+                    const scale = THREE.MathUtils.lerp(f.startScale, f.endScale, eased);
+                    f.mesh.scale.set(scale * (1 + Math.sin((p + f.startScale) * 9) * 0.06), scale, scale * 0.92);
+                    f.mesh.material.color.lerpColors(f.startColor, f.endColor, p);
+                    const fadeIn = Math.min(1, p / (f.fire ? 0.08 : 0.16));
+                    f.mesh.material.opacity = f.baseOpacity * fadeIn * Math.pow(1 - p, f.fire ? 1.2 : 0.72);
                     continue;
                 }
                 if (f.particle) {

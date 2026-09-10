@@ -55,6 +55,15 @@ test('admin-room infinite ammo applies to RPG client and server authority', () =
   assert.match(server, /rpgInfiniteAmmo,\s*\n\s*start,/);
 });
 
+test('RPG uses a dedicated layered fiery explosion cloud', () => {
+  assert.match(client, /if \(kind === 'rpg'\)[\s\S]{0,500}?spawnRpgExplosionCloud\(pos, radius\)/);
+  assert.match(client, /function spawnRpgExplosionCloud\(pos, radius\)/);
+  assert.match(client, /for \(let i = 0; i < 15; i\+\+\) addCloudPuff\(\{ fire: true/);
+  assert.match(client, /for \(let i = 0; i < 13; i\+\+\) addCloudPuff\(\{ fire: false/);
+  assert.match(client, /for \(let i = 0; i < 18; i\+\+\)/);
+  assert.match(client, /if \(f\.cloud\)[\s\S]{0,900}?f\.mesh\.material\.color\.lerpColors/);
+});
+
 test('supplied GLB is installed and contains launcher and rocket materials', () => {
   const glb = fs.readFileSync(modelPath);
   assert.equal(glb.toString('ascii', 0, 4), 'glTF');
