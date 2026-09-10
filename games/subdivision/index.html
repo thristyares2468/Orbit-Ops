@@ -7260,7 +7260,7 @@
             // never fires - shoot() refuses it rather than running the gun path
             // with an empty magazine.
             { id: 27, name: 'Shield', type: 'shield', damage: 0, rangeMod: 1.0, firerate: 0.5, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.72, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
-            { id: 28, name: 'RPG', type: 'launcher', kind: 'rpg', damage: 0, rangeMod: 1.0, firerate: 1.1, spreadBase: 0, spreadMove: 0, mag: 3, reserve: 0, auto: false, speedMult: 0.68, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) }
+            { id: 28, name: 'RPG', type: 'launcher', kind: 'rpg', damage: 0, rangeMod: 1.0, firerate: 1.1, spreadBase: 0, spreadMove: 0, mag: 1, reserve: 2, auto: false, speedMult: 0.68, pellets: 0, reloadTime: 2.8, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) }
         ];
 
         // ---- Breacher: alternating buckshot / slug ----
@@ -7474,6 +7474,7 @@
         let ammoState = weapons.map(w => ({ mag: w.mag, reserve: w.reserve }));
         let currentAmmo = ammoState[currentWeaponIndex].mag; let reserveAmmo = ammoState[currentWeaponIndex].reserve;
         let lastFireTime = 0; let isReloading = false; let reloadTimer = 0; let reloadDuration = 0; let reloadSequence = 0;
+        let rpgReloadRocket = null;
         let isEquipping = false; let equipTimer = 0; const EQUIP_DURATION = 0.6;
         let isZoomed = false;
         let knifeAttackTimer = 0; let knifeAttackDuration = 0; let knifeAttackHeavy = false; let lastKnifeAttackHeavy = false;
@@ -19345,6 +19346,7 @@
                 updateGrenadeHud();
             }
             inspectState = null;
+            clearRpgReloadRocket();
             reloadSequence++;
             if (isZoomed) toggleZoom();
             // persist the outgoing weapon's remaining ammo, then restore the incoming weapon's
@@ -19364,6 +19366,7 @@
             isReloading = false;
             reloadTimer = 0;
             reloadDuration = 0;
+            clearRpgReloadRocket();
             resetBreacherLoad();
             ammoState = weapons.map(w => ({ mag: w.mag, reserve: w.reserve }));
             currentAmmo = ammoState[currentWeaponIndex].mag;
@@ -19666,11 +19669,20 @@
             const insta = adminInstaReloadEnabled();
             isReloading = true; reloadDuration = insta ? 0 : wp.reloadTime; reloadTimer = reloadDuration;
             const reloadToken = ++reloadSequence;
+            clearRpgReloadRocket();
+            if (wp.name === 'RPG' && !insta) {
+                rpgReloadRocket = createGrenadeProjectileModel('rpg');
+                rpgReloadRocket.scale.setScalar(0.72);
+                rpgReloadRocket.position.set(2.4, -2.0, 1.8);
+                weaponGroup.add(rpgReloadRocket);
+            }
             const finishReload = () => {
                 if (reloadToken !== reloadSequence) return;
                 let needed = wp.mag - currentAmmo; let fromReserve = Math.min(needed, reserveAmmo);
                 currentAmmo += fromReserve; if (reserveAmmo !== '-') reserveAmmo -= fromReserve;
-                isReloading = false; updateUI();
+                isReloading = false;
+                clearRpgReloadRocket();
+                updateUI();
             };
             if (insta) {
                 finishReload();
@@ -19679,6 +19691,13 @@
                 document.getElementById('ammo').innerText = "Reloading...";
                 setTimeout(finishReload, reloadDuration * 1000);
             }
+        }
+
+        function clearRpgReloadRocket() {
+            if (!rpgReloadRocket) return;
+            rpgReloadRocket.parent?.remove(rpgReloadRocket);
+            disposeGrenadeProjectileModel(rpgReloadRocket);
+            rpgReloadRocket = null;
         }
 
         function updateUI() {
@@ -21154,9 +21173,13 @@
             }
             if (wp.type === 'launcher') {
                 if (isReloading || time - lastFireTime < wp.firerate * 1000) return;
-                if (currentAmmo <= 0) { flashToast('RPG ammunition replenishes when you respawn.'); return; }
+                if (currentAmmo <= 0) {
+                    if (reserveAmmo > 0) reloadWeapon();
+                    else flashToast('RPG ammunition replenishes when you respawn.');
+                    return;
+                }
                 currentAmmo--;
-                ammoState[currentWeaponIndex] = { mag: currentAmmo, reserve: 0 };
+                ammoState[currentWeaponIndex] = { mag: currentAmmo, reserve: reserveAmmo };
                 updateUI();
                 clearLocalSpawnProtectionForAction();
                 lastFireTime = time;
@@ -23959,7 +23982,26 @@
                 if (isReloading && !isZoomed) {
                     reloadTimer -= delta;
                     let progress = 1 - (Math.max(0, reloadTimer) / reloadDuration);
-                    if (progress < 0.5) {
+                    if (wp.name === 'RPG') {
+                        const lower = Math.sin(Math.min(1, progress / 0.2) * Math.PI / 2);
+                        const recover = progress > 0.78 ? Math.sin(((progress - 0.78) / 0.22) * Math.PI / 2) : 0;
+                        const lowered = lower * (1 - recover);
+                        wPosX -= lowered * 0.35;
+                        wPosY -= lowered * 1.05;
+                        wPosZ += lowered * 0.45;
+                        wRotX += lowered * 0.28;
+                        wRotZ -= lowered * 0.48;
+                        if (rpgReloadRocket) {
+                            const insert = THREE.MathUtils.smoothstep(progress, 0.2, 0.72);
+                            rpgReloadRocket.visible = progress < 0.78;
+                            rpgReloadRocket.position.set(
+                                THREE.MathUtils.lerp(2.4, 0.12, insert),
+                                THREE.MathUtils.lerp(-2.0, -0.05, insert),
+                                THREE.MathUtils.lerp(1.8, -1.7, insert)
+                            );
+                            rpgReloadRocket.rotation.set(-0.08, 0, -0.04 * (1 - insert));
+                        }
+                    } else if (progress < 0.5) {
                         let p = progress * 2;
                         wPosY = THREE.MathUtils.lerp(WEAPON_REST_POS.y, WEAPON_REST_POS.y - 1.5, p);
                         wRotX = THREE.MathUtils.lerp(0, Math.PI / 3, p);
