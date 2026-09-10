@@ -3097,7 +3097,7 @@
         const LOADING_TIPS = [
             'Tip: A tidy lawn is a tactical advantage.',
             'Tip: Headshots are 4x more effective than mowing.',
-            'Tip: Crouch to tighten your spread.',
+            'Tip: Hold crouch while moving forward to slide.',
             'Tip: Anti-cheat is always watching the edges.',
             "Tip: If you're not happy, we'll mow it again."
         ];
@@ -8024,6 +8024,7 @@
 
         let moveForward = false; let moveBackward = false; let moveLeft = false; let moveRight = false;
         let isCrouching = false; let crouchHeld = false; let jumpHeld = false; let jumpQueued = false; let jumpGraceTimer = 0; let isWalking = false; let isJumping = false; let isShooting = false; let isAltShooting = false;
+        let isSliding = false; let slideReady = true; let slideStartedAt = 0;
         const pressedKeys = new Set();
 
         let prevTime = performance.now();
@@ -8037,6 +8038,10 @@
         const CROUCH_COOLDOWN_MS = 350;           // min time between crouch state changes (anti-spam)
         const CROUCH_LERP_SPEED = 12;             // exponential ease rate (~0.2-0.25s transition)
         const walkSpeed = 35.0; const runSpeed = 75.0;
+        const SLIDE_DURATION_MS = 850;
+        const SLIDE_START_SPEED = 96;
+        const SLIDE_END_SPEED = 38;
+        const SLIDE_STEER_RATIO = 0.24;
         const jumpVelocity = 120.0; const gravity = 400.0; let jumpStamina = 1.0;
         let currentSpread = 0; let landingInaccuracy = 0; let wasAirborneLastFrame = false; let mapLoaded = false;
         let recoilShotIndex = 0; let lastRecoilShotAt = 0;
@@ -8085,8 +8090,25 @@
             // currentHeight + camera Y are eased toward target in animate(), not snapped here
         }
 
+        function stopSlide({ resetInput = false } = {}) {
+            isSliding = false;
+            slideStartedAt = 0;
+            if (resetInput) slideReady = true;
+        }
+
+        function tryStartSlide(time, onGround) {
+            if (isSliding || !slideReady || !onGround || !crouchHeld || !moveForward || moveBackward) return false;
+            isSliding = true;
+            slideReady = false; // require crouch to be released before another slide
+            slideStartedAt = time;
+            setCrouchState(true, true);
+            velocity.z = Math.max(velocity.z, SLIDE_START_SPEED);
+            return true;
+        }
+
         function startJump() {
             if (isJumping || !controls) return;
+            stopSlide();
             velocity.y = jumpVelocity * Math.max(0.5, jumpStamina);
             jumpStamina -= 0.4;
             if (jumpStamina < 0.2) jumpStamina = 0.2;
@@ -8295,7 +8317,11 @@
                     if (action === 'fire') beginAttack(false);
                     else if (action === 'aim') beginAttack(true);
                     else if (action === 'jump') { jumpHeld = true; jumpQueued = true; }
-                    else if (action === 'crouch') { crouchHeld = !crouchHeld; setCrouchState(crouchHeld); }
+                    else if (action === 'crouch') {
+                        crouchHeld = !crouchHeld;
+                        if (!crouchHeld) { slideReady = true; stopSlide(); }
+                        setCrouchState(crouchHeld);
+                    }
                     else if (action === 'reload') reloadWeapon();
                     else if (action === 'inspect') startInspectAnimation();
                     else if (action === 'score') scoreboard.style.display = 'block';
@@ -8457,7 +8483,7 @@
                 if (!buying) hideBuyMenu(false);
                 moveForward = moveBackward = moveLeft = moveRight = isShooting = isAltShooting = false;
                 pressedKeys.clear();
-                crouchHeld = false; jumpHeld = false; jumpQueued = false; jumpGraceTimer = 0; setCrouchState(false, true);
+                crouchHeld = false; jumpHeld = false; jumpQueued = false; jumpGraceTimer = 0; stopSlide({ resetInput: true }); setCrouchState(false, true);
                 if (gameStarted && !buying && !mapVoteReleasingPointer) showPauseMenu();
                 blockEscRelock = true; setTimeout(() => { blockEscRelock = false; }, 100);
             });
@@ -8563,6 +8589,7 @@
                 else if (isBind(event, 'crouch') || isBind(event, 'crouchAlt')) {
                     event.preventDefault();
                     crouchHeld = isActionHeld('crouch') || isActionHeld('crouchAlt');
+                    if (!crouchHeld) { slideReady = true; stopSlide(); }
                     setCrouchState(crouchHeld);
                 } else if (isBind(event, 'interact')) {
                     stopBombInteract();
@@ -19012,6 +19039,7 @@
             jumpHeld = false;
             jumpQueued = false;
             jumpGraceTimer = 0;
+            stopSlide({ resetInput: true });
             isCrouching = false;
             currentHeight = playerHeight;
             lastNetworkSend = 0;
@@ -19051,6 +19079,7 @@
             isCrouching = false;
             currentHeight = playerHeight; // snap to standing on respawn (no mid-ease leftover)
             crouchHeld = false;
+            stopSlide({ resetInput: true });
             lastCrouchToggle = 0; // never block crouching right after spawn
             velocity.set(0, 0, 0);
             moveForward = moveBackward = moveLeft = moveRight = false;
@@ -20327,6 +20356,8 @@
             inspectState = null;
             clearGrenadeArc();
             pressedKeys.clear();
+            crouchHeld = false;
+            stopSlide({ resetInput: true });
             velocity.set(0, 0, 0);
 
             const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
@@ -24228,6 +24259,7 @@
                 deathSpectateTargetId = null;
                 deathSpectateFallbackPosition = null;
                 moveForward = moveBackward = moveLeft = moveRight = isShooting = isAltShooting = false;
+                stopSlide({ resetInput: true });
                 velocity.set(0, 0, 0);
                 if (weaponGroup) weaponGroup.visible = false;
                 prevTime = time;
@@ -24243,6 +24275,7 @@
                 deathSpectateTargetId = null;
                 deathSpectateFallbackPosition = null;
                 moveForward = moveBackward = moveLeft = moveRight = isShooting = isAltShooting = false;
+                stopSlide({ resetInput: true });
                 velocity.set(0, 0, 0);
                 prevTime = time;
                 renderer.render(scene, camera);
@@ -24258,6 +24291,7 @@
 
             if (isCasualActionLocked()) {
                 moveForward = moveBackward = moveLeft = moveRight = isShooting = isAltShooting = false;
+                stopSlide({ resetInput: true });
                 velocity.set(0, 0, 0);
                 prevTime = time;
                 renderer.render(scene, camera);
@@ -24301,6 +24335,8 @@
 
                 let currentSpeed = Math.sqrt(velocity.x**2 + velocity.z**2); let speedRatio = Math.min(1, currentSpeed / runSpeed);
                 let onGround = !isJumping; let targetBobX = 0; let targetBobY = 0;
+                tryStartSlide(time, onGround && !wasAirborneLastFrame);
+                if (isSliding && (!crouchHeld || !moveForward || moveBackward || isJumping || wasAirborneLastFrame || time - slideStartedAt >= SLIDE_DURATION_MS)) stopSlide();
 
                 if (onGround && currentSpeed > 5) {
                     targetBobY = Math.sin(time * 0.015) * 0.05 * speedRatio; targetBobX = Math.cos(time * 0.0075) * 0.05 * speedRatio;
@@ -24313,6 +24349,10 @@
                             eyePosition: true
                         });
                     }
+                }
+                if (isSliding) {
+                    targetBobX *= 0.35;
+                    targetBobY = -0.11;
                 }
                 bobCurrentX = THREE.MathUtils.lerp(bobCurrentX, targetBobX, delta * 10); bobCurrentY = THREE.MathUtils.lerp(bobCurrentY, targetBobY, delta * 10);
 
@@ -24499,10 +24539,10 @@
                 if (moveBackward) wishZ -= 1;
                 let speedParam = isWalking ? walkSpeed : runSpeed;
                 if (isCrouching) speedParam = walkSpeed * 0.7;
-                speedParam *= wp.speedMult;
-                speedParam *= getCurrentMapSpeedMult();
-                if (isZoomed) speedParam *= 0.5;
-                if (molotovSlowActive) speedParam *= MOLOTOV_SLOW_MULT;
+                let movementSpeedScale = wp.speedMult * getCurrentMapSpeedMult();
+                if (isZoomed) movementSpeedScale *= 0.5;
+                if (molotovSlowActive) movementSpeedScale *= MOLOTOV_SLOW_MULT;
+                speedParam *= movementSpeedScale;
                 speedParam *= Math.max(0.6, jumpStamina);
 
                 const ladderContact = time >= ladderDismountUntil
@@ -24516,6 +24556,7 @@
                 let counterMult = COUNTER_STRAFE_MULT;
 
                 if (climbingLadder) {
+                    stopSlide();
                     velocity.x -= velocity.x * Math.min(1, delta * 10);
                     velocity.z -= velocity.z * Math.min(1, delta * 10);
                     isJumping = false;
@@ -24523,6 +24564,14 @@
                         lastLadderStepAt = time;
                         soundFootstep(null, { surface: 'ladder', speedScale: 0.82 });
                     }
+                } else if (isSliding) {
+                    const slideProgress = Math.min(1, Math.max(0, (time - slideStartedAt) / SLIDE_DURATION_MS));
+                    const easedProgress = 1 - Math.pow(1 - slideProgress, 2);
+                    const slideSpeed = THREE.MathUtils.lerp(SLIDE_START_SPEED, SLIDE_END_SPEED, easedProgress)
+                        * movementSpeedScale * Math.max(0.6, jumpStamina);
+                    const lateralTarget = wishX * slideSpeed * SLIDE_STEER_RATIO;
+                    velocity.x = THREE.MathUtils.lerp(velocity.x, lateralTarget, Math.min(1, delta * 7));
+                    velocity.z = slideSpeed;
                 } else if (!isJumping) {
                     if (wishX !== 0) {
                         if (velocity.x !== 0 && Math.sign(wishX) !== Math.sign(velocity.x)) {
@@ -24559,7 +24608,7 @@
                 }
 
                 let hSpeed = Math.sqrt(velocity.x**2 + velocity.z**2);
-                if (hSpeed > speedParam) {
+                if (!isSliding && hSpeed > speedParam) {
                     velocity.x = (velocity.x / hSpeed) * speedParam;
                     velocity.z = (velocity.z / hSpeed) * speedParam;
                 }
