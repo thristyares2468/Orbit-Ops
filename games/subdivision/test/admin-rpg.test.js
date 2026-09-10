@@ -31,8 +31,8 @@ test('RPG flight and explosion are validated instead of trusting client damage',
   assert.match(client, /rpgReloadRocket = createGrenadeProjectileModel\('rpg'\)/);
   assert.match(client, /THREE\.MathUtils\.smoothstep\(progress, 0\.2, 0\.72\)/);
   assert.match(client, /rpgReloadRocket\.position\.set/);
-  assert.match(client, /'RPG': \{ path: '\/assets\/weapons\/rpg\.glb', axis: 'y'/);
-  assert.match(client, /fp: \{ length: 4\.4, pos: \[0\.82,/);
+  assert.match(client, /'RPG': \{ path: '\/assets\/weapons\/rpg\.glb', axis: 'z'/);
+  assert.match(client, /fp: \{ length: 4\.4, pos: \[0\.45,/);
   assert.match(client, /if \(\/rocket_\?\\\.001\/i\.test\(names\)\) obj\.visible = false/);
   assert.match(client, /else if \(\/\(\^\|\\s\)rocket\(\$\|\\s\)\/i\.test\(names\)\) obj\.visible = loaded/);
   assert.match(client, /currentAmmo--;[\s\S]{0,180}?syncHeldRpgRocket\(\)/);
@@ -52,4 +52,48 @@ test('supplied GLB is installed and contains launcher and rocket materials', () 
   assert.match(glb.toString('utf8'), /rocket_?\.?001|rocket/);
   assert.match(client, /'RPG': \{ path: '\/assets\/weapons\/rpg\.glb'/);
   assert.match(client, /\/rocket\/i\.test/);
+});
+
+// Orientation. This has been got wrong twice - once standing the launcher on
+// end and aiming it at the floor, once flying the rocket broadside - so the
+// reasoning is pinned here rather than the numbers alone.
+//
+// Measured from the GLB's own world-space bounds (after node transforms):
+//   X span 0.73   Y span 2.19   Z span 8.08
+// so the tube runs along Z. The sight sits at +Y and the grips hang at -Y, so
+// +Y is up. The warhead protrudes to -Z, which is forward in this engine.
+// Therefore the correct transform is no transform.
+test('the RPG is not rotated off its own long axis', () => {
+  // axis 'y' maps the model's +Z to +Y. On a Z-length model that is what
+  // stands it upright and points the muzzle at the ground.
+  assert.doesNotMatch(client, /'RPG': \{ path: '\/assets\/weapons\/rpg\.glb', axis: 'y'/,
+    "axis 'y' aims a Z-length launcher at the floor");
+  // A 180deg yaw is the other failed attempt: it points the warhead back at
+  // the player, because -Z is already forward.
+  assert.doesNotMatch(client, /'RPG': \{ path: '[^']*rpg\.glb', axis: 'z', fp: \{[^}]*rot:/u,
+    'the RPG needs no rot; -Z is already the muzzle and +Y is already up');
+
+  const rpgBranch = client.slice(
+    client.indexOf("if (kind === 'rpg') {"),
+    client.indexOf('const weaponName = grenadeWeaponName(kind);')
+  );
+  assert.ok(rpgBranch.length > 500 && rpgBranch.length < 4000, 'the rpg projectile branch is where this expects');
+
+  // The flight code aligns the group's -Z to the velocity, and the rocket's
+  // nose is already at -Z, so any rotation here tips it off the flight axis.
+  assert.doesNotMatch(rpgBranch, /rocket\.rotation\.x/u,
+    'rotating the loaded rocket about X makes it fly broadside-on');
+  assert.match(client, /g\.mesh\.quaternion\.setFromUnitVectors\(new THREE\.Vector3\(0, 0, -1\), g\.vel/u,
+    'this is the contract the rocket model has to satisfy');
+
+  // The placeholder shown until the GLB resolves has to agree with it. A
+  // cylinder is Y-axis with its narrow end at +Y, so -90deg puts the nose
+  // on -Z; +90deg would fly it tail-first.
+  assert.match(rpgBranch, /fallback\.rotation\.x = -Math\.PI \/ 2;/u);
+
+  // The source carries a spare rocket above the tube. A bare /rocket/i keeps
+  // both, so the projectile flew as two warheads and the spare pulled the
+  // bounding box off-axis, skewing the recentring.
+  assert.match(rpgBranch, /!\/rocket_\?\\\.001\/i\.test\(name\)/u,
+    'the spare rocket must be excluded from the projectile');
 });
