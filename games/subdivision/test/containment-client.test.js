@@ -37,15 +37,24 @@ test('server-owned enemies are rendered, interpolated, and shootable', () => {
   assert.match(html, /if \(data\.enemyId\) triggerContainmentZombieAttack\(data\.enemyId\)/u,
     'server-confirmed damage triggers the correct zombie bite animation');
   assert.match(html, /THREE\.SkeletonUtils\?\.clone/u, 'rigged variants are cloned without sharing skeleton state');
-  assert.match(html, /const localBounds = \(object\) =>/u, 'the imported armature is normalized in actor-local space');
-  assert.match(html, /const hitboxBounds = \(\) =>/u, 'the imported visual measures the actual actor target geometry');
-  assert.match(html, /const targetBounds = hitboxBounds\(\)/u, 'the visual height follows the authoritative hitbox height');
+  // Fitted on the skeleton, not on bind-pose mesh bounds: the four variants sit
+  // at different offsets in the source scene, so mesh bounds are a per-variant
+  // accident. See containment-zombie-fit.test.js for the measurements.
+  assert.match(html, /const boneBounds = \(object\) =>/u, 'the imported armature is normalized from its bones');
+  // Height is authored per kind rather than read back off the hitboxes. Deriving
+  // it from them made the fit circular: retuning a hitbox silently resized the
+  // model, which is part of how the original misalignment stayed hidden.
+  assert.match(html, /const CONTAINMENT_ZOMBIE_HEIGHT = \{ walker: [\d.]+, heavy: [\d.]+ \};/u,
+    'the visual height is stated, not derived from the hitboxes');
   assert.match(html, /actor\.scale\.setScalar\(1\)/u, 'network origin and zombie targets are not separated by actor scaling');
   assert.match(html, /joints\.hitHead\.geometry = new THREE\.BoxGeometry/u, 'zombies replace player targets with fitted head/body/leg volumes');
   assert.match(html, /actor\.userData\.zombieVisualBaseY = wrapper\.position\.y/u,
     'the imported model stores its grounded visual origin');
-  assert.match(html, /targetBounds\.min\.y - bounds\.min\.y - floorSink/u,
-    'every imported variant is sunk onto the authoritative leg hitbox');
+  // No sink. The two constants that used to be here were compensating for a
+  // measurement taken in the wrong space; with the skeleton as the reference
+  // the rig's lowest bone IS its foot, so it simply stands on the origin.
+  assert.match(html, /wrapper\.position\.set\(-center\.x, -bounds\.min\.y, -center\.z\)/u,
+    'every imported variant stands on the actor origin');
   assert.doesNotMatch(html, /zombieVisualBaseY \|\| 0\)\s*\+\s*Math\.abs/u,
     'walking never lifts the whole zombie model above its hitbox');
   assert.match(html, /using procedural fallback/u, 'a failed asset request cannot prevent enemies spawning');

@@ -7683,6 +7683,11 @@
         const containmentEnemyActors = new Map();
         const containmentGateActors = new Map();
         const CONTAINMENT_ZOMBIE_MODEL = '/assets/characters/zombies/nuketown-zombies.glb?v=20260825';
+        // Authored standing height per kind, the same idea as PLAYER_VISUAL_HEIGHT.
+        // Stated explicitly rather than derived from the hitboxes: deriving it
+        // makes the fit circular the moment a hitbox is retuned, and it was that
+        // coupling that hid the real bug behind two "floor sink" constants.
+        const CONTAINMENT_ZOMBIE_HEIGHT = { walker: 22.2, heavy: 23 };
         // The admin room previews the imported COD variants for rig and
         // grounding work. Normal Zombies matches keep the gameplay-aligned
         // procedural model until those imported variants are ready.
@@ -12179,66 +12184,84 @@
                 wrapper.add(model);
                 actor.add(wrapper);
 
-                // The imported armatures carry their own transforms. Measure
-                // their geometry in actor-local space after parenting, then
-                // offset the neutral wrapper. The old world-space correction
-                // was applied directly to model.position and could lift the
-                // render above the authoritative feet/hitboxes once the actor
-                // itself was scaled or rotated.
-                const localBounds = (object) => {
+                // Fit on the SKELETON, not on mesh bounding boxes.
+                //
+                // These are skinned meshes, so the GPU places their vertices from
+                // the bone matrices - but three r135 has no
+                // SkinnedMesh.computeBoundingBox(), so the guarded branch below
+                // never ran and every mesh fell through to geometry.boundingBox,
+                // which is the BIND POSE. The four variants are baked at very
+                // different offsets in the source scene, so that measurement is
+                // per-variant garbage:
+                //
+                //   variant           bind-pose bounds y      bone bounds y
+                //   sol               -125.6 .. -45.9         0 .. 127.4
+                //   solciv              46.4 .. 125.1         0 .. 127.4
+                //   haz_2             -213.0 .. -133.4        0 .. 122.9
+                //   haz_1              -39.8 ..  39.3         0 .. 127.4
+                //
+                // Fitting to those offsets is what put the walker's feet ten
+                // units under the floor and left the heavy hovering about
+                // thirty-five units above its own hitbox (measured by reading
+                // back the drawn pixels, not by eye). The floorSink constants
+                // this replaces were compensating for one variant's offset.
+                //
+                // The bones tell a consistent story for every variant: the rig
+                // stands on y = 0 and is ~127 tall. So measure those, scale the
+                // skeleton to the authored height, and stand it on the floor -
+                // which is exactly what the player models do, they just get to
+                // use mesh bounds because their bind pose is not displaced.
+                const boneBounds = (object) => {
                     actor.updateWorldMatrix(true, true);
                     const inverseActor = actor.matrixWorld.clone().invert();
                     const result = new THREE.Box3().makeEmpty();
+                    const point = new THREE.Vector3();
                     object.traverse((node) => {
-                        if (!node.isMesh) return;
-                        let meshBounds = null;
-                        if (node.isSkinnedMesh && typeof node.computeBoundingBox === 'function') {
-                            node.computeBoundingBox();
-                            meshBounds = node.boundingBox;
-                        } else if (node.geometry) {
-                            if (!node.geometry.boundingBox) node.geometry.computeBoundingBox();
-                            meshBounds = node.geometry.boundingBox;
-                        }
-                        if (!meshBounds) return;
-                        const toActor = inverseActor.clone().multiply(node.matrixWorld);
-                        result.union(meshBounds.clone().applyMatrix4(toActor));
+                        if (!node.isBone) return;
+                        result.expandByPoint(node.getWorldPosition(point).applyMatrix4(inverseActor));
                     });
                     return result;
                 };
-                const hitboxBounds = () => {
+                // Face the model the way the actor faces before measuring it.
+                //
+                // These rigs are authored with the shoulder line along Z, so
+                // every variant renders side-on to its own hitbox and to its
+                // direction of travel - the zombies strafe at you rather than
+                // walk at you. Rather than hard-code a quarter turn, derive it:
+                // rotating the left->right shoulder vector onto +X puts the
+                // character's right at +X and, with +Y up, its forward at -Z,
+                // which is what the rest of the engine means by forward. A
+                // variant authored differently corrects itself.
+                const bonePosition = (pattern) => {
+                    let found = null;
+                    model.traverse((node) => { if (!found && node.isBone && pattern.test(node.name || '')) found = node; });
+                    if (!found) return null;
                     actor.updateWorldMatrix(true, true);
-                    const inverseActor = actor.matrixWorld.clone().invert();
-                    const result = new THREE.Box3().makeEmpty();
-                    const joints = actor.userData.joints || {};
-                    for (const hitbox of [joints.hitHead, joints.hitBody, joints.hitLegs]) {
-                        if (!hitbox?.geometry) continue;
-                        if (!hitbox.geometry.boundingBox) hitbox.geometry.computeBoundingBox();
-                        const toActor = inverseActor.clone().multiply(hitbox.matrixWorld);
-                        result.union(hitbox.geometry.boundingBox.clone().applyMatrix4(toActor));
-                    }
-                    return result;
+                    return found.getWorldPosition(new THREE.Vector3())
+                        .applyMatrix4(actor.matrixWorld.clone().invert());
                 };
-                const sourceBounds = localBounds(model);
+                // Applied to the wrapper, never to the model: the armature
+                // carries its own Z-up-to-Y-up correction, so the model's local
+                // Y is not the world's. Rotating the model tips the rig on its
+                // side instead of turning it (its measured height collapses from
+                // ~127 to ~40). The wrapper is axis-aligned with the actor, so a
+                // yaw there is a real yaw. The idle animation only ever writes
+                // rotation.x/.z on this node, so .y survives.
+                const shoulderL = bonePosition(/j_shoulder_le_/i);
+                const shoulderR = bonePosition(/j_shoulder_ri_/i);
+                if (shoulderL && shoulderR) {
+                    wrapper.rotation.y += Math.atan2(shoulderR.z - shoulderL.z, shoulderR.x - shoulderL.x);
+                }
+
+                const sourceBounds = boneBounds(model);
                 const sourceHeight = Math.max(0.001, sourceBounds.max.y - sourceBounds.min.y);
-                // Use the actor's actual invisible target geometry instead of
-                // a separate magic model height. This remains correct for both
-                // the walker/heavy actor scales and any future hitbox tuning.
-                const targetBounds = hitboxBounds();
-                const targetHeight = Math.max(0.001, targetBounds.max.y - targetBounds.min.y);
-                model.scale.multiplyScalar(targetHeight / sourceHeight);
-                const bounds = localBounds(model);
+                if (!Number.isFinite(sourceHeight) || sourceHeight <= 0.001) return;
+                model.scale.multiplyScalar(CONTAINMENT_ZOMBIE_HEIGHT[actor.userData.kind] / sourceHeight);
+                const bounds = boneBounds(model);
                 const center = bounds.getCenter(new THREE.Vector3());
-                const targetCenter = targetBounds.getCenter(new THREE.Vector3());
-                // The supplied variants have differently posed feet and their
-                // skinned bounds sit slightly above the collision floor. Sink
-                // each fitted model a little after scaling so boots overlap the
-                // bottom of the authoritative leg hitbox instead of hovering.
-                const floorSink = actor.userData.kind === 'heavy' ? 1.15 : 0.85;
-                wrapper.position.set(
-                    targetCenter.x - center.x,
-                    targetBounds.min.y - bounds.min.y - floorSink,
-                    targetCenter.z - center.z
-                );
+                // Feet on the floor, centred on the actor. No sink: the rig's
+                // lowest bone is its foot, and the actor origin is the floor.
+                wrapper.position.set(-center.x, -bounds.min.y, -center.z);
                 actor.updateMatrixWorld(true);
                 const flashObjects = [];
                 model.traverse((mesh) => {
@@ -12293,8 +12316,12 @@
             joints.hitBody.geometry = new THREE.BoxGeometry(heavy ? 9 : 7.4, heavy ? 10.5 : 9.2, heavy ? 6 : 4.8);
             joints.hitBody.position.y = heavy ? 12.2 : 11.8;
             joints.hitLegs.geometry.dispose();
-            joints.hitLegs.geometry = new THREE.BoxGeometry(heavy ? 8.4 : 6.8, heavy ? 10 : 8.8, heavy ? 5.8 : 4.6);
-            joints.hitLegs.position.y = heavy ? 5.2 : 4.8;
+            // Reaches the floor, like the player's leg box does (0 .. 10). It
+            // used to start at 0.4/0.2, leaving a gap a boot-height shot passed
+            // straight through - and that gap was also what the removed floor
+            // sink was quietly hiding by pushing the model down into it.
+            joints.hitLegs.geometry = new THREE.BoxGeometry(heavy ? 8.4 : 6.8, heavy ? 10.2 : 9.2, heavy ? 5.8 : 4.6);
+            joints.hitLegs.position.y = heavy ? 5.1 : 4.6;
             actor.userData.thirdPersonWeapon?.removeFromParent?.();
             actor.userData.joints.leftArm.rotation.x = -0.72;
             actor.userData.joints.rightArm.rotation.x = -0.72;
