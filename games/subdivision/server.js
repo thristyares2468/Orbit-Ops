@@ -1733,7 +1733,6 @@ function handleMessage(client, raw) {
     player.activeAt = Date.now();
     const kind = sanitizeUtilityKind(data.kind);
     if (!kind) return;
-    if (kind === 'rpg' && !isAdminRoom(room)) return;
     if (isGrenadeDisabledByAdmin(room, kind)) {
       send(client, 'utilityDenied', { kind, money: player.money, message: 'That utility is disabled.' });
       return;
@@ -6634,7 +6633,7 @@ function resetUtilityLife(player) {
   // Deployed barricades outlive their owner's life; the allowance does not.
   player.barricadesDeployedThisLife = 0;
   player.c4DeployedThisLife = 0;
-  player.rpgShotsRemaining = UTILITY_LIFE_CAPS.rpg;
+  player.rpgShotsRemaining = 3;
   player.recentRpgShots = [];
   player.lastRpgShotAt = 0;
   resetShotgunLoad(player);
@@ -6718,6 +6717,7 @@ function isCasualMode(room) {
 
 function isWeaponAvailableInMode(room, weaponName) {
   if (!WEAPONS[weaponName]) return false;
+  if (weaponName === 'RPG' && !isAdminRoom(room)) return false;
   if (isWeaponDisabledByAdmin(room, weaponName)) return false;
   return isCasualMode(room) || !CASUAL_ONLY_WEAPONS.has(weaponName);
 }

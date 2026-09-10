@@ -4824,7 +4824,6 @@
         function applyAdminRoom(isAdmin, cfg) {
             isAdminRoom = !!isAdmin;
             adminConfig = cfg || (isAdminRoom ? { weaponPrices: {}, grenadePrices: {}, weaponDisabled: [], grenadeDisabled: [] } : null);
-            grenadeInventory.rpg = isAdminRoom ? Math.max(grenadeInventory.rpg || 0, utilityCap('rpg')) : 0;
             if (!isAdminRoom) clearAdminDummies();
             if (adminControlsButton) adminControlsButton.style.display = 'none';
             renderBuyMenu();
@@ -7261,7 +7260,7 @@
             // never fires - shoot() refuses it rather than running the gun path
             // with an empty magazine.
             { id: 27, name: 'Shield', type: 'shield', damage: 0, rangeMod: 1.0, firerate: 0.5, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.72, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
-            { id: 28, name: 'RPG', type: 'grenade', kind: 'rpg', damage: 0, rangeMod: 1.0, firerate: 1.1, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.68, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) }
+            { id: 28, name: 'RPG', type: 'launcher', kind: 'rpg', damage: 0, rangeMod: 1.0, firerate: 1.1, spreadBase: 0, spreadMove: 0, mag: 3, reserve: 0, auto: false, speedMult: 0.68, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) }
         ];
 
         // ---- Breacher: alternating buckshot / slug ----
@@ -7800,7 +7799,7 @@
         const REMOTE_STALE_AFTER_MS = 30000;
         const SPAWN_NEAR_PLAYER_RADIUS = 170;
         const SPAWN_NEAR_PLAYER_VERTICAL_RADIUS = 260;
-        const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10, 25, 26];
+        const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10, 25, 26, 27];
         const baseSidearmIndexes = [1, 2];
         const casualSidearmIndexes = baseSidearmIndexes;
         const CASUAL_ONLY_SIDEARMS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
@@ -7816,14 +7815,14 @@
         const TEAM_FRIENDLY_TINT = 0x2e7d3a;    // friendly uniform tint
         const TEAM_ENEMY_TINT = 0x7d2e2e;       // enemy uniform tint
 
-        const GRENADE_KINDS = ['frag', 'smoke', 'flash', 'molotov', 'barricade', 'c4', 'rpg'];
+        const GRENADE_KINDS = ['frag', 'smoke', 'flash', 'molotov', 'barricade', 'c4'];
         const GRENADE_PRICES = window.GameCore.GRENADE_PRICES; // shared with server UTILITY_PRICES (core.js)
         const GRENADE_CAP = 2;
         const GRENADE_LIFE_CAP = 2;
         const GRENADE_CHARGE_MS = 1250;
         const GRENADE_MIN_CHARGE = 0.3;
         const GRENADE_MAX_CHARGE = 1.45;
-        const grenadeWeaponIndex = { frag: 19, smoke: 20, flash: 21, molotov: 22, barricade: 23, c4: 24, rpg: 27 };
+        const grenadeWeaponIndex = { frag: 19, smoke: 20, flash: 21, molotov: 22, barricade: 23, c4: 24 };
         const UTILITY_LIFE_CAPS = window.GameCore.UTILITY_LIFE_CAPS; // per-kind overrides (core.js)
         // Owned/per-life cap for one utility kind. Both caps are the same number,
         // so one helper covers the inventory cap and the buy-per-life cap.
@@ -7866,10 +7865,10 @@
             return GRENADE_PRICES[kind];
         }
         function isWeaponEnabled(name) {
+            if (name === 'RPG' && !isAdminRoom) return false;
             return !(Array.isArray(adminConfig?.weaponDisabled) && adminConfig.weaponDisabled.includes(name));
         }
         function isGrenadeEnabled(kind) {
-            if (kind === 'rpg' && !isAdminRoom) return false;
             return !(Array.isArray(adminConfig?.grenadeDisabled) && adminConfig.grenadeDisabled.includes(kind));
         }
         function adminInfiniteAmmoEnabled() {
@@ -7889,8 +7888,8 @@
         }
         let myMoney = 200;
 
-        let grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, rpg: 0 };
-        let grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, rpg: 0 };
+        let grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
+        let grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
         let selectedGrenade = 'frag';
         const barricadeActors = new Map(); // id -> deployed panel group
         let barricadePreview = null;       // ghost panel shown while the barricade is out
@@ -18847,7 +18846,7 @@
             myHealth = 100;
             updateHealthUI();
             stimCharges = 0;
-            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, rpg: 0 };
+            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
             lastPurchaseId = null;
             resetAllAmmo();
             camera.position.set(0, 0, 0);
@@ -18863,7 +18862,6 @@
                 GRENADE_KINDS.forEach(kind => {
                     grenadeInventory[kind] = utilityCap(kind);
                 });
-                if (!isAdminRoom) grenadeInventory.rpg = 0;
                 resetHealthshotState();
             }
             if (repositioned) {
@@ -21154,6 +21152,21 @@
                 throwGrenade(wp.kind, isAlt);
                 return;
             }
+            if (wp.type === 'launcher') {
+                if (isReloading || time - lastFireTime < wp.firerate * 1000) return;
+                if (currentAmmo <= 0) { flashToast('RPG ammunition replenishes when you respawn.'); return; }
+                currentAmmo--;
+                ammoState[currentWeaponIndex] = { mag: currentAmmo, reserve: 0 };
+                updateUI();
+                clearLocalSpawnProtectionForAction();
+                lastFireTime = time;
+                lastLocalShotAt = time;
+                fireRpgProjectile();
+                recoilTargetPitch += 0.13;
+                gunKickTargetZ += 0.85;
+                gunKickTargetRot += 0.34;
+                return;
+            }
             let fireDelay = wp.firerate; if (wp.type === 'melee') fireDelay = lastKnifeAttackHeavy ? 1.0 : 0.25;
             if (isReloading || time - lastFireTime < fireDelay * 1000) return;
             if (wp.type !== 'melee') {
@@ -22061,12 +22074,21 @@
         }
 
         // ---- Grenade selection / throwing ----
+        function fireRpgProjectile() {
+            const { start, vel } = getGrenadeThrowVector('rpg', false, 1);
+            const id = makeGrenadeId();
+            sendPacket('throwGrenade', { id, kind: 'rpg', start: vecObj(start), velocity: vecObj(vel) });
+            spawnGrenadeProjectile(id, 'rpg', start, vel, true);
+            soundShoot('RPG');
+            if (audioCtx) playNoise(0.14, 0.5, 420, 70);
+        }
+
         function equipGrenade(kind) {
             if (!usesUtility() || !grenadeWeaponIndex[kind]) return;
             selectedGrenade = kind;
             // A spent C4 slot is still worth drawing: it is the detonator.
             const holdsDetonator = kind === 'c4' && !!myLiveC4Charge();
-            if ((kind !== 'rpg' && adminInfiniteUtilityEnabled()) || (grenadeInventory[kind] || 0) > 0 || holdsDetonator) {
+            if (adminInfiniteUtilityEnabled() || (grenadeInventory[kind] || 0) > 0 || holdsDetonator) {
                 switchWeapon(grenadeWeaponIndex[kind], true);
             }
             updateGrenadeHud();
@@ -22074,8 +22096,7 @@
 
         function throwGrenade(kind, isAlt) {
             if (kind === 'c4') { useC4(); return; }
-            const infiniteUtility = kind !== 'rpg' && adminInfiniteUtilityEnabled();
-            if (!usesUtility() || (!infiniteUtility && (grenadeInventory[kind] || 0) <= 0)) return;
+            if (!usesUtility() || (!adminInfiniteUtilityEnabled() && (grenadeInventory[kind] || 0) <= 0)) return;
             if (kind === 'barricade') { attemptDeployBarricade(); return; }
             throwGrenadeWithCharge(kind, isAlt, 1);
         }
@@ -22086,16 +22107,9 @@
             // Checked before the inventory guard: with a charge already planted the
             // slot is a detonator, and holds nothing to spend.
             if (wp.kind === 'c4') { useC4(); return; }
-            const infiniteUtility = wp.kind !== 'rpg' && adminInfiniteUtilityEnabled();
-            if (!infiniteUtility && (grenadeInventory[wp.kind] || 0) <= 0) return;
+            if (!adminInfiniteUtilityEnabled() && (grenadeInventory[wp.kind] || 0) <= 0) return;
             // The barricade is placed, not thrown: no charge, no arc, no fuse.
             if (wp.kind === 'barricade') { attemptDeployBarricade(); return; }
-            if (wp.kind === 'rpg') {
-                if (performance.now() - lastFireTime < wp.firerate * 1000) return;
-                lastFireTime = performance.now();
-                throwGrenadeWithCharge('rpg', false, 1);
-                return;
-            }
             if (grenadeAim) return;
             grenadeAim = { kind: wp.kind, alt: !!isAlt, startedAt: performance.now() };
             playSfxSample(grenadeHandlingSfx[wp.kind]?.pin, null, 'effects', { volumeScale: 0.66, cooldownKey: 'grenade:pin', cooldownMs: 250 });
@@ -22122,10 +22136,7 @@
 
         function throwGrenadeWithCharge(kind, isAlt, charge = 1) {
             if (kind === 'barricade' || kind === 'c4') return; // deployed, never thrown
-            // RPG ammunition is deliberately finite even when the admin-room
-            // infinite-utility sandbox option is enabled: it has three rockets
-            // for this life and only a respawn restores them.
-            const infiniteUtility = kind !== 'rpg' && adminInfiniteUtilityEnabled();
+            const infiniteUtility = adminInfiniteUtilityEnabled();
             if (!usesUtility() || (!infiniteUtility && (grenadeInventory[kind] || 0) <= 0)) return;
             clearLocalSpawnProtectionForAction();
             if (!infiniteUtility) grenadeInventory[kind] -= 1;
@@ -23698,8 +23709,8 @@
 
         function tdmResetState() {
 
-            grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, rpg: 0 };
-            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0, rpg: 0 };
+            grenadeInventory = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
+            grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
             selectedGrenade = 'frag';
             grenadeAim = null;
             lastGrenadeChargeHud = -1;

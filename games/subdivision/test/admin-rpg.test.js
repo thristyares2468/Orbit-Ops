@@ -9,19 +9,23 @@ const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const core = require(path.join(root, 'core.js'));
 const modelPath = path.join(root, 'assets', 'weapons', 'rpg.glb');
 
-test('RPG is a three-shot admin-room utility weapon', () => {
-  assert.equal(core.UTILITY_LIFE_CAPS.rpg, 3);
-  assert.equal(core.WEAPONS.RPG.type, 'utility');
-  assert.match(client, /name: 'RPG', type: 'grenade', kind: 'rpg'/);
-  assert.match(client, /kind === 'rpg' && !isAdminRoom/);
-  assert.match(server, /kind === 'rpg' && !isAdminRoom\(room\)/);
+test('RPG is a three-shot admin-room primary weapon', () => {
+  assert.equal(core.WEAPONS.RPG.type, 'launcher');
+  assert.equal(core.WEAPON_PRICES.RPG, 0);
+  assert.equal(core.UTILITY_PRICES.rpg, undefined);
+  assert.match(client, /name: 'RPG', type: 'launcher', kind: 'rpg'[\s\S]{0,180}?mag: 3, reserve: 0/);
+  assert.match(client, /deathmatchMainWeaponIndexes = \[[^\]]*27\]/);
+  assert.match(client, /name === 'RPG' && !isAdminRoom/);
+  assert.match(server, /weaponName === 'RPG' && !isAdminRoom\(room\)/);
   assert.match(server, /!isAdminRoom\(room\) \|\| player\.weapon !== 'RPG'/);
   assert.match(server, /player\.rpgShotsRemaining -= 1/);
-  assert.match(client, /const infiniteUtility = kind !== 'rpg' && adminInfiniteUtilityEnabled\(\)/);
+  assert.match(server, /player\.rpgShotsRemaining = 3/);
 });
 
 test('RPG flight and explosion are validated instead of trusting client damage', () => {
   assert.match(client, /if \(kind === 'rpg'\) return \{ start, vel \}/);
+  assert.match(client, /if \(wp\.type === 'launcher'\)[\s\S]{0,700}?fireRpgProjectile\(\)/);
+  assert.match(client, /currentAmmo--/);
   assert.match(client, /if \(g\.kind !== 'rpg'\) g\.vel\.y -= 400 \* delta/);
   assert.match(client, /kind: kind === 'rpg' \? 'rpg' : 'grenade'/);
   assert.match(server, /recentRpgShots\.push\(\{ id, ts: now, start, velocity, burst: false \}\)/);
