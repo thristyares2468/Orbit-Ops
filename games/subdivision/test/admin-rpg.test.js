@@ -31,6 +31,12 @@ test('RPG flight and explosion are validated instead of trusting client damage',
   assert.match(client, /rpgReloadRocket = createGrenadeProjectileModel\('rpg'\)/);
   assert.match(client, /THREE\.MathUtils\.smoothstep\(progress, 0\.2, 0\.72\)/);
   assert.match(client, /rpgReloadRocket\.position\.set/);
+  assert.match(client, /'RPG': \{ path: '\/assets\/weapons\/rpg\.glb', axis: 'y'/);
+  assert.match(client, /fp: \{ length: 4\.4, pos: \[0\.82,/);
+  assert.match(client, /if \(\/rocket_\?\\\.001\/i\.test\(names\)\) obj\.visible = false/);
+  assert.match(client, /else if \(\/\(\^\|\\s\)rocket\(\$\|\\s\)\/i\.test\(names\)\) obj\.visible = loaded/);
+  assert.match(client, /currentAmmo--;[\s\S]{0,180}?syncHeldRpgRocket\(\)/);
+  assert.match(client, /data\.kind === 'rpg'[\s\S]{0,220}?syncHeldRpgRocket\(remote, false\)/);
   assert.match(client, /if \(g\.kind !== 'rpg'\) g\.vel\.y -= 400 \* delta/);
   assert.match(client, /kind: kind === 'rpg' \? 'rpg' : 'grenade'/);
   assert.match(server, /recentRpgShots\.push\(\{ id, ts: now, start, velocity, burst: false \}\)/);
