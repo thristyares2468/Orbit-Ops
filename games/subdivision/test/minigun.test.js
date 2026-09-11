@@ -43,4 +43,6 @@ test('RPG weight increased and minigun uses shared ammo/thermal logic', () => {
   assert.ok(core.MINIGUN.speedMult / speed('AWP') > 0.9, 'minigun stays within 10% of AWP speed');
   assert.match(html, /name: 'Minigun'[^\n]+mag: window.GameCore.MINIGUN.ammo, reserve: 0/);
   assert.match(html, /window.GameCore.minigunShot\(minigunThermal, time\)/);
+  assert.match(html, /actions\.fire\.timeScale = THREE\.MathUtils\.lerp\(0\.2, 1, windupProgress\)/);
+  assert.match(html, /windingUp = wp\.name === 'Minigun'/);
 });

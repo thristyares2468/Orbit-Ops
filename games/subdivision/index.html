@@ -24768,11 +24768,20 @@
                     // The stand-in has the heat glow and smoke but no clips to
                     // play, so the animation half is skipped rather than the
                     // whole block: the overheat read is the part that matters.
-                    const state = isEquipping ? 'ready' : performance.now() - lastLocalShotAt < 150 ? 'fire' : 'ambient';
+                    const windingUp = wp.name === 'Minigun' && isShooting && minigunTriggerAt !== null && !minigunThermal.lockedUntil;
+                    const state = isEquipping ? 'ready' : (windingUp || performance.now() - lastLocalShotAt < 150) ? 'fire' : 'ambient';
                     if (anim.actions && state !== anim.current) {
                         anim.actions[anim.current].fadeOut(0.08);
                         anim.actions[state].reset().fadeIn(0.08).play();
                         anim.current = state;
+                    }
+                    if (anim.actions?.fire) {
+                        const windupProgress = windingUp
+                            ? THREE.MathUtils.clamp((time - minigunTriggerAt) / (window.GameCore.MINIGUN.spinUp * 1000), 0, 1)
+                            : (state === 'fire' ? 1 : 0);
+                        // Start with a deliberately slow barrel rotation, then
+                        // ramp to authored speed as the trigger spin-up completes.
+                        anim.actions.fire.timeScale = THREE.MathUtils.lerp(0.2, 1, windupProgress);
                     }
                     anim.mixer?.update(delta);
                     const cooling = Math.max(0, (minigunThermal.lockedUntil || 0) - time) / (window.GameCore.MINIGUN.cooldown * 1000);
