@@ -7361,6 +7361,9 @@
         function advanceBreacherLoad() { applyBreacherLoad(!breacherSlugLoaded); }
 
         const MOVEMENT_INACCURACY_MULT = 1.55;
+        // Sprinting should be a deliberate mobility tradeoff: it adds a further
+        // 35% to the normal movement spread contribution while Shift is held.
+        const SPRINT_INACCURACY_MULT = 1.35;
         const AIR_INACCURACY_MULT = 2.75;
         const LANDING_INACCURACY_TIME_MS = 230;
         const COUNTER_STRAFE_MULT = 27.0;
@@ -24814,7 +24817,12 @@
                 let spread = wp.spreadBase;
                 if (isCrouching) spread *= 0.5;
                 if (isJumping) spread += wp.spreadMove * AIR_INACCURACY_MULT;
-                else spread += wp.spreadMove * Math.pow(stableSpeedRatio, 1.25) * MOVEMENT_INACCURACY_MULT;
+                else {
+                    const movementInaccuracyMult = isSprinting
+                        ? MOVEMENT_INACCURACY_MULT * SPRINT_INACCURACY_MULT
+                        : MOVEMENT_INACCURACY_MULT;
+                    spread += wp.spreadMove * Math.pow(stableSpeedRatio, 1.25) * movementInaccuracyMult;
+                }
                 spread += landingInaccuracy;
                 if (wp.type === 'sniper' && !isZoomed) spread += 0.35;
                 let timeSinceFireSpread = (time - lastFireTime) / 1000; let bloom = Math.max(0, 0.1 - timeSinceFireSpread);

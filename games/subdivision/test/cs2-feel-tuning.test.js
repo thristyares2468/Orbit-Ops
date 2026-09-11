@@ -44,6 +44,12 @@ assert.match(indexHtml, /speedParam \*= Math\.max\(0\.6, jumpStamina\)/, 'jump f
 
 assert.match(
   indexHtml,
+  /const SPRINT_INACCURACY_MULT = 1\.35;[\s\S]*?const movementInaccuracyMult = isSprinting[\s\S]*?MOVEMENT_INACCURACY_MULT \* SPRINT_INACCURACY_MULT[\s\S]*?spread \+= wp\.spreadMove \* Math\.pow\(stableSpeedRatio, 1\.25\) \* movementInaccuracyMult;/,
+  'sprinting should add a distinct spread penalty above normal movement inaccuracy'
+);
+
+assert.match(
+  indexHtml,
   /if \(time - lastRecoilShotAt > RECOIL_RESET_MS\) recoilShotIndex = 0;[\s\S]*?else if \(time - lastRecoilShotAt > RECOIL_PARTIAL_RESET_MS\) recoilShotIndex = Math\.max\(0, recoilShotIndex - 2\);/,
   'burst and tap firing should partially recover recoil before a full pattern reset'
 );
