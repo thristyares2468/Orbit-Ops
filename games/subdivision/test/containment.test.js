@@ -26,6 +26,7 @@ const {
   step,
   createEnemy,
   chooseTarget,
+  approachPoint,
   stepEnemy,
   findPath,
   damageEnemy,
@@ -684,4 +685,127 @@ test('the hud carries the hold so every client agrees about it', () => {
   assert.equal(hudState(match, 'p1').spawnPaused, false);
   setSpawnPaused(match, true);
   assert.equal(hudState(match, 'p1').spawnPaused, true);
+});
+
+// --- approach slots ---------------------------------------------------------
+//
+// Every enemy walking at the exact same point turns a wave into a column: the
+// group narrows the closer it gets, which is the opposite of what a horde
+// should look like. Each enemy is given its own slot beside the target instead,
+// fading out at melee range so nothing can stop it biting.
+
+const spreadMatch = () => createMatch({ now: 0 });
+const player = { id: 'p1', x: 0, y: 0, z: 0, alive: true };
+
+// A tight clump entering from -x, so travel is along +x and the z spread is
+// exactly the width across the approach - no need to project anything.
+function waveOf(count) {
+  const match = spreadMatch();
+  const budget = waveBudget(5, 1, match.tuning);
+  const enemies = [];
+  for (let i = 0; i < count; i += 1) {
+    enemies.push(createEnemy(match, budget, { x: -90 + (i % 3) * 0.5, y: 0, z: (i % 2) * 0.5 }, 0));
+  }
+  return { match, enemies };
+}
+
+test('inside the near band the slot is the target itself, so melee still lands', () => {
+  const { match, enemies } = waveOf(4);
+  const t = match.tuning;
+  for (const enemy of enemies) {
+    const close = { ...enemy, x: t.approachSpreadNear - 1, z: 0 };
+    const aim = approachPoint(close, player, t);
+    assert.equal(aim.x, player.x, 'no lateral offset at melee range');
+    assert.equal(aim.z, player.z);
+  }
+  // And attackRange is well inside that band, so the bite is measured against
+  // the real player rather than an offset point.
+  assert.ok(t.attackRange < t.approachSpreadNear);
+});
+
+test('on the approach each enemy aims at its own point, within a bounded width', () => {
+  const { match, enemies } = waveOf(12);
+  const t = match.tuning;
+  const aims = enemies.map((enemy) => approachPoint({ ...enemy, x: -60, z: 0 }, player, t));
+
+  const offsets = aims.map((aim) => Math.hypot(aim.x - player.x, aim.z - player.z));
+  assert.ok(Math.max(...offsets) > 2, 'somebody is meaningfully off the centre line');
+  // "Stay together": the slot never leaves the authored band.
+  assert.ok(Math.max(...offsets) <= t.approachSpreadRadius + 1e-9, 'no slot exceeds the spread radius');
+
+  const unique = new Set(aims.map((aim) => `${aim.x.toFixed(3)}:${aim.z.toFixed(3)}`));
+  assert.ok(unique.size >= enemies.length - 1, 'slots are distinct, not a shared point');
+});
+
+test('the offset is lateral, never a point behind the player', () => {
+  // Aiming past the target would send a zombie running through the player to
+  // reach the far side, which reads as the AI overshooting.
+  const { match, enemies } = waveOf(16);
+  const t = match.tuning;
+  for (const enemy of enemies) {
+    const from = { ...enemy, x: -60, z: 0 };
+    const aim = approachPoint(from, player, t);
+    // travel direction is +x here, so a slot must not sit beyond the player
+    assert.ok(aim.x <= player.x + 1e-9, `slot ${aim.x} is past the target`);
+  }
+});
+
+test('the same enemy always gets the same slot', () => {
+  const { match, enemies } = waveOf(3);
+  const from = { ...enemies[0], x: -50, z: 0 };
+  const a = approachPoint(from, player, match.tuning);
+  const b = approachPoint(from, player, match.tuning);
+  assert.deepEqual(a, b, 'a drifting slot would read as indecision');
+});
+
+test('the slot fades out smoothly rather than snapping', () => {
+  const { match, enemies } = waveOf(2);
+  const t = match.tuning;
+  let previous = Infinity;
+  for (let distance = t.approachSpreadFar; distance >= 0; distance -= 1) {
+    const aim = approachPoint({ ...enemies[1], x: -distance, z: 0 }, player, t);
+    const offset = Math.hypot(aim.x - player.x, aim.z - player.z);
+    assert.ok(offset <= previous + 1e-9, `offset grew while closing at ${distance}`);
+    previous = offset;
+  }
+  assert.equal(previous, 0, 'the slot has collapsed onto the target by the time it arrives');
+});
+
+test('a wave stays wider as it closes instead of collapsing into a column', () => {
+  // The behaviour the change exists for, asserted rather than eyeballed: walk a
+  // wave in and measure its width across the direction of travel.
+  function widthAt(useSlots, band) {
+    const { match, enemies } = waveOf(20);
+    for (let stepIndex = 0; stepIndex < 4000; stepIndex += 1) {
+      const now = stepIndex * 50;
+      for (const enemy of enemies) {
+        const aim = useSlots ? approachPoint(enemy, player, match.tuning) : player;
+        stepEnemy(enemy, { ...aim, id: player.id }, 0.05, now, match.tuning);
+      }
+      const lead = Math.min(...enemies.map((e) => Math.hypot(e.x - player.x, e.z - player.z)));
+      if (lead <= band) break;
+    }
+    const lat = enemies.map((e) => e.z - player.z); // travel is along x
+    return Math.max(...lat) - Math.min(...lat);
+  }
+
+  for (const band of [25, 15, 8]) {
+    const before = widthAt(false, band);
+    const after = widthAt(true, band);
+    assert.ok(after > before + 5,
+      `at ${band} units the wave should be much wider (${before.toFixed(2)} -> ${after.toFixed(2)})`);
+    assert.ok(after > 6, `at ${band} units the wave should read as a group, not a line`);
+    // "Stay together": wider, but still a cluster rather than a scattered mob.
+    assert.ok(after < DEFAULT_TUNING.approachSpreadRadius * 2.5,
+      `at ${band} units the wave should stay cohesive, got ${after.toFixed(2)}`);
+  }
+});
+
+test('degenerate inputs fall back to the plain target', () => {
+  const { match, enemies } = waveOf(1);
+  assert.equal(approachPoint(enemies[0], null, match.tuning), null);
+  assert.equal(approachPoint(null, player, match.tuning), player);
+  // Standing exactly on the target: no direction to offset along.
+  const onTop = { ...enemies[0], x: player.x, z: player.z };
+  assert.equal(approachPoint(onTop, player, match.tuning), player);
 });

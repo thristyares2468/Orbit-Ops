@@ -159,7 +159,9 @@ test('zombies use cached A-star routes and body-width map collision', () => {
   assert.match(section, /maxVisited: 1500/u);
   assert.match(section, /function containmentNavigationBlocked\(room, from, to, radius = 2\)/u);
   assert.match(section, /ignoredDoors: room\.openDoors/u);
-  assert.match(section, /separatedContainmentWaypoint\(enemy, routeWaypoint \|\| target, match\.enemies, now\)/u);
+  // The waypoint now goes through the approach slot first (see the spread tests
+  // below), so separation is applied to that rather than to the raw route node.
+  assert.match(section, /separatedContainmentWaypoint\(enemy, aim \|\| target, match\.enemies, now\)/u);
 });
 
 test('spawn placement spreads a wave across grounded collision-safe positions', () => {
@@ -237,4 +239,37 @@ test('pausing spawns cannot become a way to survive a wave', () => {
   for (const forbidden of ['grant(', 'credits', 'health', 'enemies.clear', 'phase =']) {
     assert.ok(!handler.includes(forbidden), `${forbidden} must not appear in the pause handler`);
   }
+});
+
+test('the horde walks at its own slots, and only when chasing directly', () => {
+  // Every enemy aiming at the same point makes a wave arrive in single file.
+  assert.match(section, /containment\.approachPoint\(enemy, target, match\.tuning\)/u,
+    'the approach slot comes from the pure module');
+  // Following a route must NOT be nudged: the path threads specific geometry
+  // and a sideways offset would push the enemy off it into a wall.
+  assert.match(section, /const aim = chasingPlayerDirectly\s*\n\s*\? containment\.approachPoint\(enemy, target, match\.tuning\)\s*\n\s*: routeWaypoint;/u);
+});
+
+test('separation fades toward the target instead of switching off', () => {
+  // A hard cutoff meant everyone inside it lost their spacing at once and the
+  // wave collapsed into one pile on the player - the moment spacing matters most.
+  assert.match(server, /const closeness = Math\.max\(0, Math\.min\(1, \(toWaypoint - 2\.5\) \/ 7\.5\)\);/u);
+  assert.match(server, /repelX \+= \(dx \/ distance\) \* strength \* 4 \* closeness;/u);
+  assert.doesNotMatch(server, /if \(Math\.hypot\(waypoint\.x - enemy\.x, waypoint\.z - enemy\.z\) < 10\) return waypoint;/u,
+    'the old hard cutoff must be gone');
+});
+
+test('the weave runs on a per-enemy period so a line never sways in unison', () => {
+  assert.match(server, /const period = 0\.0017 \+ \(\(enemy\.steeringPhase \|\| 0\) % 1\) \* 0\.0011;/u);
+  assert.match(server, /Math\.sin\(now \* period \+ \(enemy\.steeringPhase \|\| 0\)\) \* 0\.8 \* closeness/u);
+});
+
+test('spacing can never stop a bite landing', () => {
+  // Melee is 1.75 units; separation is already fully faded by 2.5, and the
+  // approach slot collapses onto the target well before that.
+  const containmentModule = require('../containment');
+  assert.ok(containmentModule.DEFAULT_TUNING.attackRange < 2.5,
+    'separation has faded out by the time an enemy is in range');
+  assert.ok(containmentModule.DEFAULT_TUNING.attackRange < containmentModule.DEFAULT_TUNING.approachSpreadNear,
+    'the slot is the real target by the time an enemy is in range');
 });

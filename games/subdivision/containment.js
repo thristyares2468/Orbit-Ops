@@ -108,7 +108,20 @@ const DEFAULT_TUNING = Object.freeze({
   minSpawnDistance: 12,         // never materialise closer than this to a player
   preferOutOfSightDistance: 8,  // a visible spawn must be at least this far
   spawnIntervalMs: 700,
-  bossEveryWaves: 8
+  bossEveryWaves: 8,
+
+  // Approach shape. Every enemy chasing the exact same point turns a wave into
+  // a single-file column, so each one is given a slot to walk to instead: an
+  // offset around its target, mostly sideways with a little depth stagger.
+  //
+  // The offset FADES OUT as an enemy closes in. That is what keeps the horde a
+  // dispersed group on the approach without ever preventing a kill: inside
+  // approachSpreadNear the slot is the target itself, so melee range is
+  // measured against the real player and attackRange still decides the bite.
+  approachSpreadRadius: 12,     // widest a slot ever sits from the target
+  approachSpreadNear: 7,        // inside this, converge on the target itself
+  approachSpreadFar: 34,        // at/beyond this, the slot is at full width
+  approachSpreadDepth: 0.35     // stagger along the approach, as a fraction
 });
 
 // A small helper so the wave-clear reward is a function of the wave rather than
@@ -447,6 +460,13 @@ function createEnemy(match, budget, spawn, now) {
     // line while keeping movement server-authoritative and reproducible.
     movementScale: 0.92 + ((serial * 37) % 17) / 100,
     steeringPhase: ((serial * 2.399963229728653) % (Math.PI * 2)),
+    // Where this enemy walks to, relative to whoever it is chasing. The angle
+    // steps by the golden angle so consecutive spawns land on opposite sides
+    // rather than stacking, and the radius varies so they do not all sit on one
+    // ring. Both are fixed for the enemy's life: a slot that drifted would read
+    // as indecision rather than as one zombie taking its own line.
+    approachAngle: ((serial * 2.399963229728653) % (Math.PI * 2)),
+    approachRadius: 0.4 + ((serial * 29) % 13) / 21.7,
     navPath: [],
     navTargetId: null,
     navTargetX: null,
@@ -487,6 +507,54 @@ function chooseTarget(enemy, players, options = {}) {
     }
   }
   return best ? best.id : null;
+}
+
+// Where this enemy should actually walk, given who it is chasing.
+//
+// Returns the target itself close in, and the enemy's own slot beside it
+// further out. The slot is mostly lateral - offset across the approach rather
+// than around the target - so the horde fans into a broad advancing group
+// instead of orbiting, or running past a player to reach the far side.
+//
+// Pure and deterministic: same enemy, same target, same answer. The caller
+// still owns collision, so a slot inside a wall simply gets slid or refused.
+function approachPoint(enemy, target, tuning = DEFAULT_TUNING) {
+  if (!enemy || !target) return target || null;
+  const t = { ...DEFAULT_TUNING, ...tuning };
+
+  const dx = Number(target.x) - Number(enemy.x);
+  const dz = Number(target.z) - Number(enemy.z);
+  const distance = Math.hypot(dx, dz);
+  if (!Number.isFinite(distance) || distance <= 0.001) return target;
+
+  const near = Math.max(0, Number(t.approachSpreadNear) || 0);
+  const far = Math.max(near + 0.001, Number(t.approachSpreadFar) || 0);
+  // 0 at melee range, 1 on the long approach. Fading rather than switching is
+  // what stops a zombie visibly side-stepping the moment it gets close.
+  const blend = clamp((distance - near) / (far - near), 0, 1);
+  if (blend <= 0) return target;
+
+  const width = Math.max(0, Number(t.approachSpreadRadius) || 0)
+    * clamp(Number(enemy.approachRadius) || 0, 0, 1)
+    * blend;
+  if (width <= 0) return target;
+
+  const slot = Number(enemy.approachAngle) || 0;
+  const ux = dx / distance, uz = dz / distance;   // toward the target
+  const px = -uz, pz = ux;                        // across the approach
+  const lateral = Math.sin(slot) * width;
+  // Depth is (1 - cos)/2 rather than cos, so it is never negative. A raw cosine
+  // puts half the wave's slots BEYOND the player, and an enemy aiming past its
+  // target walks through them to get there. This way slot 0 leads at the front,
+  // slot PI hangs back, and everything between fans out sideways - all of it on
+  // this side of the target.
+  const depth = ((1 - Math.cos(slot)) / 2) * width * clamp(Number(t.approachSpreadDepth) || 0, 0, 1);
+
+  return {
+    ...target,
+    x: Number(target.x) + px * lateral - ux * depth,
+    z: Number(target.z) + pz * lateral - uz * depth
+  };
 }
 
 // One enemy, one tick. Returns what happened so the caller can apply damage
@@ -775,6 +843,7 @@ module.exports = {
   step,
   createEnemy,
   chooseTarget,
+  approachPoint,
   stepEnemy,
   findPath,
   damageEnemy,

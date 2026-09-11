@@ -8683,9 +8683,14 @@ function containmentRouteWaypoint(room, enemy, target, now) {
 
 function separatedContainmentWaypoint(enemy, waypoint, enemies, now) {
   if (!waypoint) return null;
-  // Do not steer the attack target itself sideways. Separation is useful on
-  // the approach, but close to a player it must not distort melee range.
-  if (Math.hypot(waypoint.x - enemy.x, waypoint.z - enemy.z) < 10) return waypoint;
+  // Separation fades as the waypoint gets close rather than switching off at a
+  // fixed radius. The hard cutoff that used to be here meant every enemy inside
+  // ten units lost its spacing at once and the wave collapsed into one pile on
+  // top of the player - the exact moment spacing is most visible. Fading keeps
+  // them apart while still letting them reach melee range, which is only 1.75.
+  const toWaypoint = Math.hypot(waypoint.x - enemy.x, waypoint.z - enemy.z);
+  const closeness = Math.max(0, Math.min(1, (toWaypoint - 2.5) / 7.5));
+  if (closeness <= 0) return waypoint;
   let repelX = 0, repelZ = 0;
   for (const other of enemies.values()) {
     if (other === enemy) continue;
@@ -8694,13 +8699,17 @@ function separatedContainmentWaypoint(enemy, waypoint, enemies, now) {
     const distance = Math.hypot(dx, dz);
     if (distance <= 0.001 || distance >= 7.5) continue;
     const strength = (7.5 - distance) / 7.5;
-    repelX += (dx / distance) * strength * 4;
-    repelZ += (dz / distance) * strength * 4;
+    repelX += (dx / distance) * strength * 4 * closeness;
+    repelZ += (dz / distance) * strength * 4 * closeness;
   }
   const dx = waypoint.x - enemy.x;
   const dz = waypoint.z - enemy.z;
   const distance = Math.hypot(dx, dz) || 1;
-  const weave = Math.sin(now * 0.0017 + (enemy.steeringPhase || 0)) * 0.8;
+  // Each enemy weaves on its own phase and its own period, so a line of them
+  // never swings in unison. Faded with the same closeness term: a zombie about
+  // to bite should not still be wandering side to side.
+  const period = 0.0017 + ((enemy.steeringPhase || 0) % 1) * 0.0011;
+  const weave = Math.sin(now * period + (enemy.steeringPhase || 0)) * 0.8 * closeness;
   return {
     ...waypoint,
     x: waypoint.x + repelX + (-dz / distance) * weave,
@@ -8731,8 +8740,14 @@ function containmentEnemyTick() {
       const target = view.players.find((p) => p.id === targetId) || null;
       const before = { x: enemy.x, y: enemy.y, z: enemy.z };
       const routeWaypoint = containmentRouteWaypoint(room, enemy, target, now);
-      const waypoint = separatedContainmentWaypoint(enemy, routeWaypoint || target, match.enemies, now);
       const chasingPlayerDirectly = routeWaypoint === target;
+      // Only spread while walking straight at a player. When a route is being
+      // followed, the path already threads specific geometry and nudging the
+      // node sideways would push the enemy off it into a wall.
+      const aim = chasingPlayerDirectly
+        ? containment.approachPoint(enemy, target, match.tuning)
+        : routeWaypoint;
+      const waypoint = separatedContainmentWaypoint(enemy, aim || target, match.enemies, now);
       const result = containment.stepEnemy(
         enemy,
         waypoint ? { ...waypoint, id: chasingPlayerDirectly ? targetId : null } : null,
