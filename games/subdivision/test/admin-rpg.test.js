@@ -14,7 +14,11 @@ test('RPG is a three-shot public primary weapon', () => {
   assert.equal(core.WEAPON_PRICES.RPG, 6000);
   assert.equal(core.UTILITY_PRICES.rpg, undefined);
   assert.match(client, /name: 'RPG', type: 'launcher', kind: 'rpg'[\s\S]{0,180}?mag: 1, reserve: 2/);
-  assert.match(client, /deathmatchMainWeaponIndexes = \[[^\]]*27, 28\]/);
+  const weaponSource = client.slice(client.indexOf('const weapons = ['), client.indexOf('// ---- Breacher:'));
+  const weaponNames = [...weaponSource.matchAll(/name: '([^']+)'/g)].map(match => match[1]);
+  const mainIndexes = JSON.parse(client.match(/deathmatchMainWeaponIndexes = (\[[^\]]*\])/)[1]);
+  assert.ok(mainIndexes.every(index => weaponNames[index]), 'every buy-menu index must resolve to a weapon');
+  assert.ok(mainIndexes.some(index => weaponNames[index] === 'RPG'), 'RPG must be selectable as a primary');
   assert.doesNotMatch(client, /name === 'RPG' && !isAdminRoom/);
   assert.doesNotMatch(server, /weaponName === 'RPG' && !isAdminRoom\(room\)/);
   assert.match(server, /if \(player\.weapon !== 'RPG'\) return;/);

@@ -562,7 +562,14 @@
         #account-bar .acct-name { color: var(--gold); font-weight: bold; }
         .link-btn { background: none; border: none; color: var(--jim-green-lite); cursor: pointer; font-family: 'Courier New', monospace; font-size: 13px; text-decoration: underline; }
         .auth-link { align-self: center; margin: -6px 0 12px; }
-        #profile-menu, #owner-admin-menu, #ban-manager-menu, #case-editor-menu, #daily-challenge-editor-menu, #account-menu, #friends-menu, #inventory-menu, #trade-up-menu, #marketplace-menu, #news-menu { display: none; }
+        /* Hub panels must start hidden.  The admin sub-panels are opened only
+           through showExperimentalPanel(); leaving them out of this rule made
+           their plain block layout render on top of the sign-in screen. */
+        #profile-menu, #owner-admin-menu, #grant-skin-menu, #balances-menu,
+        #player-roles-menu, #inventory-editor-menu, #ban-manager-menu,
+        #case-editor-menu, #daily-challenge-editor-menu, #account-menu,
+        #friends-menu, #inventory-menu, #trade-up-menu, #marketplace-menu,
+        #news-menu { display: none; }
         #account-menu { width: min(620px, 92vw); }
         .ban-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 7px 9px; border-bottom: 1px solid #2a2a2a; font-family: 'Courier New', Courier, monospace; font-size: 13px; text-align: left; }
         .ban-row:last-child { border-bottom: none; }
@@ -7883,7 +7890,7 @@
         const REMOTE_STALE_AFTER_MS = 30000;
         const SPAWN_NEAR_PLAYER_RADIUS = 170;
         const SPAWN_NEAR_PLAYER_VERTICAL_RADIUS = 260;
-        const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10, 25, 26, 27, 28];
+        const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10, 25, 26, 27];
         const baseSidearmIndexes = [1, 2];
         const casualSidearmIndexes = baseSidearmIndexes;
         const CASUAL_ONLY_SIDEARMS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);

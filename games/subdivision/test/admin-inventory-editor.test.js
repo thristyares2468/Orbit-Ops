@@ -151,6 +151,12 @@ test('the panel is admin-only and joins the normal overlay lifecycle', () => {
   assert.match(html, /hubPanels\(\)[\s\S]*?document\.getElementById\('inventory-editor-menu'\)/u);
 });
 
+test('admin sub-panels are hidden before sign-in', () => {
+  // These live outside the authenticated hub. If one starts as a plain block,
+  // it overlays the login/guest controls and prevents every player entering.
+  assert.match(html, /#grant-skin-menu, #balances-menu,\s*\n\s*#player-roles-menu, #inventory-editor-menu[\s\S]*?\{ display: none; \}/u);
+});
+
 test('edits are addressed by account id, not by whatever is in the name box', () => {
   // The username field is only used for the initial lookup. If actions read it
   // live, editing the box mid-session would silently retarget the next edit.
