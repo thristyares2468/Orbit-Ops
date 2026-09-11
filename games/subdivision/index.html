@@ -17104,6 +17104,33 @@
                 case 'Flash': createMesh(new THREE.SphereGeometry(0.2, 10, 8), matSilver, 0, 0, -0.3); createMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.12), matDarkGrey, 0, 0.18, -0.3); break;
 
                 case 'Molotov': createMesh(new THREE.CylinderGeometry(0.08, 0.11, 0.62), new THREE.MeshPhongMaterial({ color: 0x31543a, transparent: true, opacity: 0.78 }), 0, 0, -0.35, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.16), matWood, 0, 0.02, -0.72, Math.PI/2); createMesh(new THREE.BoxGeometry(0.08, 0.16, 0.18), new THREE.MeshPhongMaterial({ color: 0xff6a20, emissive: 0x552000 }), 0, 0.15, -0.74); break;
+                // The two heaviest assets in the game - rpg.glb is 17MB and
+                // minigun.glb 8.5MB - and the only two that had no stand-in, so
+                // they were also the two you were most likely to notice holding
+                // nothing at all while the download finished.
+                case 'RPG': {
+                    createMesh(new THREE.CylinderGeometry(0.17, 0.17, 3.4), matOlive, 0, 0, -0.5, Math.PI/2);
+                    createMesh(new THREE.CylinderGeometry(0.32, 0.18, 0.55), matDarkGrey, 0, 0, -2.4, Math.PI/2);
+                    createMesh(new THREE.CylinderGeometry(0.18, 0.3, 0.5), matDarkGrey, 0, 0, 1.3, Math.PI/2);
+                    createMesh(new THREE.CylinderGeometry(0.1, 0.24, 0.75), matGrey, 0, 0, -2.95, Math.PI/2);
+                    createMesh(new THREE.BoxGeometry(0.22, 0.26, 1.0), matWood, 0, -0.02, -0.35);
+                    createMesh(new THREE.BoxGeometry(0.16, 0.52, 0.28), matBlack, 0, -0.4, 0.3, 0.12);
+                    createMesh(new THREE.BoxGeometry(0.07, 0.2, 0.55), matDarkGrey, 0, 0.28, -0.15);
+                    break;
+                }
+                case 'Minigun': {
+                    createMesh(new THREE.BoxGeometry(0.62, 0.58, 1.6), matDarkGrey, 0, 0, 0.5);
+                    // Six barrels on a ring: the silhouette is the whole point.
+                    for (let i = 0; i < 6; i++) {
+                        const a = (i / 6) * Math.PI * 2;
+                        createMesh(new THREE.CylinderGeometry(0.055, 0.055, 2.8), matGrey,
+                            Math.cos(a) * 0.15, Math.sin(a) * 0.15, -1.4, Math.PI/2);
+                    }
+                    createMesh(new THREE.CylinderGeometry(0.24, 0.24, 0.34), matBlack, 0, 0, -0.28, Math.PI/2);
+                    createMesh(new THREE.BoxGeometry(0.36, 0.36, 0.6), matGrey, 0.34, -0.08, 0.9);
+                    createMesh(new THREE.BoxGeometry(0.15, 0.46, 0.26), matBlack, 0, -0.42, 0.85, 0.1);
+                    break;
+                }
                 // Held out in front on the left, so it covers that side of the view.
                 case 'Shield': {
                     const matPlate = new THREE.MeshPhongMaterial({ color: 0x4b535c, shininess: 30 });
@@ -19343,6 +19370,33 @@
 
             if (weaponName === 'Frag' || weaponName === 'Smoke' || weaponName === 'Flash' || weaponName === 'Molotov') {
                 add(new THREE.SphereGeometry(0.55, 10, 8), weaponName === 'Frag' || weaponName === 'Molotov' ? matAccent : matMetal, 0, 0, -0.2);
+                attachWeaponAsset(parent, weaponName, 'thirdPerson', skinItem);
+                return;
+            }
+
+            // Without these two the generic rifle below stands in for them, so a
+            // teammate appears to be carrying an AK until 17MB (RPG) or 8.5MB
+            // (Minigun) arrives. Both read wrong at a glance in a mode where
+            // what someone is holding is the thing you react to.
+            if (weaponName === 'RPG') {
+                add(new THREE.CylinderGeometry(0.28, 0.28, 5.4), matAccent, 0, 0, -1.4, Math.PI / 2);
+                add(new THREE.CylinderGeometry(0.5, 0.3, 0.8), matDark, 0, 0, -3.9, Math.PI / 2);
+                add(new THREE.CylinderGeometry(0.3, 0.48, 0.7), matDark, 0, 0, 1.1, Math.PI / 2);
+                add(new THREE.CylinderGeometry(0.16, 0.38, 1.1), matMetal, 0, 0, -4.7, Math.PI / 2);
+                add(new THREE.BoxGeometry(0.36, 0.85, 0.5), matDark, 0, -0.6, -0.3, 0.2);
+                attachWeaponAsset(parent, weaponName, 'thirdPerson', skinItem);
+                return;
+            }
+
+            if (weaponName === 'Minigun') {
+                add(new THREE.BoxGeometry(1.0, 0.95, 2.4), matDark, 0, 0, 0.4);
+                for (let i = 0; i < 6; i += 1) {
+                    const angle = (i / 6) * Math.PI * 2;
+                    add(new THREE.CylinderGeometry(0.09, 0.09, 4.2), matMetal,
+                        Math.cos(angle) * 0.24, Math.sin(angle) * 0.24, -2.1, Math.PI / 2);
+                }
+                add(new THREE.CylinderGeometry(0.38, 0.38, 0.5), matDark, 0, 0, -0.9, Math.PI / 2);
+                add(new THREE.BoxGeometry(0.6, 0.6, 1.0), matMetal, 0.5, -0.1, 1.2);
                 attachWeaponAsset(parent, weaponName, 'thirdPerson', skinItem);
                 return;
             }
