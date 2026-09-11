@@ -4561,8 +4561,18 @@ function handlePlayerState(client, room, player, data) {
     ac.pendingCorrection = true;
     send(client, 'positionCorrection', { position: nextPos });
   }
-  if (isContainment(room) && (closedContainmentGateBlocks(room, player.position, nextPos, crouching)
-    || containmentNavigationBlocked(room, player.position, nextPos, crouching ? 1.7 : 2.1))) {
+  // A closed barricade is the ONE thing Containment adds to a player's movement.
+  //
+  // This deliberately no longer runs containmentNavigationBlocked. That is the
+  // horde's navigation heuristic: lateral body probes at two heights against
+  // the entire map mesh, tuned to stop zombies walking through waist-high
+  // props. Every other caller of it is a zombie. Pointed at a player it behaves
+  // as invisible geometry - stopped on a stair edge, in a doorway, beside a
+  // crate, with no barricade anywhere in sight - and it applied in Zombies
+  // only, because no other mode server-checks a player against the map mesh at
+  // all. Players now collide the same way in every mode; the authored gates,
+  // including the hidden boundary ones, still stop them.
+  if (isContainment(room) && closedContainmentGateBlocks(room, player.position, nextPos, crouching)) {
     nextPos = { ...player.position };
     ac.pendingCorrection = true;
     send(client, 'positionCorrection', { position: nextPos });
@@ -8373,7 +8383,16 @@ function containmentGateDefinitions(room) {
   const start = containmentLayout(room)?.start;
   return authored.map((gate) => {
     const hint = Number(gate.yHint) || 0;
-    const ground = groundYForRoom(room, gate.x, gate.z, hint + 30);
+    // Snap to the surface NEAREST the authored hint, not simply the first one
+    // below hint+30. These maps are stacked, and dust2 grounds through the
+    // unfiltered groundY(), so a single high probe can land a barrier on a
+    // surface well above the floor it was authored against - which lifts its
+    // collision band over the player's head and stops it blocking anything.
+    // dust2-boundary-02 sat 27.9 units high for exactly this reason.
+    const ground = [hint + 30, hint + 2]
+      .map((from) => groundYForRoom(room, gate.x, gate.z, from))
+      .filter((y) => Number.isFinite(y))
+      .reduce((best, y) => (best === null || Math.abs(y - hint) < Math.abs(best - hint) ? y : best), null);
     const distance = start ? Math.hypot(Number(gate.x) - Number(start.x), Number(gate.z) - Number(start.z)) : 0;
     // Costs rise in clear 250-credit steps as a barrier gets farther from the
     // authored staging spawn. This keeps cheap nearby exits useful early while

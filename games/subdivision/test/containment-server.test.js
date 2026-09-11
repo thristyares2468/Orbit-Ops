@@ -273,3 +273,48 @@ test('spacing can never stop a bite landing', () => {
   assert.ok(containmentModule.DEFAULT_TUNING.attackRange < containmentModule.DEFAULT_TUNING.approachSpreadNear,
     'the slot is the real target by the time an enemy is in range');
 });
+
+test('a player in Zombies is blocked by barricades and nothing else new', () => {
+  // containmentNavigationBlocked is the HORDE's navigation heuristic: lateral
+  // body probes at two heights against the whole map mesh, tuned to stop
+  // zombies walking through waist-high props. Pointed at a player it behaves
+  // as invisible geometry - stopped on a stair edge or beside a crate with no
+  // barricade in sight - and it applied in Zombies only, because no other mode
+  // server-checks a player against the map mesh at all.
+  assert.match(server, /if \(isContainment\(room\) && closedContainmentGateBlocks\(room, player\.position, nextPos, crouching\)\) \{/u,
+    'closed gates are the only movement rule Containment adds for a player');
+
+  const playerMove = server.slice(
+    server.indexOf('const halfMapCorrection = correctedHalfMapPosition(room, nextPos, crouching);'),
+    server.indexOf('const movedFromCurrent =')
+  );
+  assert.ok(playerMove.length > 200 && playerMove.length < 3_000, 'the player movement slice is real');
+  // Comments here deliberately name the function, so check code only.
+  const playerMoveCode = playerMove.split('\n').filter((line) => !line.trim().startsWith('//')).join('\n');
+  assert.doesNotMatch(playerMoveCode, /containmentNavigationBlocked/u,
+    'the horde navigation probe must not run against a player');
+});
+
+test('the horde still navigates with the full map probe', () => {
+  // Removing it from the player path must not weaken zombie pathing, which is
+  // what the function was written for.
+  for (const caller of [
+    /const directBlocked = containmentNavigationBlocked\(room, enemy, target, 2\.1\);/u,
+    /isBlocked: \(from, to\) => containmentNavigationBlocked\(room, from, to, 2\.1\)/u,
+    /if \(result\.moved && containmentNavigationBlocked\(room, before, enemy, 2\.1\)\)/u
+  ]) {
+    assert.match(server, caller, 'zombie navigation still uses the mesh probe');
+  }
+});
+
+test('a barricade grounds to the surface nearest its authored hint', () => {
+  // These maps are stacked and dust2 grounds through the unfiltered groundY(),
+  // so a single probe from hint+30 can land a barrier on a surface above the
+  // floor it was authored against - lifting its collision band over the
+  // player's head so it blocks nothing. dust2-boundary-02 sat 27.9 units high
+  // for exactly that reason; measured against the real GLB it now grounds on
+  // the nearest floor instead, and all 17 authored gates land correctly.
+  assert.match(server, /\[hint \+ 30, hint \+ 2\]\s*\n\s*\.map\(\(from\) => groundYForRoom\(room, gate\.x, gate\.z, from\)\)/u);
+  assert.match(server, /\.reduce\(\(best, y\) => \(best === null \|\| Math\.abs\(y - hint\) < Math\.abs\(best - hint\) \? y : best\), null\)/u,
+    'the probe closest to the authored hint wins');
+});
