@@ -94,7 +94,13 @@ test('the client carries it in the primary slot and never fires it', () => {
   assert.ok(primaryBuyIndexes().includes(26), 'it belongs in the primary buy list');
   assert.doesNotMatch(client, /GRENADE_KINDS = \[[^\]]*'shield'/, 'and out of the utility rows entirely');
   assert.doesNotMatch(client, /utilityShield/);
-  assert.match(client, /speedMult: 0\.72/, 'carrying a shield has to cost movement');
+  // Carrying a shield costs movement, and where that cost sits relative to the
+  // other heavy kit is the actual intent - a literal alone says nothing about
+  // whether the ladder still makes sense after someone retunes a neighbour.
+  const speedOf = (name) => Number(client.match(new RegExp(`name: '${name}'[^\\n]+speedMult: ([0-9.]+)`))[1]);
+  assert.equal(speedOf('Shield'), 0.68, 'carrying a shield has to cost movement');
+  assert.ok(speedOf('Shield') < speedOf('AWP'), 'a riot shield is heavier going than an AWP');
+  assert.ok(speedOf('Shield') > speedOf('RPG'), 'but lighter than a rocket launcher');
   // The standing/crouched rule is invisible unless the HUD says it.
   assert.match(client, /isCrouching \? 'FULL COVER' : 'HEAD EXPOSED'/);
 });
