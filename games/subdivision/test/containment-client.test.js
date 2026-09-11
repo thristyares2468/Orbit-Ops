@@ -26,11 +26,11 @@ test('server-owned enemies are rendered, interpolated, and shootable', () => {
   assert.match(html, /group\.userData\?\.isRemotePlayer \|\| group\.userData\?\.isContainmentEnemy/u);
   assert.match(html, /assets\/characters\/zombies\/nuketown-zombies\.glb/u,
     'the supplied four-variant Nuketown zombie GLB remains available for later repair');
-  assert.match(html, /function useImportedContainmentZombieModels\(\) \{\s*return isAdminRoom;\s*\}/u,
-    'only the admin testing room should preview the imported COD zombies');
+  assert.match(html, /function useImportedContainmentZombieModels\(\) \{\s*return true;\s*\}/u,
+    'public Zombies matches should use the imported COD zombie variants');
   assert.match(html, /function attachContainmentZombieModel\(actor, id\)/u);
   assert.match(html, /if \(useImportedContainmentZombieModels\(\)\) attachContainmentZombieModel\(actor, id\);/u,
-    'normal Zombies rooms should retain the procedural model');
+    'normal Zombies rooms should attach the imported variants');
   assert.match(html, /function buildContainmentZombieRig\(model\)/u, 'the imported skeletons receive runtime animation rigs');
   assert.match(html, /function updateContainmentZombieRig\(actor, time, blend/u, 'idle, locomotion, attack and hit poses update each frame');
   assert.match(html, /function animateContainmentZombieDeath\(actor\)/u, 'kills play a rigged fall before removing the actor');
@@ -142,32 +142,24 @@ test('the spawn hold sits in Host Controls, not on the HUD', () => {
   );
 });
 
-test('Zombies is selectable in the admin room, and only there', () => {
+test('Zombies is selectable in ordinary public rooms', () => {
   // refreshModeSelectOptions() treats availableGamemodeCycle() as an allow-list
-  // and DELETES any <option> missing from it. Zombies was in the markup of both
-  // the admin-room and host mode selects and was stripped on every render, so
-  // the mode could not be chosen from either - which is why the admin room
-  // never showed the imported zombie variants even though its model gate was
-  // already correct.
-  assert.match(html, /function availableGamemodeCycle\(\) \{[\s\S]*?const cycle = \['gunGame', 'deathmatch', 'tdm'\];[\s\S]*?if \(isAdminRoom\) cycle\.push\('containment'\);/u,
-    'the admin room gets containment added to its mode cycle');
+  // and DELETES any <option> missing from it. Zombies must therefore remain
+  // in the base cycle or normal host controls will silently strip it away.
+  assert.match(html, /function availableGamemodeCycle\(\) \{\s*return \['gunGame', 'deathmatch', 'tdm', 'containment'\];\s*\}/u,
+    'public host controls should retain Zombies in their mode cycle');
 
   // The stripping behaviour is the reason the above matters; if it ever stops
   // removing unlisted options this test still passes but the coupling is gone,
   // so pin it too.
   assert.match(html, /if \(!allowed\.has\(option\.value\)\) option\.remove\(\);/u);
 
-  // Public rooms must not gain the mode by accident.
-  const cycle = html.match(/function availableGamemodeCycle\(\) \{[\s\S]*?\n        \}/u)[0];
-  assert.doesNotMatch(cycle, /^\s*const cycle = \[[^\]]*containment/mu,
-    'containment must not be in the base list, only pushed for the admin room');
 });
 
-test('the imported-model gate and the mode gate agree on the admin room', () => {
-  // Both keyed off the same flag: if one is admin-only and the other is not,
-  // you get a room that can select Zombies but renders the procedural model,
-  // or vice versa.
-  assert.match(html, /function useImportedContainmentZombieModels\(\) \{\s*\n\s*return isAdminRoom;\s*\n\s*\}/u);
+test('the imported-model gate is public and agrees with public Zombies mode', () => {
+  // A public mode needs the public visual gate too; otherwise a host can choose
+  // Zombies but receives the procedural fallback despite the shipped GLB.
+  assert.match(html, /function useImportedContainmentZombieModels\(\) \{\s*\n\s*return true;\s*\n\s*\}/u);
 });
 
 test('isAdminRoom is declared before the functions that read it', () => {

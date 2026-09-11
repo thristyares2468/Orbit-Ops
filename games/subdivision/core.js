@@ -21,7 +21,7 @@
 
   // Bump on any change to authoritative rules/shape so stale clients can reject
   // mismatched game data before subtle desyncs happen.
-  const VERSION = '7';
+  const VERSION = '8';
 
   // Buy-menu prices (identical on both sides today).
   const WEAPON_PRICES = {
@@ -46,7 +46,9 @@
     'AWP': 4750,
     'Breacher': 2200,
     'Shield': 900,
-    'RPG': 0
+    // A late-run Zombies unlock. PvP loadout modes remain free to equip, while
+    // Containment charges this shared price from its run-only credits.
+    'RPG': 6000
   };
 
   // Grenade/utility prices. Server calls this UTILITY_PRICES; the client calls the

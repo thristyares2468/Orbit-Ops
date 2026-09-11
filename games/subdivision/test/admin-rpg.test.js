@@ -9,15 +9,16 @@ const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const core = require(path.join(root, 'core.js'));
 const modelPath = path.join(root, 'assets', 'weapons', 'rpg.glb');
 
-test('RPG is a three-shot admin-room primary weapon', () => {
+test('RPG is a three-shot public primary weapon', () => {
   assert.equal(core.WEAPONS.RPG.type, 'launcher');
-  assert.equal(core.WEAPON_PRICES.RPG, 0);
+  assert.equal(core.WEAPON_PRICES.RPG, 6000);
   assert.equal(core.UTILITY_PRICES.rpg, undefined);
   assert.match(client, /name: 'RPG', type: 'launcher', kind: 'rpg'[\s\S]{0,180}?mag: 1, reserve: 2/);
-  assert.match(client, /deathmatchMainWeaponIndexes = \[[^\]]*27\]/);
-  assert.match(client, /name === 'RPG' && !isAdminRoom/);
-  assert.match(server, /weaponName === 'RPG' && !isAdminRoom\(room\)/);
-  assert.match(server, /!isAdminRoom\(room\) \|\| player\.weapon !== 'RPG'/);
+  assert.match(client, /deathmatchMainWeaponIndexes = \[[^\]]*27, 28\]/);
+  assert.doesNotMatch(client, /name === 'RPG' && !isAdminRoom/);
+  assert.doesNotMatch(server, /weaponName === 'RPG' && !isAdminRoom\(room\)/);
+  assert.match(server, /if \(player\.weapon !== 'RPG'\) return;/);
+  assert.match(server, /!usesUtility\(room\) && !\(isContainment\(room\) && kind === 'rpg'\)/);
   assert.match(server, /player\.rpgShotsRemaining -= 1/);
   assert.match(server, /player\.rpgShotsRemaining = 3/);
 });
@@ -50,7 +51,7 @@ test('admin-room infinite ammo applies to RPG client and server authority', () =
   assert.match(client, /if \(infiniteRpgAmmo\)[\s\S]{0,500}?syncHeldRpgRocket\(weaponGroup, false\)/);
   assert.match(client, /if \(weapons\[currentWeaponIndex\]\?\.name === 'RPG' && adminInfiniteAmmoEnabled\(\)\)/);
   assert.match(client, /data\.rpgInfiniteAmmo \? 180 : 2800/);
-  assert.match(server, /rpgInfiniteAmmo = ensureAdminConfig\(room\)\.infiniteAmmo === true/);
+  assert.match(server, /rpgInfiniteAmmo = isAdminRoom\(room\) && ensureAdminConfig\(room\)\.infiniteAmmo === true/);
   assert.match(server, /if \(!rpgInfiniteAmmo\) player\.rpgShotsRemaining -= 1/);
   assert.match(server, /rpgInfiniteAmmo,\s*\n\s*start,/);
 });

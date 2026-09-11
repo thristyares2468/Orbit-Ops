@@ -1494,19 +1494,21 @@ function handleMessage(client, raw) {
 
   if (type === 'throwGrenade') {
     if (player.waitingForNextRound) return;
-    if (!usesUtility(room)) return;
     if ((player.health || 0) <= 0) return;
     const now = Date.now();
     const id = String(data.id || '').slice(0, 16);
     const kind = sanitizeGrenadeKind(data.kind);
+    // The RPG is a primary weapon, not inventory utility. Containment has no
+    // utility wheel, but its public weapon shop can still sell the launcher.
+    if (!usesUtility(room) && !(isContainment(room) && kind === 'rpg')) return;
     const start = sanitizeVector(data.start, null);
     const velocity = sanitizeVector(data.velocity, null);
     if (!id || !start || !velocity) return;
     let rpgInfiniteAmmo = false;
     if (kind === 'rpg') {
-      if (!isAdminRoom(room) || player.weapon !== 'RPG') return;
+      if (player.weapon !== 'RPG') return;
       if (player.rpgShotsRemaining === undefined) resetUtilityLife(player);
-      rpgInfiniteAmmo = ensureAdminConfig(room).infiniteAmmo === true;
+      rpgInfiniteAmmo = isAdminRoom(room) && ensureAdminConfig(room).infiniteAmmo === true;
       if ((!rpgInfiniteAmmo && (player.rpgShotsRemaining || 0) <= 0) || now - Number(player.lastRpgShotAt || 0) < 950) return;
       const originDistance = distanceBetweenVectors(start, player.position);
       const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
@@ -1533,7 +1535,6 @@ function handleMessage(client, raw) {
 
   if (type === 'grenadeBurst') {
     if (player.waitingForNextRound) return;
-    if (!usesUtility(room)) return;
     if ((player.health || 0) <= 0) return;
     const burstAt = Date.now();
     player.activeAt = burstAt;
@@ -1543,8 +1544,9 @@ function handleMessage(client, raw) {
     clearSpawnProtection(player, burstAt, client, 'utility');
     const kind = sanitizeGrenadeKind(data.kind);
     const position = sanitizeVector(data.position, null);
+    if (!usesUtility(room) && !(isContainment(room) && kind === 'rpg')) return;
     if (kind === 'rpg') {
-      if (!isAdminRoom(room) || !position) return;
+      if (player.weapon !== 'RPG' || !position) return;
       const id = String(data.id || '').slice(0, 16);
       const shot = (player.recentRpgShots || []).find(candidate => candidate.id === id && !candidate.burst);
       if (!shot) return;
@@ -6811,7 +6813,6 @@ function isCasualMode(room) {
 
 function isWeaponAvailableInMode(room, weaponName) {
   if (!WEAPONS[weaponName]) return false;
-  if (weaponName === 'RPG' && !isAdminRoom(room)) return false;
   if (isWeaponDisabledByAdmin(room, weaponName)) return false;
   return isCasualMode(room) || !CASUAL_ONLY_WEAPONS.has(weaponName);
 }

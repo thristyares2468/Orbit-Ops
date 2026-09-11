@@ -6310,16 +6310,13 @@
         //
         // refreshModeSelectOptions() treats this as an allow-list and DELETES
         // any option missing from it, so a mode absent here is unreachable even
-        // though its <option> is in the markup. That is what kept Zombies out of
-        // the admin room: the option existed, then was stripped on every render.
+        // though its <option> is in the markup. Zombies therefore remains in
+        // the ordinary host list rather than relying on an admin-only exception.
         //
-        // The admin room gets its own list because Zombies is still being fitted
-        // there - it is the only room that shows the imported zombie variants,
-        // and public rooms keep the procedural model until those are finished.
+        // Zombies is a public co-op mode. The admin room still exposes its
+        // separate diagnostics, but is no longer the only way to host it.
         function availableGamemodeCycle() {
-            const cycle = ['gunGame', 'deathmatch', 'tdm'];
-            if (isAdminRoom) cycle.push('containment');
-            return cycle;
+            return ['gunGame', 'deathmatch', 'tdm', 'containment'];
         }
 
         function refreshModeSelectOptions(select) {
@@ -7725,9 +7722,9 @@
         // makes the fit circular the moment a hitbox is retuned, and it was that
         // coupling that hid the real bug behind two "floor sink" constants.
         const CONTAINMENT_ZOMBIE_HEIGHT = { walker: 22.2, heavy: 23 };
-        // The admin room previews the imported COD variants for rig and
-        // grounding work. Normal Zombies matches keep the gameplay-aligned
-        // procedural model until those imported variants are ready.
+        // Imported COD variants are now the public Zombies presentation. The
+        // procedural actor remains a load-failure fallback, so an unavailable
+        // GLB can never stop an enemy from spawning.
         let containmentZombieTemplatePromise = null;
         let containmentCredits = 0;
         let containmentWeaponPrices = {};
@@ -7886,7 +7883,7 @@
         const REMOTE_STALE_AFTER_MS = 30000;
         const SPAWN_NEAR_PLAYER_RADIUS = 170;
         const SPAWN_NEAR_PLAYER_VERTICAL_RADIUS = 260;
-        const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10, 25, 26, 27];
+        const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10, 25, 26, 27, 28];
         const baseSidearmIndexes = [1, 2];
         const casualSidearmIndexes = baseSidearmIndexes;
         const CASUAL_ONLY_SIDEARMS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
@@ -7936,7 +7933,7 @@
         // map size. null in normal rooms (helpers fall back to the constants above).
 
         function useImportedContainmentZombieModels() {
-            return isAdminRoom;
+            return true;
         }
         let adminConfig = null;
         const adminDummies = new Map();
@@ -7951,7 +7948,6 @@
             return GRENADE_PRICES[kind];
         }
         function isWeaponEnabled(name) {
-            if (name === 'RPG' && !isAdminRoom) return false;
             return !(Array.isArray(adminConfig?.weaponDisabled) && adminConfig.weaponDisabled.includes(name));
         }
         function isGrenadeEnabled(kind) {
