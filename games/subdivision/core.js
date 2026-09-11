@@ -128,7 +128,10 @@
     CROUCHING: 1,
     SPAWN_PROTECTED: 2,
     JUMPING: 4,
-    RELOADING: 8
+    RELOADING: 8,
+    WALKING: 16,
+    SPRINTING: 32,
+    SLIDING: 64
   };
 
   // Server-authoritative weapon table. Damage is per body part; client-supplied
@@ -246,7 +249,10 @@
       const flags = (p.crouching ? SNAPSHOT_FLAGS.CROUCHING : 0) |
         protectedFlag |
         (p.jumping ? SNAPSHOT_FLAGS.JUMPING : 0) |
-        (p.reloading ? SNAPSHOT_FLAGS.RELOADING : 0);
+        (p.reloading ? SNAPSHOT_FLAGS.RELOADING : 0) |
+        (p.walking ? SNAPSHOT_FLAGS.WALKING : 0) |
+        (p.sprinting ? SNAPSHOT_FLAGS.SPRINTING : 0) |
+        (p.sliding ? SNAPSHOT_FLAGS.SLIDING : 0);
       const changed = p.lastSent.x !== x || p.lastSent.y !== y || p.lastSent.z !== z ||
         p.lastSent.ry !== ry || p.lastSent.w !== wIdx || p.lastSent.f !== flags;
       if (!changed) {

@@ -48,7 +48,7 @@ assert.match(
   'burst and tap firing should partially recover recoil before a full pattern reset'
 );
 
-assert.ok(serverJs.includes('MAX_H_SPEED: 75,'), 'server anti-cheat should still match the unchanged client run speed');
-assert.ok(serverJs.includes('H_SPEED_TOLERANCE: 1.6,'), 'server anti-cheat should keep generous tolerance for air/counter-strafe jitter');
+assert.ok(serverJs.includes('MAX_H_SPEED: 75 * 1.3,'), 'server anti-cheat should use the client sprint ceiling');
+assert.ok(serverJs.includes('H_SPEED_TOLERANCE: 1.3,'), 'server anti-cheat should retain headroom for inherited slide momentum and jitter');
 
 console.log('cs2-feel-tuning: movement, accuracy, recoil, footstep, and anti-cheat parity verified.');

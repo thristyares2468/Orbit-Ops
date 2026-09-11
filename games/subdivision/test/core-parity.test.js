@@ -43,7 +43,10 @@ function refBuild(room, now) {
     const flags = (p.crouching ? SNAPSHOT_FLAGS.CROUCHING : 0) |
       protectedFlag |
       (p.jumping ? SNAPSHOT_FLAGS.JUMPING : 0) |
-      (p.reloading ? SNAPSHOT_FLAGS.RELOADING : 0);
+      (p.reloading ? SNAPSHOT_FLAGS.RELOADING : 0) |
+      (p.walking ? SNAPSHOT_FLAGS.WALKING : 0) |
+      (p.sprinting ? SNAPSHOT_FLAGS.SPRINTING : 0) |
+      (p.sliding ? SNAPSHOT_FLAGS.SLIDING : 0);
     const changed = p.lastSent.x !== x || p.lastSent.y !== y || p.lastSent.z !== z ||
       p.lastSent.ry !== ry || p.lastSent.w !== wIdx || p.lastSent.f !== flags;
     if (!changed) {
@@ -87,6 +90,9 @@ function mkPlayer(over) {
   return Object.assign({
     weapon: 'AK47',
     crouching: false,
+    walking: false,
+    sprinting: false,
+    sliding: false,
     jumping: false,
     reloading: false,
     invulnerableUntil: 0,
@@ -113,6 +119,9 @@ function scenarios() {
     mkPlayer({ dirty: false, crouching: true, weapon: 'AK47', lastSent: { ...ORIGIN_BASELINE, w: 8, f: 0 } }), // crouch flag changed only
     mkPlayer({ dirty: false, jumping: true, weapon: 'AK47', lastSent: { ...ORIGIN_BASELINE, w: 8, f: 0 } }), // jump flag changed only
     mkPlayer({ dirty: false, reloading: true, weapon: 'AK47', lastSent: { ...ORIGIN_BASELINE, w: 8, f: 0 } }), // reload flag changed only
+    mkPlayer({ dirty: false, walking: true, weapon: 'AK47', lastSent: { ...ORIGIN_BASELINE, w: 8, f: 0 } }), // walk flag changed only
+    mkPlayer({ dirty: false, sprinting: true, weapon: 'AK47', lastSent: { ...ORIGIN_BASELINE, w: 8, f: 0 } }), // sprint flag changed only
+    mkPlayer({ dirty: false, crouching: true, sliding: true, weapon: 'AK47', lastSent: { ...ORIGIN_BASELINE, w: 8, f: 0 } }), // slide flag changed only
     mkPlayer({ dirty: true, weapon: 'AK47', crouching: false, lastSent: { ...ORIGIN_BASELINE, w: 8, f: 0 } }), // unchanged baseline -> skipped
     mkPlayer({ dirty: false, invulnerableUntil: 5000, lastSent: { ...ORIGIN_BASELINE, w: 8, f: 0 } }), // protection flag (now<5000)
     mkPlayer({ dirty: false, invulnerableUntil: 1000, lastSent: { ...ORIGIN_BASELINE, w: 8, f: 2 } }), // protection expired (now>1000), was protected

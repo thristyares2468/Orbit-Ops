@@ -432,8 +432,8 @@ const WEAPONS = core.WEAPONS;           // authoritative damage table, shared vi
 // jumpVelocity=120, gravity=400 (apex 120^2/2/400 = 18u), playerHeight=16.
 // ---------------------------------------------------------------------------
 const AC = {
-  MAX_H_SPEED: 75,
-  H_SPEED_TOLERANCE: 1.6,        // ~120 u/s horizontal ceiling (air-strafe + jitter)
+  MAX_H_SPEED: 75 * 1.3,
+  H_SPEED_TOLERANCE: 1.3,        // ~127 u/s ceiling: sprint + inherited slide boost + jitter
   H_SLACK: 8,                    // flat per-tick units for one-frame jitter
   MAX_UP_SPEED: 120 * 1.5,       // 180 u/s upward ceiling
   MAX_DOWN_SPEED: 800,           // falls are legit & fast; below = teleport-down
@@ -4545,6 +4545,8 @@ function handlePlayerState(client, room, player, data) {
   const nextRot = sanitizeVector(data.rotation, player.rotation);
   const crouching = Boolean(data.crouching);
   const walking = Boolean(data.walking);
+  const sliding = Boolean(data.sliding) && crouching;
+  const sprinting = Boolean(data.sprinting) && !crouching && !sliding;
   const jumping = Boolean(data.jumping);
   const reloading = Boolean(data.reloading);
   let weapon = String(data.weapon || player.weapon).slice(0, 32);
@@ -4586,7 +4588,7 @@ function handlePlayerState(client, room, player, data) {
       if (shouldLockBuyRefundFromMove(player, nextPos)) lockBuyRefunds(player);
       cancelBombAction(room, player.id);
     }
-    applyState(player, nextPos, nextRot, weapon, crouching, walking, jumping, reloading, now);
+    applyState(player, nextPos, nextRot, weapon, crouching, walking, sprinting, sliding, jumping, reloading, now);
     tryPickupDroppedBomb(client.roomCode, room, player);
     tryPickupDroppedItem(client.roomCode, room, player);
     return;
@@ -4614,7 +4616,7 @@ function handlePlayerState(client, room, player, data) {
   }
   ac.lastValidPos = nextPos;
   ac.lastStateTs = now;
-  applyState(player, nextPos, nextRot, weapon, crouching, walking, jumping, reloading, now);
+  applyState(player, nextPos, nextRot, weapon, crouching, walking, sprinting, sliding, jumping, reloading, now);
   tryPickupDroppedBomb(client.roomCode, room, player);
   tryPickupDroppedItem(client.roomCode, room, player);
 }
@@ -4668,12 +4670,14 @@ function beginSpawnProtectionMoveCountdown(client, player, nextPos, now = Date.n
   return true;
 }
 
-function applyState(player, pos, rot, weapon, crouching, walking, jumping, reloading, now) {
+function applyState(player, pos, rot, weapon, crouching, walking, sprinting, sliding, jumping, reloading, now) {
   player.position = pos;
   player.rotation = rot;
   player.weapon = weapon;
   player.crouching = crouching;
   player.walking = walking;
+  player.sprinting = sprinting;
+  player.sliding = sliding;
   player.jumping = jumping;
   player.reloading = reloading;
   player.updatedAt = now;
@@ -5530,6 +5534,8 @@ function makePlayer(id, name) {
     rotation: { x: 0, y: 0, z: 0 },
     crouching: false,
     walking: false,
+    sprinting: false,
+    sliding: false,
     jumping: false,
     reloading: false,
     invulnerableUntil: 0,

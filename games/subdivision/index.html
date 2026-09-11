@@ -3097,8 +3097,8 @@
         const LOADING_TIPS = [
             'Tip: A tidy lawn is a tactical advantage.',
             'Tip: Headshots are 4x more effective than mowing.',
+            'Tip: Hold Left Shift while moving forward to sprint.',
             'Tip: Hold crouch while moving forward to slide.',
-            'Tip: Anti-cheat is always watching the edges.',
             "Tip: If you're not happy, we'll mow it again."
         ];
         let myStats = { name: "You", kills: 0, assists: 0, deaths: 0, score: 0, ping: null };
@@ -3123,7 +3123,7 @@
         const defaultKeyBindings = {
             forward: 'KeyW', backward: 'KeyS', left: 'KeyA', right: 'KeyD',
             jump: 'Space', crouch: 'KeyC', crouchAlt: 'ControlLeft',
-            walk: 'ShiftLeft', reload: 'KeyR', scoreboard: 'Tab', captureCoords: 'KeyP',
+            sprint: 'ShiftLeft', walk: 'AltLeft', reload: 'KeyR', scoreboard: 'Tab', captureCoords: 'KeyP',
             weapon1: 'Digit1', weapon2: 'Digit2', weapon3: 'Digit3',
             grenadeFrag: 'Digit4', grenadeSmoke: 'Digit5', grenadeFlash: 'Digit6', grenadeMolotov: 'Digit7',
             utilityBarricade: 'Digit8', utilityC4: 'Digit9',
@@ -3145,7 +3145,7 @@
         const keybindRows = [
             ['forward', 'Move Forward'], ['backward', 'Move Backward'], ['left', 'Move Left'], ['right', 'Move Right'],
             ['jump', 'Jump'], ['crouch', 'Crouch'], ['crouchAlt', 'Crouch Alt'],
-            ['walk', 'Walk'], ['reload', 'Reload'], ['scoreboard', 'Scoreboard'], ['captureCoords', 'Capture Coords'],
+            ['sprint', 'Sprint'], ['walk', 'Walk'], ['reload', 'Reload'], ['scoreboard', 'Scoreboard'], ['captureCoords', 'Capture Coords'],
             ['weapon1', 'Primary Slot'], ['weapon2', 'Secondary Slot'], ['weapon3', 'Knife Slot'],
             ['grenadeFrag', 'Frag Grenade'], ['grenadeSmoke', 'Smoke Grenade'], ['grenadeFlash', 'Flash Grenade'], ['grenadeMolotov', 'Molotov'],
             ['utilityBarricade', 'Deployable Barricade'], ['utilityC4', 'Remote C4'],
@@ -3312,7 +3312,15 @@
 
         // LOCAL STORAGE SYSTEM
         function normalizeKeyBindings(bindings = keyBindings) {
-            const next = { ...defaultKeyBindings, ...(bindings || {}) };
+            const supplied = { ...(bindings || {}) };
+            // Before sprinting existed, Left Shift was the default Walk bind.
+            // Migrate that exact legacy default so returning players receive
+            // the new conventional Shift-to-sprint control without a collision.
+            if (!Object.prototype.hasOwnProperty.call(supplied, 'sprint') && supplied.walk === 'ShiftLeft') {
+                supplied.sprint = 'ShiftLeft';
+                supplied.walk = 'AltLeft';
+            }
+            const next = { ...defaultKeyBindings, ...supplied };
             const seen = new Map();
             for (const action of Object.keys(next)) {
                 const code = next[action] || null;
@@ -3339,6 +3347,7 @@
             }
             if (!enabled) {
                 moveForward = moveBackward = moveLeft = moveRight = false;
+                sprintHeld = isSprinting = false;
                 isShooting = isAltShooting = false;
             }
         }
@@ -7496,7 +7505,15 @@
         const AGENT_HELD_FIREARM_FORWARD_Z = -0.14;
         const AGENT_HELD_FIREARM_PITCH_Z = 0;
         const AGENT_HELD_KNIFE_PITCH_Z = 0.15;
-        const SNAPSHOT_FLAGS = window.GameCore?.SNAPSHOT_FLAGS || { CROUCHING: 1, SPAWN_PROTECTED: 2, JUMPING: 4, RELOADING: 8 };
+        const SNAPSHOT_FLAGS = window.GameCore?.SNAPSHOT_FLAGS || {
+            CROUCHING: 1,
+            SPAWN_PROTECTED: 2,
+            JUMPING: 4,
+            RELOADING: 8,
+            WALKING: 16,
+            SPRINTING: 32,
+            SLIDING: 64
+        };
         const AGENT_CORPSE_FALL_DURATION = 0.55;
         const AGENT_HELD_GRENADES = new Set(['Frag', 'Smoke', 'Flash', 'Molotov']);
         const weaponAssetCache = new Map();
@@ -8039,8 +8056,8 @@
         const defaultFOV = 70; const zoomFOV = 20; const WEAPON_REST_POS = new THREE.Vector3(1.2, -1.0, -2.0);
 
         let moveForward = false; let moveBackward = false; let moveLeft = false; let moveRight = false;
-        let isCrouching = false; let crouchHeld = false; let jumpHeld = false; let jumpQueued = false; let jumpGraceTimer = 0; let isWalking = false; let isJumping = false; let isShooting = false; let isAltShooting = false;
-        let isSliding = false; let slideReady = true; let slideStartedAt = 0;
+        let isCrouching = false; let crouchHeld = false; let jumpHeld = false; let jumpQueued = false; let jumpGraceTimer = 0; let isWalking = false; let sprintHeld = false; let isSprinting = false; let isJumping = false; let isShooting = false; let isAltShooting = false;
+        let isSliding = false; let slideReady = true; let slideStartedAt = 0; let slideStartSpeed = 0; let slideEndSpeed = 0;
         const pressedKeys = new Set();
 
         let prevTime = performance.now();
@@ -8054,9 +8071,11 @@
         const CROUCH_COOLDOWN_MS = 350;           // min time between crouch state changes (anti-spam)
         const CROUCH_LERP_SPEED = 12;             // exponential ease rate (~0.2-0.25s transition)
         const walkSpeed = 35.0; const runSpeed = 75.0;
+        const SPRINT_SPEED_MULTIPLIER = 1.3;
         const SLIDE_DURATION_MS = 850;
-        const SLIDE_START_SPEED = 96;
-        const SLIDE_END_SPEED = 38;
+        const SLIDE_ENTRY_SPEED_MULTIPLIER = 1.08;
+        const SLIDE_MIN_ENTRY_RATIO = 0.8;
+        const SLIDE_EXIT_SPEED_RATIO = 0.5;
         const SLIDE_STEER_RATIO = 0.24;
         const jumpVelocity = 120.0; const gravity = 400.0; let jumpStamina = 1.0;
         let currentSpread = 0; let landingInaccuracy = 0; let wasAirborneLastFrame = false; let mapLoaded = false;
@@ -8109,16 +8128,24 @@
         function stopSlide({ resetInput = false } = {}) {
             isSliding = false;
             slideStartedAt = 0;
+            slideStartSpeed = 0;
+            slideEndSpeed = 0;
             if (resetInput) slideReady = true;
         }
 
-        function tryStartSlide(time, onGround) {
+        function tryStartSlide(time, onGround, currentSpeed, movementSpeedScale) {
             if (isSliding || !slideReady || !onGround || !crouchHeld || !moveForward || moveBackward) return false;
+            const minimumEntrySpeed = runSpeed * SLIDE_MIN_ENTRY_RATIO * movementSpeedScale;
+            const inheritedSpeed = Math.max(Math.max(0, currentSpeed), minimumEntrySpeed);
             isSliding = true;
+            isSprinting = false;
             slideReady = false; // require crouch to be released before another slide
             slideStartedAt = time;
+            slideStartSpeed = inheritedSpeed * SLIDE_ENTRY_SPEED_MULTIPLIER;
+            slideEndSpeed = slideStartSpeed * SLIDE_EXIT_SPEED_RATIO;
             setCrouchState(true, true);
-            velocity.z = Math.max(velocity.z, SLIDE_START_SPEED);
+            velocity.x = THREE.MathUtils.clamp(velocity.x, -slideStartSpeed * SLIDE_STEER_RATIO, slideStartSpeed * SLIDE_STEER_RATIO);
+            velocity.z = slideStartSpeed;
             return true;
         }
 
@@ -8230,6 +8257,7 @@
                 if (event && event.pointerId !== movePointer) return;
                 movePointer = null;
                 moveForward = moveBackward = moveLeft = moveRight = isWalking = false;
+                sprintHeld = isSprinting = false;
                 moveKnob.style.transform = 'translate(0,0)';
             };
 
@@ -8499,7 +8527,7 @@
                 if (!buying) hideBuyMenu(false);
                 moveForward = moveBackward = moveLeft = moveRight = isShooting = isAltShooting = false;
                 pressedKeys.clear();
-                crouchHeld = false; jumpHeld = false; jumpQueued = false; jumpGraceTimer = 0; stopSlide({ resetInput: true }); setCrouchState(false, true);
+                crouchHeld = false; jumpHeld = false; jumpQueued = false; jumpGraceTimer = 0; sprintHeld = isSprinting = false; stopSlide({ resetInput: true }); setCrouchState(false, true);
                 if (gameStarted && !buying && !mapVoteReleasingPointer) showPauseMenu();
                 blockEscRelock = true; setTimeout(() => { blockEscRelock = false; }, 100);
             });
@@ -8568,7 +8596,8 @@
                     event.preventDefault();
                     jumpHeld = true;
                     if (!wasHeld) jumpQueued = true;
-                } else if (isBind(event, 'walk')) isWalking = true;
+                } else if (isBind(event, 'sprint')) sprintHeld = true;
+                else if (isBind(event, 'walk')) isWalking = true;
                 else if (isBind(event, 'crouch') || isBind(event, 'crouchAlt')) {
                     event.preventDefault();
                     crouchHeld = true; setCrouchState(true); if (jumpHeld) jumpQueued = true;
@@ -8600,6 +8629,7 @@
                 else if (isBind(event, 'left') || event.code === 'ArrowLeft') moveLeft = false;
                 else if (isBind(event, 'backward') || event.code === 'ArrowDown') moveBackward = false;
                 else if (isBind(event, 'right') || event.code === 'ArrowRight') moveRight = false;
+                else if (isBind(event, 'sprint')) { sprintHeld = false; isSprinting = false; }
                 else if (isBind(event, 'walk')) isWalking = false;
                 else if (isBind(event, 'jump')) { event.preventDefault(); jumpHeld = false; }
                 else if (isBind(event, 'crouch') || isBind(event, 'crouchAlt')) {
@@ -14185,6 +14215,9 @@
                 if (e.f !== undefined) {
                     remote.userData.isJumping = (e.f & SNAPSHOT_FLAGS.JUMPING) === SNAPSHOT_FLAGS.JUMPING;
                     remote.userData.isReloading = (e.f & SNAPSHOT_FLAGS.RELOADING) === SNAPSHOT_FLAGS.RELOADING;
+                    remote.userData.isWalking = (e.f & SNAPSHOT_FLAGS.WALKING) === SNAPSHOT_FLAGS.WALKING;
+                    remote.userData.isSprinting = (e.f & SNAPSHOT_FLAGS.SPRINTING) === SNAPSHOT_FLAGS.SPRINTING;
+                    remote.userData.isSliding = (e.f & SNAPSHOT_FLAGS.SLIDING) === SNAPSHOT_FLAGS.SLIDING;
                 }
                 if (e.f !== undefined && spawnProtected !== remote.userData.spawnProtected) {
                     setRemoteSpawnProtection(remote, spawnProtected, spawnProtected ? Math.max(remote.userData.spawnGuardUntil || 0, performance.now() + 500) : 0);
@@ -15373,6 +15406,8 @@
             remote.userData.weapon = player.weapon || 'AK47';
             remote.userData.isCrouching = !!player.crouching;
             remote.userData.isWalking = !!player.walking;
+            remote.userData.isSprinting = !!player.sprinting;
+            remote.userData.isSliding = !!player.sliding;
             remote.userData.isJumping = !!player.jumping;
             remote.userData.isReloading = !!player.reloading;
             remote.userData.skinLoadout = player.skinLoadout || {};
@@ -15405,6 +15440,8 @@
             const crouching = Boolean(player.crouching);
             remote.userData.isCrouching = crouching;
             if (player.walking !== undefined) remote.userData.isWalking = !!player.walking;
+            if (player.sprinting !== undefined) remote.userData.isSprinting = !!player.sprinting;
+            if (player.sliding !== undefined) remote.userData.isSliding = !!player.sliding;
             if (player.jumping !== undefined) remote.userData.isJumping = !!player.jumping;
             if (player.reloading !== undefined) remote.userData.isReloading = !!player.reloading;
             if (player.position) {
@@ -15604,17 +15641,21 @@
                 last.weapon !== weaponName ||
                 last.crouching !== isCrouching ||
                 last.walking !== isWalking ||
+                last.sprinting !== isSprinting ||
+                last.sliding !== isSliding ||
                 last.jumping !== isJumping ||
                 last.reloading !== isReloading;
             if (!stateChanged && time - lastNetworkSend < STATE_HEARTBEAT_MS) return;
             lastNetworkSend = time;
-            lastPlayerStateSent = { x: pos.x, y: pos.y, z: pos.z, rx: euler.x, ry: euler.y, rz: euler.z, weapon: weaponName, crouching: isCrouching, walking: isWalking, jumping: isJumping, reloading: isReloading };
+            lastPlayerStateSent = { x: pos.x, y: pos.y, z: pos.z, rx: euler.x, ry: euler.y, rz: euler.z, weapon: weaponName, crouching: isCrouching, walking: isWalking, sprinting: isSprinting, sliding: isSliding, jumping: isJumping, reloading: isReloading };
             sendPacket('playerState', {
                 position: { x: pos.x, y: pos.y, z: pos.z },
                 rotation: { x: euler.x, y: euler.y, z: euler.z },
                 weapon: weaponName,
                 crouching: isCrouching,
                 walking: isWalking,
+                sprinting: isSprinting,
+                sliding: isSliding,
                 jumping: isJumping,
                 reloading: isReloading
             });
@@ -16217,7 +16258,7 @@
             if (data.isJumping || data.isReloading) return null;
             const clips = rig?.userData?.assetClips;
             if (!clips) return null;
-            // HIGH WARNING: Shift-walk and run have distinct imported cadence.
+            // HIGH WARNING: walk, run, sprint and crouch-run need distinct cadence.
             // Falling back to one sine-wave leg shim made agents look like their
             // knees were fighting the aim pose.
             const localRight = Number(data.moveRightAmount) || 0;
@@ -16259,7 +16300,7 @@
                 action = mixer.clipAction(clip);
                 rig.userData.assetActions.set(clip.name, action);
             }
-            action.timeScale = data.isCrouching ? 0.9 : (data.isWalking ? 0.88 : 1);
+            action.timeScale = data.isSliding ? 1.12 : (data.isCrouching ? 0.9 : (data.isWalking ? 0.88 : (data.isSprinting ? 1.22 : 1)));
             const targetWeight = data.isCrouching ? 0.82 : (data.isWalking ? 0.78 : 0.88);
             action.setEffectiveWeight(targetWeight);
             if (rig.userData.activeEmbeddedMoveClip !== clipName) {
@@ -16553,7 +16594,8 @@
             const crouching = !!data.isCrouching;
             const shooting = data.shootUntil && time < data.shootUntil;
             const knife = data.weapon === 'Knife';
-            const speed = moving ? (crouching ? 7.5 : 12.5) : 2.0;
+            const locomotionRate = data.isSliding ? 1.12 : (data.isSprinting ? 1.22 : 1);
+            const speed = moving ? (crouching ? 7.5 : 12.5) * locomotionRate : 2.0;
             rig.userData.assetAnimPhase = (rig.userData.assetAnimPhase || 0) + delta * speed;
             const phase = rig.userData.assetAnimPhase;
             const swing = Math.sin(phase);
@@ -19055,6 +19097,7 @@
             jumpHeld = false;
             jumpQueued = false;
             jumpGraceTimer = 0;
+            sprintHeld = isSprinting = false;
             stopSlide({ resetInput: true });
             isCrouching = false;
             currentHeight = playerHeight;
@@ -19095,6 +19138,7 @@
             isCrouching = false;
             currentHeight = playerHeight; // snap to standing on respawn (no mid-ease leftover)
             crouchHeld = false;
+            sprintHeld = isSprinting = false;
             stopSlide({ resetInput: true });
             lastCrouchToggle = 0; // never block crouching right after spawn
             velocity.set(0, 0, 0);
@@ -19144,6 +19188,8 @@
                 weapon: weapons[currentWeaponIndex].name,
                 crouching: isCrouching,
                 walking: isWalking,
+                sprinting: isSprinting,
+                sliding: isSliding,
                 jumping: isJumping,
                 reloading: isReloading
             });
@@ -20085,8 +20131,9 @@
             if (!currentRoomCode || !socket || socket.readyState !== WebSocket.OPEN) return;
             currentChatMode = isCasual() ? (mode === 'all' ? 'all' : 'team') : 'all';
             moveForward = moveBackward = moveLeft = moveRight = isShooting = isAltShooting = false;
-            jumpHeld = jumpQueued = crouchHeld = isWalking = false;
+            jumpHeld = jumpQueued = crouchHeld = isWalking = sprintHeld = isSprinting = false;
             pressedKeys.clear();
+            stopSlide({ resetInput: true });
             setCrouchState(false, true);
             chatPanel.classList.add('chat-active');
             chatInput.readOnly = false;
@@ -20373,6 +20420,7 @@
             clearGrenadeArc();
             pressedKeys.clear();
             crouchHeld = false;
+            sprintHeld = isSprinting = false;
             stopSlide({ resetInput: true });
             velocity.set(0, 0, 0);
 
@@ -24275,6 +24323,7 @@
                 deathSpectateTargetId = null;
                 deathSpectateFallbackPosition = null;
                 moveForward = moveBackward = moveLeft = moveRight = isShooting = isAltShooting = false;
+                sprintHeld = isSprinting = false;
                 stopSlide({ resetInput: true });
                 velocity.set(0, 0, 0);
                 if (weaponGroup) weaponGroup.visible = false;
@@ -24291,6 +24340,7 @@
                 deathSpectateTargetId = null;
                 deathSpectateFallbackPosition = null;
                 moveForward = moveBackward = moveLeft = moveRight = isShooting = isAltShooting = false;
+                sprintHeld = isSprinting = false;
                 stopSlide({ resetInput: true });
                 velocity.set(0, 0, 0);
                 prevTime = time;
@@ -24307,6 +24357,7 @@
 
             if (isCasualActionLocked()) {
                 moveForward = moveBackward = moveLeft = moveRight = isShooting = isAltShooting = false;
+                sprintHeld = isSprinting = false;
                 stopSlide({ resetInput: true });
                 velocity.set(0, 0, 0);
                 prevTime = time;
@@ -24349,10 +24400,23 @@
                 if (jumpQueued) startJump();
                 jumpQueued = false;
 
+                let movementSpeedScale = wp.speedMult * getCurrentMapSpeedMult();
+                if (isZoomed) movementSpeedScale *= 0.5;
+                if (molotovSlowActive) movementSpeedScale *= MOLOTOV_SLOW_MULT;
+                isSprinting = sprintHeld && moveForward && !moveBackward && !isWalking && !isCrouching && !crouchHeld && !isSliding;
                 let currentSpeed = Math.sqrt(velocity.x**2 + velocity.z**2); let speedRatio = Math.min(1, currentSpeed / runSpeed);
                 let onGround = !isJumping; let targetBobX = 0; let targetBobY = 0;
-                tryStartSlide(time, onGround && !wasAirborneLastFrame);
+                tryStartSlide(time, onGround && !wasAirborneLastFrame, currentSpeed, movementSpeedScale * Math.max(0.6, jumpStamina));
                 if (isSliding && (!crouchHeld || !moveForward || moveBackward || isJumping || wasAirborneLastFrame || time - slideStartedAt >= SLIDE_DURATION_MS)) stopSlide();
+
+                if (!isZoomed) {
+                    const targetFov = isSprinting ? defaultFOV + 4 : defaultFOV;
+                    const nextFov = THREE.MathUtils.lerp(camera.fov, targetFov, Math.min(1, delta * 8));
+                    if (Math.abs(nextFov - camera.fov) > 0.01) {
+                        camera.fov = nextFov;
+                        camera.updateProjectionMatrix();
+                    }
+                }
 
                 if (onGround && currentSpeed > 5) {
                     targetBobY = Math.sin(time * 0.015) * 0.05 * speedRatio; targetBobX = Math.cos(time * 0.0075) * 0.05 * speedRatio;
@@ -24513,6 +24577,13 @@
                     }
                 }
 
+                if (isSprinting && !isZoomed) {
+                    wPosY -= 0.28;
+                    wPosZ += 0.16;
+                    wRotX += 0.08;
+                    wRotZ -= 0.12;
+                }
+
                 if (!isZoomed) {
                     // A shield is braced with both arms, not swung at the hip, so its
                     // bob is damped: full weapon sway on a flat panel across half the
@@ -24554,10 +24625,8 @@
                 if (moveForward) wishZ += 1;
                 if (moveBackward) wishZ -= 1;
                 let speedParam = isWalking ? walkSpeed : runSpeed;
+                if (isSprinting) speedParam = runSpeed * SPRINT_SPEED_MULTIPLIER;
                 if (isCrouching) speedParam = walkSpeed * 0.7;
-                let movementSpeedScale = wp.speedMult * getCurrentMapSpeedMult();
-                if (isZoomed) movementSpeedScale *= 0.5;
-                if (molotovSlowActive) movementSpeedScale *= MOLOTOV_SLOW_MULT;
                 speedParam *= movementSpeedScale;
                 speedParam *= Math.max(0.6, jumpStamina);
 
@@ -24583,8 +24652,7 @@
                 } else if (isSliding) {
                     const slideProgress = Math.min(1, Math.max(0, (time - slideStartedAt) / SLIDE_DURATION_MS));
                     const easedProgress = 1 - Math.pow(1 - slideProgress, 2);
-                    const slideSpeed = THREE.MathUtils.lerp(SLIDE_START_SPEED, SLIDE_END_SPEED, easedProgress)
-                        * movementSpeedScale * Math.max(0.6, jumpStamina);
+                    const slideSpeed = THREE.MathUtils.lerp(slideStartSpeed, slideEndSpeed, easedProgress);
                     const lateralTarget = wishX * slideSpeed * SLIDE_STEER_RATIO;
                     velocity.x = THREE.MathUtils.lerp(velocity.x, lateralTarget, Math.min(1, delta * 7));
                     velocity.z = slideSpeed;
