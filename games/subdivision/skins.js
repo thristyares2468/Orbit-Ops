@@ -190,6 +190,48 @@ const NEW_EQUIPMENT_SKINS = [
   })
 ];
 
+// Reuse shipped finishes without duplicating textures or changing weapon rules.
+const EQUIPMENT_FINISHES = {
+  RPG: [
+    ['franklin', 'Franklin'], ['case_hardened', 'Heat Treated'],
+    ['fade', 'Solar Fade'], ['scorched', 'Afterburn'],
+    ['royal_camo', 'Royal Payload'], ['blue_steel', 'Cold Launch'],
+    ['snake_camo', 'Viper'], ['ultraviolet_swirl', 'Void Spiral']
+  ],
+  Breacher: [
+    ['case_hardened', 'Tempered Entry'], ['graphite_tech', 'Carbon Entry'],
+    ['boreal_forest', 'Forest Ranger'], ['fade', 'Prismatic'],
+    ['scales', 'Dragon Scale'], ['arid_camo', 'Sandstorm'],
+    ['crimson_web', 'Widowmaker'], ['dual_energy', 'Double Charge']
+  ],
+  Shield: [
+    ['blue_steel', 'Blue Bastion'], ['royal_camo', 'Royal Guard'],
+    ['forest_ddpat', 'Forest Wall'], ['gamma_energy', 'Reactor Guard'],
+    ['graphite_tech', 'Carbon Fortress'], ['pyrotechnic', 'Firebreak'],
+    ['ultraviolet_swirl', 'Nebula'], ['woodgrain', 'Timberline']
+  ]
+};
+for (const [weapon, finishes] of Object.entries(EQUIPMENT_FINISHES)) {
+  for (const [texture, title] of finishes) {
+    NEW_EQUIPMENT_SKINS.push(equipmentPatternSkin({
+      id: `${weapon.toLowerCase()}_${texture}`, weapon,
+      displayName: `${weapon} | ${title}`, texture, patternZoom: 1.2,
+      materialNames: weapon === 'RPG'
+        ? ['launcher', 'launcher_wooden_body', 'handles', 'handle_grips']
+        : weapon === 'Shield' ? ['Shield'] : ['Material.001']
+    }));
+  }
+}
+NEW_EQUIPMENT_SKINS.push({
+  id: 'shield_rexton', weapon: 'Shield', kind: 'skin',
+  displayName: 'Shield | Rexton', rarity: 'common',
+  texturePath: '/assets/skins/shield/rexton.png',
+  modelPath: '/assets/skins/shield/rexton.glb',
+  baseModelPath: '/assets/weapons/shield.glb',
+  textureApplication: 'embedded', textureMaterialNames: ['Rexton Photo'],
+  imported: false
+});
+
 const DEFAULT_KNIFE_ITEM_IDS = Object.freeze(['knife_default_ct_vanilla', 'knife_default_t_vanilla']);
 
 const KNIFE_VARIANTS = [

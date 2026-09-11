@@ -44,6 +44,8 @@
       ['AWP Wildfire', '/assets/skins/awp/wildfire.glb']
     ];
 
+    const rextonQa = new URLSearchParams(location.search).has('rexton');
+    if (rextonQa) assets.splice(0, assets.length, ['Shield Rexton', '/assets/skins/shield/rexton.glb']);
     const statusEl = document.getElementById('status');
     const sheet = document.getElementById('sheet');
     const ctx = sheet.getContext('2d');
@@ -104,7 +106,7 @@
       fill.position.set(-4, 2, 3);
       scene.add(fill);
       const holder = new THREE.Group();
-      holder.rotation.set(-Math.PI / 2, yaw, 0);
+      holder.rotation.set(rextonQa ? 0 : -Math.PI / 2, yaw, 0);
       holder.add(model.clone(true));
       scene.add(holder);
       renderer.clear();

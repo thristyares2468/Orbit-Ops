@@ -133,4 +133,4 @@ function buildAll() {
 
 if (require.main === module) buildAll();
 
-module.exports = { replaceBaseColorImages };
+module.exports = { replaceBaseColorImages, readGlb, writeGlb };
