@@ -9,7 +9,7 @@ test('minigun balance and snapshot table agree', () => {
   assert.equal(core.WEAPONS.Minigun.dmg.head, 10 * 1.25);
   assert.equal(core.WEAPONS.Minigun.firerate, 1 / 12);
   assert.equal(core.MINIGUN.ammo, 240);
-  assert.equal(core.MINIGUN.speedMult, 0.5);
+  assert.equal(core.MINIGUN.speedMult, 0.64);
   assert.equal(core.WEAPON_NAMES[28], 'Minigun');
   assert.ok(Object.values(core.MINIGUN).every(value => value >= 0));
 });
@@ -35,7 +35,12 @@ test('shipped asset preserves animated rig and required frame range', () => {
 });
 test('RPG weight increased and minigun uses shared ammo/thermal logic', () => {
   const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-  assert.match(html, /name: 'RPG'[^\n]+speedMult: 0\.58/);
+  const speed = name => Number(html.match(new RegExp(`name: '${name}'[^\\n]+speedMult: ([0-9.]+)`))[1]);
+  assert.equal(speed('AWP'), 0.7);
+  assert.equal(speed('RPG'), 0.67);
+  assert.ok(core.MINIGUN.speedMult < speed('RPG'));
+  assert.ok(speed('RPG') < speed('AWP'));
+  assert.ok(core.MINIGUN.speedMult / speed('AWP') > 0.9, 'minigun stays within 10% of AWP speed');
   assert.match(html, /name: 'Minigun'[^\n]+mag: window.GameCore.MINIGUN.ammo, reserve: 0/);
   assert.match(html, /window.GameCore.minigunShot\(minigunThermal, time\)/);
 });

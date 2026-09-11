@@ -208,7 +208,7 @@
   // Classic Legendary baseline: 20 damage, 12 shots/sec; requested half damage
   // and half of the 0.5 headshot bonus. Magazine-less, with a thermal lockout.
   const MINIGUN = Object.freeze({ damage: 10, headshotMultiplier: 1.25, fireInterval: 1 / 12,
-    spinUp: 0.75, heatShots: 72, cooldown: 4.5, ammo: 240, speedMult: 0.5 });
+    spinUp: 0.75, heatShots: 72, cooldown: 4.5, ammo: 240, speedMult: 0.64 });
   WEAPONS.Minigun = { type: 'rifle', firerate: MINIGUN.fireInterval, pellets: 1, range: 1000,
     dmg: { head: 12.5, body: 10, legs: 10 } };
   function minigunShot(state, now) {

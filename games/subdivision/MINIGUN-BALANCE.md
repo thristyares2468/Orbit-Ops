@@ -10,7 +10,8 @@ Overheat reference: https://www.fortnite.com/patch-notes/v7-20
 - 240 rounds per life, no reserve magazine or manual reload. This ammo allocation
   is a Subdivision balance choice, not Fortnite's shared light-ammo inventory.
 - Sustained fire tightens spread; movement/sprinting still penalize accuracy.
-- Held movement multiplier 0.50; RPG changed from 0.68 to 0.58. These are the
+- Held movement multiplier 0.64; RPG 0.67, compared with the AWP's 0.70.
+  Both are slightly slower than the AWP (about 9% and 4% respectively). These are the
   existing game's movement-weight controls, not kilograms or inventory-wide weight.
 - Shared server/client thermal rule; server tracks accepted shots and life ammo.
 - Price 6500 in paid modes; available as a public primary in free-loadout modes.
