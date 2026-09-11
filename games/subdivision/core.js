@@ -48,7 +48,8 @@
     'Shield': 900,
     // A late-run Zombies unlock. PvP loadout modes remain free to equip, while
     // Containment charges this shared price from its run-only credits.
-    'RPG': 6000
+    'RPG': 6000,
+    'Minigun': 6500
   };
 
   // Grenade/utility prices. Server calls this UTILITY_PRICES; the client calls the
@@ -123,7 +124,7 @@
   const WEAPON_NAMES = [
     'Knife', 'Glock', 'Deagle', 'MAC10', 'P90', 'Nova', 'XM1014', 'FAMAS', 'AK47', 'SSG 08', 'AWP',
     'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver',
-    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4', 'Breacher', 'Shield', 'RPG'
+    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4', 'Breacher', 'Shield', 'RPG', 'Minigun'
   ];
 
   const SNAPSHOT_FLAGS = {
@@ -204,6 +205,24 @@
   };
   WEAPONS.Shield = { type: 'shield', firerate: 0.5, pellets: 0, range: 0, dmg: { head: 0, body: 0, legs: 0 } };
   WEAPONS.RPG = { type: 'launcher', firerate: 1.1, pellets: 0, range: 0, dmg: { head: 0, body: 0, legs: 0 } };
+  // Classic Legendary baseline: 20 damage, 12 shots/sec; requested half damage
+  // and half of the 0.5 headshot bonus. Magazine-less, with a thermal lockout.
+  const MINIGUN = Object.freeze({ damage: 10, headshotMultiplier: 1.25, fireInterval: 1 / 12,
+    spinUp: 0.75, heatShots: 72, cooldown: 4.5, ammo: 240, speedMult: 0.5 });
+  WEAPONS.Minigun = { type: 'rifle', firerate: MINIGUN.fireInterval, pellets: 1, range: 1000,
+    dmg: { head: 12.5, body: 10, legs: 10 } };
+  function minigunShot(state, now) {
+    if (now < (state.lockedUntil || 0)) return false;
+    const elapsed = Math.max(0, now - (state.lastAt ?? now));
+    state.heat = Math.max(0, (state.heat || 0) - Math.max(0, elapsed - 150) * MINIGUN.heatShots / (MINIGUN.cooldown * 1000));
+    state.lastAt = now;
+    state.heat += 1;
+    if (state.heat >= MINIGUN.heatShots) {
+      state.lockedUntil = now + MINIGUN.cooldown * 1000;
+      state.heat = 0;
+    }
+    return true;
+  }
 
   WEAPONS.Breacher = {
     type: 'shotgun',
@@ -292,6 +311,8 @@
     WEAPON_NAMES,
     SNAPSHOT_FLAGS,
     WEAPONS,
+    MINIGUN,
+    minigunShot,
     // snapshot encoder
     quantizePos,
     quantizeYaw,

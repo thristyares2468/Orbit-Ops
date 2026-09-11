@@ -4773,6 +4773,12 @@ function handlePlayerShoot(client, room, player, data) {
   const target = sanitizeVector(data.target, null);
   const wdef = WEAPONS[weapon];
   if (start && target && wdef) {
+    if (weapon === 'Minigun') {
+      const state = player.minigunState ||= { ammo: core.MINIGUN.ammo };
+      const infinite = isAdminRoom(room) && ensureAdminConfig(room).infiniteAmmo === true;
+      if ((!infinite && state.ammo <= 0) || !core.minigunShot(state, now)) return;
+      if (!infinite) state.ammo--;
+    }
     // The load decides how many hits this shot may pay out and how hard they
     // land, so it is stamped on the shot and read back when a hit correlates.
     const load = resolveShotgunLoad(player, weapon, now);
@@ -6730,6 +6736,7 @@ function resetUtilityLife(player) {
   player.barricadesDeployedThisLife = 0;
   player.c4DeployedThisLife = 0;
   player.rpgShotsRemaining = 3;
+  player.minigunState = null;
   player.recentRpgShots = [];
   player.lastRpgShotAt = 0;
   resetShotgunLoad(player);
@@ -8170,6 +8177,7 @@ function batchRespawn(room) {
 }
 
 function respawnPlayer(roomCode, player, data = {}) {
+  player.minigunState = null;
   const room = rooms.get(roomCode);
   if (player.respawningUntil) return;
   player.damageContributors = {};

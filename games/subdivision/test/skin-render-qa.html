@@ -16,6 +16,7 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/utils/WorkerPool.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/utils/SkeletonUtils.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/DRACOLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/KTX2Loader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/libs/meshopt_decoder.js"></script>
@@ -45,6 +46,8 @@
     ];
 
     const rextonQa = new URLSearchParams(location.search).has('rexton');
+    const minigunQa = new URLSearchParams(location.search).has('minigun');
+    if (minigunQa) assets.splice(0, assets.length, ['Minigun', '/assets/weapons/minigun.glb']);
     if (rextonQa) assets.splice(0, assets.length, ['Shield Rexton', '/assets/skins/shield/rexton.glb']);
     const statusEl = document.getElementById('status');
     const sheet = document.getElementById('sheet');
@@ -71,7 +74,7 @@
     }
 
     function normalize(scene) {
-      const root = scene.clone(true);
+      const root = THREE.SkeletonUtils.clone(scene);
       root.traverse(obj => {
         if (!obj.isMesh) return;
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
@@ -106,8 +109,8 @@
       fill.position.set(-4, 2, 3);
       scene.add(fill);
       const holder = new THREE.Group();
-      holder.rotation.set(rextonQa ? 0 : -Math.PI / 2, yaw, 0);
-      holder.add(model.clone(true));
+      holder.rotation.set(rextonQa || minigunQa ? 0 : -Math.PI / 2, yaw, 0);
+      holder.add(model);
       scene.add(holder);
       renderer.clear();
       renderer.render(scene, camera);

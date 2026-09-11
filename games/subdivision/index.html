@@ -7095,6 +7095,11 @@
                 }
                 : {};
             spatial.channel = 'gunfire';
+            if (wpName === 'Minigun') {
+                playNoise(0.085, 0.45, 4200, 350, pos, spatial);
+                playTone(95, 'sawtooth', 0.08, 0.16, pos, spatial);
+                return;
+            }
             const samplePool = weaponShotSfx[wpName];
             if (samplePool && playSfxSample(samplePool, pos, 'gunfire', spatial)) return;
             if(wpName==='AWP' || wpName==='SSG 08') { playNoise(0.8, 1.5, 3000, 100, pos, spatial); playNoise(0.2, 1.0, 8000, 1000, pos, spatial); }
@@ -7324,7 +7329,8 @@
             // never fires - shoot() refuses it rather than running the gun path
             // with an empty magazine.
             { id: 27, name: 'Shield', type: 'shield', damage: 0, rangeMod: 1.0, firerate: 0.5, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.72, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
-            { id: 28, name: 'RPG', type: 'launcher', kind: 'rpg', damage: 0, rangeMod: 1.0, firerate: 1.1, spreadBase: 0, spreadMove: 0, mag: 1, reserve: 2, auto: false, speedMult: 0.68, pellets: 0, reloadTime: 2.8, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) }
+            { id: 28, name: 'RPG', type: 'launcher', kind: 'rpg', damage: 0, rangeMod: 1.0, firerate: 1.1, spreadBase: 0, spreadMove: 0, mag: 1, reserve: 2, auto: false, speedMult: 0.58, pellets: 0, reloadTime: 2.8, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) },
+            { id: 29, name: 'Minigun', type: 'rifle', damage: 10, armorDamage: wdmg('Minigun'), rangeMod: 0.98, firerate: window.GameCore.MINIGUN.fireInterval, spreadBase: 0.025, spreadMove: 0.065, mag: window.GameCore.MINIGUN.ammo, reserve: 0, auto: true, speedMult: window.GameCore.MINIGUN.speedMult, pellets: 1, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) }
         ];
 
         // ---- Breacher: alternating buckshot / slug ----
@@ -7485,7 +7491,8 @@
             // On a Z-length model that stands the launcher on end and aims the
             // muzzle at the floor. A 180deg yaw instead points the warhead back
             // at the player. Both have been tried; neither is right.
-            'RPG': { path: '/assets/weapons/rpg.glb', axis: 'z', fp: { length: 4.4, pos: [0.45, -0.38, -1.6] }, tp: { length: 5.2, pos: [0, 0.06, -1.8] } }
+            'RPG': { path: '/assets/weapons/rpg.glb', axis: 'z', fp: { length: 4.4, pos: [0.45, -0.38, -1.6] }, tp: { length: 5.2, pos: [0, 0.06, -1.8] } },
+            'Minigun': { path: '/assets/weapons/minigun.glb', axis: 'z', fp: { length: 5, pos: [0.65, -0.65, -1.65], rot: [0, Math.PI, 0] }, tp: { length: 5.2, pos: [0, 0, -1.6], rot: [0, Math.PI, 0] } }
         };
         const PROCEDURAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
         const PLAYER_STAND_EYE_HEIGHT = 18;
@@ -7890,7 +7897,8 @@
         const REMOTE_STALE_AFTER_MS = 30000;
         const SPAWN_NEAR_PLAYER_RADIUS = 170;
         const SPAWN_NEAR_PLAYER_VERTICAL_RADIUS = 260;
-        const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10, 25, 26, 27];
+        const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10, 25, 26, 27, 28];
+        let minigunThermal = {}, minigunTriggerAt = null;
         const baseSidearmIndexes = [1, 2];
         const casualSidearmIndexes = baseSidearmIndexes;
         const CASUAL_ONLY_SIDEARMS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
@@ -16034,6 +16042,7 @@
                 }, WEAPON_ASSET_LOAD_TIMEOUT_MS);
                 loader.load(versionedWeaponAssetPath(path), (gltf) => {
                     clearTimeout(giveUp);
+                    gltf.scene.animations = gltf.animations || [];
                     weaponAssetCache.set(cacheKey, gltf.scene);
                     weaponAssetPending.delete(cacheKey);
                     resolve(gltf.scene);
@@ -16764,7 +16773,10 @@
             if (!template || !spec || !viewSpec) return null;
             const assetAxis = skinItem?.assetAxis || spec.axis;
 
-            const model = template.clone(true);
+            const model = weaponName === 'Minigun' ? THREE.SkeletonUtils.clone(template) : template.clone(true);
+            if (weaponName === 'Minigun' && view === 'thirdPerson') model.traverse(obj => {
+                if (obj.isSkinnedMesh) obj.visible = false; // authored FP arms are not a second remote player body
+            });
             applyDefaultWeaponMaterialSelection(model, spec, skinItem);
             // Utility sources use +Z from cap to base. Flip the source model
             // end-over-end in first person; rolling the rig around Z only spun
@@ -16807,6 +16819,33 @@
 
             const rig = new THREE.Group();
             rig.add(model);
+            if (weaponName === 'Minigun' && template.animations?.length) {
+                const mixer = new THREE.AnimationMixer(model);
+                const actions = {};
+                for (const [name, start, end] of [['fire',0,6],['ambient',7,60],['reload',61,128],['hide',129,140],['ready',140,159],['melee',160,180]]) {
+                    const clip = THREE.AnimationUtils.subclip(template.animations[0], name, start, end, 30);
+                    actions[name] = mixer.clipAction(clip);
+                }
+                actions.ambient.play();
+                mixer.update(0);
+                const barrels = [];
+                model.traverse(obj => { if (obj.isMesh && /barrels/i.test(obj.name)) barrels.push(obj); });
+                const smokeCanvas = document.createElement('canvas');
+                smokeCanvas.width = smokeCanvas.height = 64;
+                const smokeContext = smokeCanvas.getContext('2d');
+                const gradient = smokeContext.createRadialGradient(32,32,0,32,32,32);
+                gradient.addColorStop(0, 'rgba(180,185,190,0.65)');
+                gradient.addColorStop(1, 'rgba(180,185,190,0)');
+                smokeContext.fillStyle = gradient;
+                smokeContext.fillRect(0,0,64,64);
+                const smokeTexture = new THREE.CanvasTexture(smokeCanvas);
+                const puffs = Array.from({length: 8}, () => {
+                    const puff = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTexture, transparent: true, opacity: 0, depthWrite: false }));
+                    rig.add(puff);
+                    return puff;
+                });
+                rig.minigunAnimation = { mixer, actions, current: 'ambient', barrels, puffs };
+            }
             const pos = viewSpec.pos || [0, 0, 0];
             const rot = viewSpec.rot || [0, 0, 0];
             rig.position.set(pos[0] || 0, pos[1] || 0, pos[2] || 0);
@@ -16850,7 +16889,7 @@
             const spec = WEAPON_ASSET_SPECS[weaponName];
             if (!template || !spec) return null;
             const assetAxis = skinItem?.assetAxis || spec.axis;
-            const model = template.clone(true);
+            const model = weaponName === 'Minigun' ? THREE.SkeletonUtils.clone(template) : template.clone(true);
             applyDefaultWeaponMaterialSelection(model, spec, skinItem);
             model.traverse((obj) => {
                 if (!obj.isMesh) return;
@@ -19649,6 +19688,7 @@
 
         function switchWeapon(idx, force = false) {
             if (isReloading && !force) return;
+            minigunTriggerAt = null;
             if (force) isReloading = false;
             if (grenadeAim) {
                 grenadeAim = null;
@@ -19673,6 +19713,8 @@
         }
 
         function resetAllAmmo() {
+            minigunThermal = {};
+            minigunTriggerAt = null;
             reloadSequence++;
             isReloading = false;
             reloadTimer = 0;
@@ -21526,6 +21568,20 @@
             }
             let fireDelay = wp.firerate; if (wp.type === 'melee') fireDelay = lastKnifeAttackHeavy ? 1.0 : 0.25;
             if (isReloading || time - lastFireTime < fireDelay * 1000) return;
+            if (wp.name === 'Minigun') {
+                if (minigunTriggerAt === null) {
+                    minigunTriggerAt = time;
+                    playTone(110, 'sawtooth', 0.75, 0.15, null, { channel: 'effects' });
+                }
+                if (time - minigunTriggerAt < window.GameCore.MINIGUN.spinUp * 1000) return;
+                if (currentAmmo <= 0 && adminInfiniteAmmoEnabled()) currentAmmo = wp.mag;
+                if (currentAmmo <= 0) return;
+                if (!window.GameCore.minigunShot(minigunThermal, time)) return;
+                if (minigunThermal.lockedUntil > time) {
+                    playNoise(1.4, 0.35, 7000, 1200, null, { channel: 'effects' });
+                    playTone(65, 'triangle', 0.4, 0.2, null, { channel: 'effects' });
+                }
+            }
             if (wp.type !== 'melee') {
                 if (currentAmmo <= 0) { reloadWeapon(); return; }
                 currentAmmo--;
@@ -24615,6 +24671,38 @@
                     document.getElementById('crosshair-container').style.transform = `translate(-50%, -50%)`;
                 }
 
+                if (wp.name !== 'Minigun' || !isShooting) minigunTriggerAt = null;
+                weaponGroup.traverse(obj => {
+                    const anim = obj.minigunAnimation;
+                    if (!anim) return;
+                    const state = isEquipping ? 'ready' : performance.now() - lastLocalShotAt < 150 ? 'fire' : 'ambient';
+                    if (state !== anim.current) {
+                        anim.actions[anim.current].fadeOut(0.08);
+                        anim.actions[state].reset().fadeIn(0.08).play();
+                        anim.current = state;
+                    }
+                    anim.mixer.update(delta);
+                    const cooling = Math.max(0, (minigunThermal.lockedUntil || 0) - time) / (window.GameCore.MINIGUN.cooldown * 1000);
+                    const idleCooling = Math.max(0, time - (minigunThermal.lastAt || time) - 150) / (window.GameCore.MINIGUN.cooldown * 1000);
+                    const heat = cooling > 0 ? cooling : Math.max(0, (minigunThermal.heat || 0) / window.GameCore.MINIGUN.heatShots - idleCooling);
+                    anim.barrels.forEach(barrel => {
+                        const materials = Array.isArray(barrel.material) ? barrel.material : [barrel.material];
+                        materials.forEach(mat => { if (mat.emissive) mat.emissive.setRGB(heat * 0.65, heat * heat * 0.12, 0); });
+                    });
+                    anim.puffs.forEach((puff, i) => {
+                        const phase = (time / 1600 + i / anim.puffs.length) % 1;
+                        puff.visible = heat > 0.45;
+                        puff.position.set(Math.sin(i * 2.4 + phase * 3) * phase * 0.2, phase * 0.8, 1.8);
+                        puff.scale.setScalar(0.12 + phase * 0.6);
+                        puff.material.opacity = Math.max(0, heat - 0.45) * (1 - phase) * 0.5;
+                    });
+                });
+                if (wp.name === 'Minigun') {
+                    const cooling = Math.max(0, (minigunThermal.lockedUntil || 0) - time);
+                    document.getElementById('ammo').innerText = cooling > 0
+                        ? `${currentAmmo} • Cooling ${(cooling / 1000).toFixed(1)}s`
+                        : `${currentAmmo} • Heat ${Math.round((minigunThermal.heat || 0) / window.GameCore.MINIGUN.heatShots * 100)}%`;
+                }
                 if (wp.type === 'grenade') {
                     // Grenades are thrown on mouse release after charging.
                 } else if (wp.type === 'melee') {
@@ -24829,7 +24917,10 @@
                 spread += landingInaccuracy;
                 if (wp.type === 'sniper' && !isZoomed) spread += 0.35;
                 let timeSinceFireSpread = (time - lastFireTime) / 1000; let bloom = Math.max(0, 0.1 - timeSinceFireSpread);
-                if(wp.type !== 'melee') spread += bloom;
+                if (wp.name === 'Minigun') {
+                    const sustained = minigunTriggerAt === null ? 0 : Math.max(0, (time - minigunTriggerAt) / 1000 - window.GameCore.MINIGUN.spinUp);
+                    spread *= THREE.MathUtils.lerp(1, 0.35, Math.min(1, sustained / 1.5));
+                } else if(wp.type !== 'melee') spread += bloom;
                 currentSpread = spread; updateCrosshairGap(currentSpread);
                 if (localAdminMapTestId) {
                     document.body.dataset.adminMapPlayerPosition = [playerPos.x, playerPos.y, playerPos.z].join(',');
