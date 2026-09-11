@@ -16769,6 +16769,41 @@
             rejectedMeshes.forEach(mesh => mesh.removeFromParent());
         }
 
+        // The minigun's heat glow and smoke, shared by the loaded model and its
+        // stand-in. These are not decoration: the barrels reddening and then
+        // smoking is the only warning that the gun is about to lock itself out,
+        // so the fallback has to show them or the weapon reads as fine right up
+        // until it stops firing.
+        let minigunSmokeTextureCache = null;
+        function minigunSmokeTexture() {
+            if (minigunSmokeTextureCache) return minigunSmokeTextureCache;
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 64;
+            const context = canvas.getContext('2d');
+            const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
+            gradient.addColorStop(0, 'rgba(180,185,190,0.65)');
+            gradient.addColorStop(1, 'rgba(180,185,190,0)');
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, 64, 64);
+            minigunSmokeTextureCache = new THREE.CanvasTexture(canvas);
+            return minigunSmokeTextureCache;
+        }
+
+        // muzzleZ is where the smoke vents in the parent's local space. The
+        // loaded rig is yawed half a turn by its spec, so its muzzle is at +Z;
+        // the procedural stand-in is built facing -Z like every other fallback.
+        function buildMinigunThermal(parent, barrels, muzzleZ) {
+            const texture = minigunSmokeTexture();
+            const puffs = Array.from({ length: 8 }, () => {
+                const puff = new THREE.Sprite(new THREE.SpriteMaterial({
+                    map: texture, transparent: true, opacity: 0, depthWrite: false
+                }));
+                parent.add(puff);
+                return puff;
+            });
+            return { current: 'ambient', barrels, puffs, muzzleZ };
+        }
+
         function buildWeaponAssetInstance(template, weaponName, view, skinItem = null) {
             // In-game model path: first-person viewmodel and third-person/world
             // weapons. Do not assume a fix here also fixes inventory thumbnails.
@@ -16834,21 +16869,7 @@
                 mixer.update(0);
                 const barrels = [];
                 model.traverse(obj => { if (obj.isMesh && /barrels/i.test(obj.name)) barrels.push(obj); });
-                const smokeCanvas = document.createElement('canvas');
-                smokeCanvas.width = smokeCanvas.height = 64;
-                const smokeContext = smokeCanvas.getContext('2d');
-                const gradient = smokeContext.createRadialGradient(32,32,0,32,32,32);
-                gradient.addColorStop(0, 'rgba(180,185,190,0.65)');
-                gradient.addColorStop(1, 'rgba(180,185,190,0)');
-                smokeContext.fillStyle = gradient;
-                smokeContext.fillRect(0,0,64,64);
-                const smokeTexture = new THREE.CanvasTexture(smokeCanvas);
-                const puffs = Array.from({length: 8}, () => {
-                    const puff = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTexture, transparent: true, opacity: 0, depthWrite: false }));
-                    rig.add(puff);
-                    return puff;
-                });
-                rig.minigunAnimation = { mixer, actions, current: 'ambient', barrels, puffs };
+                rig.minigunAnimation = { mixer, actions, ...buildMinigunThermal(rig, barrels, 1.8) };
             }
             const pos = viewSpec.pos || [0, 0, 0];
             const rot = viewSpec.rot || [0, 0, 0];
@@ -17121,14 +17142,25 @@
                 case 'Minigun': {
                     createMesh(new THREE.BoxGeometry(0.62, 0.58, 1.6), matDarkGrey, 0, 0, 0.5);
                     // Six barrels on a ring: the silhouette is the whole point.
+                    // Each gets its own material instance because the heat glow
+                    // writes emissive per barrel - sharing matGrey would tint
+                    // every other grey part of every other weapon with it.
+                    const barrels = [];
                     for (let i = 0; i < 6; i++) {
                         const a = (i / 6) * Math.PI * 2;
-                        createMesh(new THREE.CylinderGeometry(0.055, 0.055, 2.8), matGrey,
-                            Math.cos(a) * 0.15, Math.sin(a) * 0.15, -1.4, Math.PI/2);
+                        barrels.push(createMesh(new THREE.CylinderGeometry(0.055, 0.055, 2.8), matGrey.clone(),
+                            Math.cos(a) * 0.15, Math.sin(a) * 0.15, -1.4, Math.PI/2));
                     }
                     createMesh(new THREE.CylinderGeometry(0.24, 0.24, 0.34), matBlack, 0, 0, -0.28, Math.PI/2);
                     createMesh(new THREE.BoxGeometry(0.36, 0.36, 0.6), matGrey, 0.34, -0.08, 0.9);
                     createMesh(new THREE.BoxGeometry(0.15, 0.46, 0.26), matBlack, 0, -0.42, 0.85, 0.1);
+                    // Hung off a child group rather than weaponGroup itself, so
+                    // switching weapons or the GLB arriving clears it with the
+                    // rest of the stand-in instead of leaving a stale thermal
+                    // driving whatever is held next.
+                    const thermal = new THREE.Group();
+                    weaponGroup.add(thermal);
+                    thermal.minigunAnimation = buildMinigunThermal(thermal, barrels, -2.0);
                     break;
                 }
                 // Held out in front on the left, so it covers that side of the view.
@@ -24733,13 +24765,16 @@
                 weaponGroup.traverse(obj => {
                     const anim = obj.minigunAnimation;
                     if (!anim) return;
+                    // The stand-in has the heat glow and smoke but no clips to
+                    // play, so the animation half is skipped rather than the
+                    // whole block: the overheat read is the part that matters.
                     const state = isEquipping ? 'ready' : performance.now() - lastLocalShotAt < 150 ? 'fire' : 'ambient';
-                    if (state !== anim.current) {
+                    if (anim.actions && state !== anim.current) {
                         anim.actions[anim.current].fadeOut(0.08);
                         anim.actions[state].reset().fadeIn(0.08).play();
                         anim.current = state;
                     }
-                    anim.mixer.update(delta);
+                    anim.mixer?.update(delta);
                     const cooling = Math.max(0, (minigunThermal.lockedUntil || 0) - time) / (window.GameCore.MINIGUN.cooldown * 1000);
                     const idleCooling = Math.max(0, time - (minigunThermal.lastAt || time) - 150) / (window.GameCore.MINIGUN.cooldown * 1000);
                     const heat = cooling > 0 ? cooling : Math.max(0, (minigunThermal.heat || 0) / window.GameCore.MINIGUN.heatShots - idleCooling);
@@ -24750,7 +24785,9 @@
                     anim.puffs.forEach((puff, i) => {
                         const phase = (time / 1600 + i / anim.puffs.length) % 1;
                         puff.visible = heat > 0.45;
-                        puff.position.set(Math.sin(i * 2.4 + phase * 3) * phase * 0.2, phase * 0.8, 1.8);
+                        // Smoke leaves the muzzle, and the two rigs face opposite
+                        // ways: the loaded one is yawed half a turn by its spec.
+                        puff.position.set(Math.sin(i * 2.4 + phase * 3) * phase * 0.2, phase * 0.8, anim.muzzleZ ?? 1.8);
                         puff.scale.setScalar(0.12 + phase * 0.6);
                         puff.material.opacity = Math.max(0, heat - 0.45) * (1 - phase) * 0.5;
                     });

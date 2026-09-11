@@ -79,3 +79,51 @@ test('the fallback is what fills the gap, so the asset must not clear it early',
   assert.doesNotMatch(beforeThen, /clearObjectChildren/u,
     'nothing may clear the stand-in before the GLB is ready');
 });
+
+test('the minigun stand-in still shows the overheat stages', () => {
+  // The barrels reddening and then smoking is the only warning that the gun is
+  // about to lock itself out. Without it the stand-in reads as a perfectly
+  // healthy weapon right up until it stops firing - and this is the weapon with
+  // an 8.5MB model, so that window is not brief.
+  const build = section('function buildGunModel(', 'function showLoadingScreen', 3_000, 30_000);
+  const minigun = build.slice(build.indexOf("case 'Minigun'"), build.indexOf("case 'Shield'"));
+  assert.ok(minigun.length > 400, 'the Minigun case is where this expects');
+
+  assert.match(minigun, /thermal\.minigunAnimation = buildMinigunThermal\(thermal, barrels, -2\.0\);/u,
+    'the stand-in publishes a thermal the update loop can find');
+  // Hung off a child group, so switching weapons clears it with the rest of the
+  // stand-in. On weaponGroup itself it would outlive the model it belongs to,
+  // because clearObjectChildren only removes children.
+  assert.match(minigun, /const thermal = new THREE\.Group\(\);\s*\n\s*weaponGroup\.add\(thermal\);/u);
+
+  // Each barrel needs its own material: the glow writes emissive per barrel, so
+  // a shared matGrey would tint every other grey part of every other weapon.
+  assert.match(minigun, /barrels\.push\(createMesh\(new THREE\.CylinderGeometry\([^)]*\), matGrey\.clone\(\),/u,
+    'barrels must not share a material with the rest of the scene');
+});
+
+test('both minigun rigs get their thermal from the same builder', () => {
+  // Two copies of the glow would drift; the loaded model would keep working
+  // while the stand-in quietly stopped matching it.
+  assert.match(html, /function buildMinigunThermal\(parent, barrels, muzzleZ\) \{/u);
+  assert.match(html, /rig\.minigunAnimation = \{ mixer, actions, \.\.\.buildMinigunThermal\(rig, barrels, 1\.8\) \};/u,
+    'the loaded rig composes the shared thermal with its clips');
+
+  // The two rigs face opposite ways - the loaded one is yawed half a turn by
+  // its spec - so smoke has to vent from each rig's own muzzle.
+  assert.match(html, /anim\.muzzleZ \?\? 1\.8/u, 'the puff position follows the rig, not a constant');
+});
+
+test('the update loop survives a thermal with no animation clips', () => {
+  // The stand-in has no GLB and therefore no clips. If the loop still assumed
+  // anim.actions and anim.mixer it would throw every frame the fallback is
+  // held, taking the whole render loop down with it.
+  const loop = html.slice(html.indexOf('const anim = obj.minigunAnimation;'));
+  const block = loop.slice(0, 1_400);
+  assert.match(block, /if \(anim\.actions && state !== anim\.current\)/u, 'clips are optional');
+  assert.match(block, /anim\.mixer\?\.update\(delta\);/u, 'the mixer is optional');
+  // The heat maths itself must NOT be behind that guard.
+  const heatAt = block.indexOf('anim.barrels.forEach');
+  const mixerAt = block.indexOf('anim.mixer?.update');
+  assert.ok(heatAt > mixerAt, 'the glow runs after the optional animation, not inside it');
+});
