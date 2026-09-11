@@ -128,3 +128,28 @@ test('the RPG is not rotated off its own long axis', () => {
   assert.match(rpgBranch, /!\/rocket_\?\\\.001\/i\.test\(name\)/u,
     'the spare rocket must be excluded from the projectile');
 });
+
+test('the rocket speed the client fires matches the one the server expects', () => {
+  // The server drops any rocket whose reported speed is more than 45 off
+  // GRENADE.rpg.speed, so changing one side alone does not slow the rocket -
+  // it stops rockets counting at all, silently, with the projectile still
+  // drawn client-side. The fuse is the client's copy of maxLifeMs for the
+  // same reason: disagree and the two ends kill the rocket at different times.
+  const cfg = client.match(/rpg: \{ fuse: ([\d.]+), radius: \d+, maxDamage: \d+, throwSpeed: (\d+), lobSpeed: (\d+)/);
+  assert.ok(cfg, 'the client rpg config is where this expects');
+  const [, fuse, throwSpeed, lobSpeed] = cfg.map(Number);
+
+  const tolerance = Number(server.match(/Math\.abs\(speed - GRENADE\.rpg\.speed\) > (\d+)/)[1]);
+  assert.ok(Math.abs(throwSpeed - core.GRENADE.rpg.speed) <= tolerance,
+    `client ${throwSpeed} vs server ${core.GRENADE.rpg.speed} is outside the +/-${tolerance} the server allows`);
+  assert.equal(lobSpeed, throwSpeed, 'both barrels fire the same speed; there is no lob arc');
+  assert.equal(fuse * 1000, core.GRENADE.rpg.maxLifeMs, 'the client fuse is maxLifeMs in seconds');
+
+  // A remote client drops the projectile mesh at 6s, so a longer fuse would
+  // leave the shooter watching a rocket nobody else can still see.
+  assert.ok(fuse * 1000 < 6000, 'the fuse must fire before the remote cleanup');
+
+  // Slowing it must not quietly shorten the weapon's range.
+  const reach = throwSpeed * fuse;
+  assert.ok(reach > 2000 && reach < 2400, `reach ${reach} should stay near the original 2184 units`);
+});

@@ -7935,7 +7935,11 @@
             smoke: { fuse: 1.8, radius: 38, throwSpeed: 305, lobSpeed: 165, color: 0x9aa0a6 },
             flash: { fuse: 1.6, radius: 310, throwSpeed: 305, lobSpeed: 165, color: 0xdfe3e6 },
             molotov: { fuse: 0.9, radius: 82, dps: 34, tickMs: 350, duration: 8500, throwSpeed: 315, lobSpeed: 170, color: 0x8b3a16 },
-            rpg: { fuse: 4.2, radius: 145, maxDamage: 180, throwSpeed: 520, lobSpeed: 520, color: 0x56604a }
+            // Must stay in step with GRENADE.rpg in core.js: the server refuses
+            // a rocket whose speed is more than 45 off its own figure, and fuse
+            // is the client's copy of maxLifeMs. Both barrels fire the same
+            // speed, so there is no lob arc to slow separately.
+            rpg: { fuse: 5, radius: 145, maxDamage: 180, throwSpeed: 430, lobSpeed: 430, color: 0x56604a }
         };
         // Deployable barricade geometry/health, shared with the server (core.js).
         const BARRICADE = window.GameCore.BARRICADE;

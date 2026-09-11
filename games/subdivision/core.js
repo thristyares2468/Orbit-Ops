@@ -73,7 +73,13 @@
   // numbers are authoritative and re-validated server-side).
   const GRENADE = {
     frag: { radius: 125, maxDamage: 125 },
-    rpg: { radius: 145, maxDamage: 180, selfScale: 0.65, speed: 520, maxLifeMs: 4200 },
+    // speed and maxLifeMs are BOTH half of one pair. The server rejects a
+    // rocket whose reported speed differs from this by more than 45, so the
+    // client's GRENADE_CONFIG.rpg.throwSpeed/lobSpeed has to match, and its
+    // fuse has to match maxLifeMs or the two ends disagree about when the
+    // rocket dies. maxLifeMs is set to keep the old ~2180-unit reach at the
+    // slower speed rather than shortening the weapon's range as a side effect.
+    rpg: { radius: 145, maxDamage: 180, selfScale: 0.65, speed: 430, maxLifeMs: 5000 },
     smoke: { radius: 38, durationMs: 18000 },
     molotov: { radius: 82, dps: 34, tickMs: 350, durationMs: 8500 }
   };
