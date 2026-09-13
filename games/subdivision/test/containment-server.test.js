@@ -134,7 +134,8 @@ test('a hit has to be plausible before it counts', () => {
 
 test('credits are only ever granted through the module', () => {
   const grants = section.match(/containment\.grant\(/gu) || [];
-  assert.equal(grants.length, 2, 'exactly the kill reward and the wave-clear share');
+  assert.equal(grants.length, 3,
+    'exactly the bullet kill, the rocket-blast kill and the wave-clear share');
   // Never a bare assignment into the purse from this file.
   assert.doesNotMatch(section, /\.credits\.set\(/u, 'the purse is the module\'s to write');
 });

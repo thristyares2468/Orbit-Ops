@@ -1564,6 +1564,12 @@ function handleMessage(client, raw) {
       room.recentRpgBursts = room.recentRpgBursts.filter(burst => burstAt - burst.ts <= GRENADE_HIT_WINDOW_MS);
       room.recentRpgBursts.push({ ts: burstAt, ownerId: client.id, position });
     }
+    // Zombies are server-owned, so no client reports a blast hit on them -
+    // applyLocalGrenadeDamage only walks remotePlayers. Resolve the RPG blast
+    // against the horde here instead, where the positions are authoritative.
+    if (kind === 'rpg' && position && isContainment(room)) {
+      damageContainmentEnemiesFromBlast(client, room, player, position);
+    }
     // Record damaging utility bursts so damage can be server-validated against them.
     if (kind === 'frag' && position) damageBarricadesFromFrag(client.roomCode, room, position, client.id);
     if ((kind === 'frag' || kind === 'molotov') && position) {
@@ -5319,7 +5325,14 @@ function grenadeDamageFor(room, ownerId, target, now) {
 }
 
 function rpgDamageFor(room, ownerId, target, now) {
-  if (!isAdminRoom(room) || !room.recentRpgBursts?.length) return 0;
+  // No admin-room gate. The RPG is a public weapon now (it is sold in
+  // Containment's shop and buildable in a normal loadout), and this list is
+  // already the authoritative record: a burst only lands in recentRpgBursts
+  // after the throw passed the speed/origin checks and the burst position was
+  // verified against that rocket's own trajectory. Gating on the admin room
+  // here silently zeroed every hit outside it - the rocket flew and exploded
+  // client-side and then did nothing at all.
+  if (!room.recentRpgBursts?.length) return 0;
   const { radius, maxDamage } = GRENADE.rpg;
   let best = 0;
   for (let i = room.recentRpgBursts.length - 1; i >= 0; i--) {
@@ -8919,6 +8932,32 @@ function handleContainmentHit(client, room, player, data = {}) {
     containment.grant(match, player.id, reward);
     send(client, 'containmentState', containmentClientState(room, player.id));
   }
+}
+
+// Explosive splash against the horde. Same falloff the PvP blast uses, and the
+// same kill accounting as a bullet, so a rocket pays out like the shots it
+// replaces. No headshots: an explosion has no aim point.
+function damageContainmentEnemiesFromBlast(client, room, player, position) {
+  const match = room.containment;
+  if (!match || match.phase !== containment.PHASES.ACTIVE) return;
+  const { radius, maxDamage } = GRENADE.rpg;
+  let killed = 0;
+  for (const enemy of [...match.enemies.values()]) {
+    const distance = Math.hypot(enemy.x - position.x, (enemy.y || 0) - position.y, enemy.z - position.z);
+    if (distance > radius) continue;
+    const amount = Math.round(maxDamage * (1 - distance / radius));
+    const result = containment.damageEnemy(match, enemy.id, amount);
+    if (!result) continue;
+    broadcastRaw(client.roomCode, JSON.stringify({ type: 'containmentEnemyHit', data: {
+      id: enemy.id, health: result.enemy.health, headshot: false, killed: result.killed
+    } }));
+    if (!result.killed) continue;
+    killed += 1;
+    match.stats.kills += 1;
+    containment.grant(match, player.id, containment.rewardFor('kill', match, { headshot: false }));
+  }
+  // One state push for the whole blast, not one per zombie caught in it.
+  if (killed) send(client, 'containmentState', containmentClientState(room, player.id));
 }
 
 function handleContainmentBuyWeapon(client, room, player, data = {}) {
