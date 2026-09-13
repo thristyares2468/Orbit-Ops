@@ -44,10 +44,11 @@ test('server-owned enemies are rendered, interpolated, and shootable', () => {
   // Height is authored per kind rather than read back off the hitboxes. Deriving
   // it from them made the fit circular: retuning a hitbox silently resized the
   // model, which is part of how the original misalignment stayed hidden.
-  assert.match(html, /const CONTAINMENT_ZOMBIE_HEIGHT = \{ walker: [\d.]+, heavy: [\d.]+ \};/u,
-    'the visual height is stated, not derived from the hitboxes');
+  assert.match(html, /const CONTAINMENT_ZOMBIE_PROFILES = \{/u,
+    'the visual height is stated per kind, not derived from the hitboxes');
   assert.match(html, /actor\.scale\.setScalar\(1\)/u, 'network origin and zombie targets are not separated by actor scaling');
-  assert.match(html, /joints\.hitHead\.geometry = new THREE\.BoxGeometry/u, 'zombies replace player targets with fitted head/body/leg volumes');
+  assert.match(html, /mesh\.geometry = new THREE\.BoxGeometry\(\.\.\.profile\[part\]\.size\);/u,
+    'zombies replace player targets with volumes fitted to their own kind');
   assert.match(html, /actor\.userData\.zombieVisualBaseY = wrapper\.position\.y/u,
     'the imported model stores its grounded visual origin');
   // No sink. The two constants that used to be here were compensating for a

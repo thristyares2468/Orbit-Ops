@@ -29,7 +29,9 @@ test('core carries one authoritative shield table', () => {
   assert.ok(shield.bodyBlock > 0 && shield.bodyBlock < 1, 'a shield reduces damage, it does not erase it');
   assert.equal(shield.headBlock, 0, 'standing, the head is above the shield');
   assert.equal(shield.crouchHeadBlock, shield.bodyBlock, 'crouched, the carrier is behind it completely');
-  assert.ok(shield.fireLockoutMs > 0, 'firing has to drop the guard');
+  assert.ok(shield.capacity > 100, 'the guard must absorb a meaningful but finite amount');
+  assert.ok(shield.staggerMs > 0, 'breaking the guard must create a stagger window');
+  assert.ok(shield.fireLockoutMs > 0, 'firing has to create a short opening');
   assert.ok(shield.arcCos > 0 && shield.arcCos < 1, 'cover is a frontal arc, not all-round');
   assert.equal(core.WEAPONS.Shield.type, 'shield');
   assert.equal(core.WEAPONS.Shield.dmg.body, 0, 'a shield deals no damage');
@@ -38,6 +40,11 @@ test('core carries one authoritative shield table', () => {
   assert.ok(core.WEAPON_PRICES.Shield > 0);
   assert.equal(core.UTILITY_PRICES.shield, undefined);
   assert.deepEqual(core.SHIELD.allowedWeaponTypes, ['pistol', 'melee', 'shield']);
+  assert.equal(core.SHIELD.sidearmWeapon, 'Glock');
+  assert.ok(core.SHIELD_GLOCK.firerate > core.WEAPONS.Glock.firerate, 'shield Glock fires more slowly');
+  for (const part of ['head', 'body', 'legs']) {
+    assert.ok(core.SHIELD_GLOCK.dmg[part] < core.WEAPONS.Glock.dmg[part], `shield Glock ${part} damage is reduced`);
+  }
 });
 
 test('the block arc covers the front and nothing else', () => {
@@ -54,26 +61,57 @@ test('the block arc covers the front and nothing else', () => {
   assert.ok(dotTo(0, 10) < core.SHIELD.arcCos, 'a shot from behind is not');
 });
 
-test('every condition for cover is checked server-side', () => {
-  const fn = server.slice(server.indexOf('function shieldBlockFraction'));
-  const body = fn.slice(0, fn.indexOf('\n}\n'));
-  assert.match(body, /target\.weapon !== SHIELD\.weapon/, 'the shield has to be the held weapon');
-  assert.match(body, /target\.loadout\?\.main !== SHIELD\.weapon/, 'and taken as the primary, which the server recorded itself');
-  assert.match(body, /now - Number\(target\.lastShotAt \|\| 0\) < SHIELD\.fireLockoutMs/, 'and not just used to shoot with');
-  assert.match(body, /dot\(forwardFlat, toAttacker\) < SHIELD\.arcCos/, 'and hit from within the frontal arc');
-  assert.match(body, /headshot\) return target\.crouching \? SHIELD\.crouchHeadBlock : SHIELD\.headBlock/);
-  assert.doesNotMatch(body, /data\./, 'nothing here may be read off the packet');
-  assert.match(server, /player\.lastShotAt = now;/, 'firing has to stamp the lockout');
+test('the pure resolver enforces facing, posture, fire opening, capacity and stagger', () => {
+  const now = 10_000;
+  const target = {
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { y: 0 }, // faces -Z
+    weapon: 'Shield',
+    loadout: { main: 'Shield' },
+    crouching: false,
+    lastShotAt: 0,
+    shieldDamage: 0,
+    shieldStaggeredUntil: 0
+  };
+
+  const frontBody = core.resolveShieldHit(target, { x: 0, y: 0, z: -10 }, false, 14, now);
+  assert.equal(frontBody.damage, 2);
+  assert.equal(frontBody.shieldBlocked, true);
+  assert.equal(frontBody.absorbed, 11.9);
+  assert.equal(frontBody.staggered, false);
+
+  assert.equal(core.resolveShieldHit(target, { x: 0, y: 0, z: -10 }, true, 56, now).damage, 56,
+    'standing headshots clear the plate');
+  assert.equal(core.resolveShieldHit({ ...target, crouching: true }, { x: 0, y: 0, z: -10 }, true, 56, now).damage, 8,
+    'crouching brings the head behind the plate');
+  assert.equal(core.resolveShieldHit(target, { x: 0, y: 0, z: 10 }, false, 14, now).damage, 14,
+    'rear hits bypass it');
+  assert.equal(core.resolveShieldHit({ ...target, lastShotAt: now - 50 }, { x: 0, y: 0, z: -10 }, false, 14, now).damage, 14,
+    'the short Glock firing opening bypasses it');
+
+  const broken = core.resolveShieldHit({ ...target, shieldDamage: 145 }, { x: 0, y: 0, z: -10 }, false, 27, now);
+  assert.deepEqual({ damage: broken.damage, absorbed: broken.absorbed, shieldDamage: broken.shieldDamage },
+    { damage: 22, absorbed: 5, shieldDamage: core.SHIELD.capacity });
+  assert.equal(broken.staggered, true);
+  assert.equal(broken.staggeredUntil, now + core.SHIELD.staggerMs);
+
+  const duringStagger = core.resolveShieldHit({ ...target, shieldDamage: 150, shieldStaggeredUntil: now + 500 }, { x: 0, y: 0, z: -10 }, false, 27, now);
+  assert.equal(duringStagger.damage, 27, 'the broken guard provides no cover');
+  const recovered = core.resolveShieldHit({ ...target, shieldDamage: 150, shieldStaggeredUntil: now - 1 }, { x: 0, y: 0, z: -10 }, false, 14, now);
+  assert.equal(recovered.shieldDamage, 11.9, 'the next hit after stagger starts a fresh guard');
 });
 
 test('cover applies to direct fire only', () => {
   // The grenade / molotov / C4 branches set their own damage above this point,
   // so utility keeps working on someone hiding behind a shield.
   const hit = server.slice(server.indexOf('function handlePlayerHit'));
-  const block = hit.indexOf('shieldBlockFraction(target, player.position');
+  const block = hit.indexOf('resolveShieldHit(target, player.position');
   const utility = hit.indexOf("data.kind === 'c4'");
   assert.ok(block > utility, 'the block must sit in the direct-fire branch, after the utility branches');
-  assert.match(server, /damage = Math\.max\(1, Math\.round\(damage \* \(1 - blocked\)\)\)/, 'a blocked hit still chips');
+  assert.match(server, /target\.shieldDamage = shieldHit\.shieldDamage;/, 'capacity must live on the server player');
+  assert.match(server, /target\.shieldStaggeredUntil = shieldHit\.staggeredUntil;/, 'stagger must live on the server player');
+  assert.match(server, /shieldBlocked: !!killContext\.shieldBlocked/);
+  assert.match(server, /shieldCapacity: SHIELD\.capacity/);
 });
 
 test('a shield loadout cannot deal long-gun damage', () => {
@@ -82,15 +120,21 @@ test('a shield loadout cannot deal long-gun damage', () => {
   // your rifle, and the server checks its own record of that rather than the
   // packet's word for it.
   assert.match(server, /player\.loadout\?\.main === SHIELD\.weapon && !SHIELD\.allowedWeaponTypes\.includes\(wdef\.type\)\) return;/);
-  assert.match(server, /player\.loadout\[slot\] = weapon;/, 'buyWeapon has to record the slot choice');
-  assert.match(server, /if \(player\.loadout\?\.main === SHIELD\.weapon\) player\.loadout\.main = item\.weapon;/,
+  assert.match(server, /setPlayerLoadoutWeapon\(player, slot, weapon\);/, 'buyWeapon has to record the slot choice');
+  assert.match(server, /handleContainmentBuyWeapon[\s\S]*?setPlayerLoadoutWeapon\(player, slot, weapon\);/,
+    'Containment purchases must record the same authoritative loadout');
+  assert.match(server, /loadout: \{ \.\.\.\(player\.loadout \|\| \{}\) \}/, 'rejoin state must preserve the server loadout');
+  assert.match(server, /if \(player\.loadout\?\.main === SHIELD\.weapon\) setPlayerLoadoutWeapon\(player, 'main', item\.weapon\);/,
     'picking a gun up off the floor must clear the restriction with it');
 });
 
-test('the client carries it in the primary slot and never fires it', () => {
+test('the client carries it in the primary slot and fires the reduced-stat Glock', () => {
   assert.match(client, /name: 'Shield', type: 'shield'/);
   assert.doesNotMatch(client, /kind: 'shield'/, 'it is a weapon now, not a utility kind');
-  assert.match(client, /if \(wp\.type === 'shield'\) return;/, 'shoot() must refuse the shield outright');
+  assert.match(client, /let wp = heldWeapon\.type === 'shield' \? SHIELD_GLOCK_PROFILE : heldWeapon;/);
+  assert.doesNotMatch(client, /if \(wp\.type === 'shield'\) return;/, 'the Shield slot must not discard fire input');
+  assert.match(client, /mag: SHIELD\.sidearmMagazine, reserve: SHIELD\.sidearmReserve/);
+  assert.match(client, /spreadBase: 0\.01 \* SHIELD\.sidearmSpreadScale/);
   assert.ok(primaryBuyIndexes().includes(26), 'it belongs in the primary buy list');
   assert.doesNotMatch(client, /GRENADE_KINDS = \[[^\]]*'shield'/, 'and out of the utility rows entirely');
   assert.doesNotMatch(client, /utilityShield/);
@@ -102,7 +146,10 @@ test('the client carries it in the primary slot and never fires it', () => {
   assert.ok(speedOf('Shield') < speedOf('AWP'), 'a riot shield is heavier going than an AWP');
   assert.ok(speedOf('Shield') > speedOf('RPG'), 'but lighter than a rocket launcher');
   // The standing/crouched rule is invisible unless the HUD says it.
+  assert.match(client, /GUARD \$\{Math\.ceil\(shieldGuardRemaining\)\}\/\$\{SHIELD\.capacity\}/);
   assert.match(client, /isCrouching \? 'FULL COVER' : 'HEAD EXPOSED'/);
+  assert.match(client, /SHIELD BROKEN · STAGGERED/);
+  assert.match(client, /indicator\.classList\.add\('shield-blocked'\)/);
 });
 
 test('the shield is presented square to the view, not held like a gun', () => {
@@ -113,6 +160,13 @@ test('the shield is presented square to the view, not held like a gun', () => {
   const fpRot = spec[0].match(/fp: \{[^}]*rot: \[([^\]]*)\]/);
   assert.ok(fpRot, 'the shield needs an explicit first-person rotation');
   assert.deepEqual(fpRot[1].split(',').map(part => Number(part.trim())), [0, 0, 0]);
+  const fpPos = spec[0].match(/fp: \{[^}]*pos: \[([^\]]*)\]/);
+  assert.ok(fpPos, 'the shield needs an explicit first-person position');
+  assert.ok(Number(fpPos[1].split(',')[0]) > 0, 'positive local X places the shield in the right hand');
+  assert.match(client, /first-person-right-hand-shield/);
+  assert.match(client, /attachWeaponAsset\(weaponAssetParent, wp\.name, 'firstPerson'/);
+  assert.match(client, /if \(weaponName === 'Shield'\)[\s\S]*?attachWeaponAsset\(parent, weaponName, 'thirdPerson', skinItem\);/,
+    'third person must replace the right-hand fallback with the authored shield');
   // And it is braced rather than swung, so the gun bob is damped.
   assert.match(client, /const SHIELD_VIEW_BOB_SCALE = 0\.\d+;/);
   assert.match(client, /type === 'shield' \? SHIELD_VIEW_BOB_SCALE : 1/);

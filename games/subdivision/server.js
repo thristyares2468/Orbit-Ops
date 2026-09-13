@@ -242,6 +242,8 @@ const BARRICADE = core.BARRICADE; // deployable barricade geometry, shared via c
 const C4 = core.C4; // remote-detonated charge geometry/timing, shared via core.js
 const SHOTGUN_ALT = core.SHOTGUN_ALT; // Breacher buckshot/slug tables, shared via core.js
 const SHIELD = core.SHIELD; // handheld shield cover rules, shared via core.js
+const SHIELD_GLOCK = core.SHIELD_GLOCK;
+const resolveShieldHit = core.resolveShieldHit;
 const UTILITY_LIFE_CAPS = core.UTILITY_LIFE_CAPS; // per-kind overrides (core.js)
 const GRENADE_HIT_WINDOW_MS = 2000;
 const GRENADE_RADIUS_SLACK = 45;
@@ -1885,10 +1887,7 @@ function handleMessage(client, raw) {
     // Remember the slot choice. This is the only server-owned record of what a
     // player actually took, and the shield leans on it: `player.weapon` alone is
     // whatever the last playerState packet claimed.
-    if (slot === 'main' || slot === 'sidearm' || slot === 'knife') {
-      if (!player.loadout) player.loadout = {};
-      player.loadout[slot] = weapon;
-    }
+    setPlayerLoadoutWeapon(player, slot, weapon);
     player.dirty = true;
     send(client, 'weaponPurchased', { weapon, slot, money: player.money, purchaseId: purchase?.id || null });
     return;
@@ -4774,11 +4773,13 @@ function handlePlayerShoot(client, room, player, data) {
   clearSpawnProtection(player, now, client, 'shoot');
   cancelBombAction(room, player.id);
   const weapon = String(data.weapon || player.weapon).slice(0, 32);
-  player.lastShotAt = now; // drops the shield guard, see shieldBlockFraction()
   const start = sanitizeVector(data.start, null);
   const target = sanitizeVector(data.target, null);
-  const wdef = WEAPONS[weapon];
+  const shieldSidearm = player.weapon === SHIELD.weapon && player.loadout?.main === SHIELD.weapon;
+  if (shieldSidearm && (weapon !== SHIELD.sidearmWeapon || Number(player.shieldStaggeredUntil || 0) > now)) return;
+  const wdef = shieldSidearm ? SHIELD_GLOCK : WEAPONS[weapon];
   if (start && target && wdef) {
+    player.lastShotAt = now; // firing the Glock briefly opens the shield guard
     if (weapon === 'Minigun') {
       const state = player.minigunState ||= { ammo: core.MINIGUN.ammo };
       const infinite = isAdminRoom(room) && ensureAdminConfig(room).infiniteAmmo === true;
@@ -4798,6 +4799,7 @@ function handlePlayerShoot(client, room, player, data) {
       target,
       pellets,
       load,
+      shieldSidearm,
       hitsUsed: 0,
       playerPenetration,
       hitTargets: new Set()
@@ -4964,7 +4966,9 @@ function handlePlayerHit(client, room, player, data) {
   } else {
     const weapon = String(data.weapon || player.weapon).slice(0, 32);
     resolvedWeapon = weapon;
-    const wdef = WEAPONS[weapon];
+    const heldShieldSidearm = player.weapon === SHIELD.weapon && player.loadout?.main === SHIELD.weapon;
+    if (heldShieldSidearm && weapon !== SHIELD.sidearmWeapon) return;
+    let wdef = heldShieldSidearm ? SHIELD_GLOCK : WEAPONS[weapon];
     if (!wdef) return;                          // unknown weapon — drop, no strike
     // A shield primary carries a sidearm, not a rifle. Enforced here rather than
     // trusted to the client, so a shield loadout cannot fight from behind cover
@@ -4972,6 +4976,10 @@ function handlePlayerHit(client, room, player, data) {
     if (player.loadout?.main === SHIELD.weapon && !SHIELD.allowedWeaponTypes.includes(wdef.type)) return;
     const melee = wdef.type === 'melee';
     const corr = correlateHit(room, player, target, weapon, now, targetId, { wallbang: !!data.wallbang });
+    // The firing state is stamped on the correlated shot. Switching to the
+    // ordinary Glock slot before the hit packet arrives must not restore its
+    // better damage and fire-rate values retroactively.
+    if (corr.shot?.shieldSidearm) wdef = SHIELD_GLOCK;
     let trustedHit = true;
     let hardRejectHit = false;
     if (!corr.ok) {
@@ -5014,10 +5022,18 @@ function handlePlayerHit(client, room, player, data) {
     }
     // Shields cover direct fire only. A frag or a C4 goes straight through, so
     // utility stays the answer to someone hiding behind one.
-    const blocked = shieldBlockFraction(target, player.position, killContext.headshot, now);
-    if (blocked > 0) {
+    const shieldHit = resolveShieldHit(target, player.position, killContext.headshot, damage, now);
+    target.shieldDamage = shieldHit.shieldDamage;
+    target.shieldStaggeredUntil = shieldHit.staggeredUntil;
+    if (shieldHit.shieldBlocked) {
       killContext.shieldBlocked = true;
-      damage = Math.max(1, Math.round(damage * (1 - blocked)));
+      killContext.shieldStaggered = shieldHit.staggered;
+      damage = shieldHit.damage;
+      if (shieldHit.staggered) {
+        target.sprinting = false;
+        target.sliding = false;
+      }
+      target.dirty = true;
     }
   }
   if (data.wallbang) damage = Math.max(1, Math.round(damage * 0.62));
@@ -5062,6 +5078,11 @@ function handlePlayerHit(client, room, player, data) {
     headshot: !!killContext.headshot,
     wallbang: !!killContext.wallbang,
     throughSmoke: !!killContext.throughSmoke,
+    shieldBlocked: !!killContext.shieldBlocked,
+    shieldStaggered: !!killContext.shieldStaggered,
+    shieldDamage: Math.round(Number(target.shieldDamage) || 0),
+    shieldCapacity: SHIELD.capacity,
+    shieldStaggeredUntil: Number(target.shieldStaggeredUntil) || 0,
     lifecycle: target.lifecycle
   });
 
@@ -5487,30 +5508,6 @@ function forwardFromRotation(rot) {
   return { x: -Math.cos(px) * Math.sin(py), y: Math.sin(px), z: -Math.cos(px) * Math.cos(py) };
 }
 
-// How much of a direct hit the target's shield soaks, 0 if it does not cover it.
-// Everything this reads is server-owned: the purchase, the held weapon, the
-// carrier's facing and whether they are crouched. A client cannot ask for cover.
-function shieldBlockFraction(target, attackerPos, headshot, now) {
-  if (!target || !attackerPos) return 0;
-  if (target.weapon !== SHIELD.weapon) return 0;
-  // And only for someone who actually took the shield as their primary, which
-  // the server recorded itself when the slot was chosen.
-  if (target.loadout?.main !== SHIELD.weapon) return 0;
-  // Firing drops the guard, so a client cannot shoot and be covered at once.
-  if (now - Number(target.lastShotAt || 0) < SHIELD.fireLockoutMs) return 0;
-  const forward = forwardFromRotation(target.rotation || {});
-  const forwardFlat = normalizeVec({ x: forward.x, y: 0, z: forward.z });
-  const toAttacker = normalizeVec({
-    x: attackerPos.x - target.position.x,
-    y: 0,
-    z: attackerPos.z - target.position.z
-  });
-  if (!forwardFlat || !toAttacker) return 0;
-  if (dot(forwardFlat, toAttacker) < SHIELD.arcCos) return 0; // came from outside the arc
-  if (headshot) return target.crouching ? SHIELD.crouchHeadBlock : SHIELD.headBlock;
-  return SHIELD.bodyBlock;
-}
-
 function isBackstab(attackerPos, target) {
   if (!attackerPos || !target?.position) return false;
   const targetForward = forwardFromRotation(target.rotation || {});
@@ -5561,6 +5558,11 @@ function makePlayer(id, name) {
     weaponDamage: {},
     lastKillWeapon: null,
     weapon: 'AK47',
+    // Keep the server's equipment record first-class from the first spawn.
+    // Shield cover is granted from this record, never from a client claim.
+    loadout: { main: 'AK47', sidearm: 'Glock', knife: 'Knife' },
+    shieldDamage: 0,
+    shieldStaggeredUntil: 0,
     position: { x: 0, y: 0, z: 0 },
     rotation: { x: 0, y: 0, z: 0 },
     crouching: false,
@@ -5681,6 +5683,11 @@ function joinRoom(client, roomCode, options = {}) {
     if (WEAPONS[r.lastKillWeapon]) player.lastKillWeapon = r.lastKillWeapon;
     if (Number.isFinite(r.money)) player.money = r.money;
     if (WEAPONS[r.weapon]) player.weapon = r.weapon;
+    if (r.loadout && typeof r.loadout === 'object') {
+      for (const slot of ['main', 'sidearm', 'knife']) setPlayerLoadoutWeapon(player, slot, r.loadout[slot]);
+    }
+    player.shieldDamage = Math.max(0, Math.min(SHIELD.capacity, Number(r.shieldDamage) || 0));
+    player.shieldStaggeredUntil = Math.max(0, Number(r.shieldStaggeredUntil) || 0);
     if (r.utilityPurchasedThisLife && typeof r.utilityPurchasedThisLife === 'object') {
       player.utilityPurchasedThisLife = { ...freshUtilityCounts(), ...r.utilityPurchasedThisLife };
     }
@@ -5901,6 +5908,9 @@ function stashRejoinState(client) {
     lastKillWeapon: player.lastKillWeapon || null,
     money: player.money,
     weapon: player.weapon,
+    loadout: { ...(player.loadout || {}) },
+    shieldDamage: Math.max(0, Math.min(SHIELD.capacity, Number(player.shieldDamage) || 0)),
+    shieldStaggeredUntil: Math.max(0, Number(player.shieldStaggeredUntil) || 0),
     containmentCredits: room.containment ? containment.credits(room.containment, player.id) : null,
     containmentWeapons: Array.isArray(player.containmentWeapons) ? [...player.containmentWeapons] : null,
     utilityPurchasedThisLife: player.utilityPurchasedThisLife || freshUtilityCounts(),
@@ -6745,6 +6755,8 @@ function freshUtilityCounts() {
 function resetUtilityLife(player) {
   if (!player) return;
   player.utilityPurchasedThisLife = freshUtilityCounts();
+  player.shieldDamage = 0;
+  player.shieldStaggeredUntil = 0;
   // Deployed barricades outlive their owner's life; the allowance does not.
   player.barricadesDeployedThisLife = 0;
   player.c4DeployedThisLife = 0;
@@ -7070,6 +7082,13 @@ function recordBuyPurchase(player, purchase = {}) {
   return entry;
 }
 
+function setPlayerLoadoutWeapon(player, slot, weapon) {
+  if (!player || !['main', 'sidearm', 'knife'].includes(slot) || !WEAPONS[weapon]) return false;
+  if (!player.loadout || typeof player.loadout !== 'object') player.loadout = {};
+  player.loadout[slot] = weapon;
+  return true;
+}
+
 function nextRefundId(player) {
   if (!Array.isArray(player?.buyHistory) || !player.buyHistory.length) return null;
   return player.buyHistory[player.buyHistory.length - 1].id;
@@ -7103,6 +7122,7 @@ function handleRefundPurchase(client, room, player, data = {}) {
   addMoney(player, last.price || 0);
   if (last.type === 'weapon' && WEAPONS[last.previousWeapon]) {
     player.weapon = last.previousWeapon;
+    setPlayerLoadoutWeapon(player, last.slot, last.previousWeapon);
   } else if (last.type === 'utility' && player.utilityPurchasedThisLife && player.utilityPurchasedThisLife[last.kind] !== undefined) {
     player.utilityPurchasedThisLife[last.kind] = Math.max(0, (player.utilityPurchasedThisLife[last.kind] || 0) - 1);
   }
@@ -7458,7 +7478,7 @@ function tryPickupDroppedItem(roomCode, room, player) {
     player.weapon = item.weapon;
     // Picking a gun up off the floor replaces the shield loadout, or its long-gun
     // restriction would silently void every shot from the weapon just collected.
-    if (player.loadout?.main === SHIELD.weapon) player.loadout.main = item.weapon;
+    if (player.loadout?.main === SHIELD.weapon) setPlayerLoadoutWeapon(player, 'main', item.weapon);
     player.dirty = true;
     const client = clients.get(player.id);
     if (client) send(client, 'weaponPickedUp', { item });
@@ -8884,12 +8904,31 @@ function segmentBlockedForRoom(room, from, to) {
 }
 
 function applyContainmentDamage(roomCode, room, victim, amount, attackerId = null) {
-  const damage = Math.max(0, Math.floor(Number(amount) || 0));
+  const now = Date.now();
+  const attacker = attackerId ? room.containment?.enemies?.get(String(attackerId)) : null;
+  const attackerPosition = attacker ? { x: attacker.x, y: attacker.y, z: attacker.z } : null;
+  const shieldHit = resolveShieldHit(victim, attackerPosition, false, amount, now);
+  let damage = shieldHit.damage;
+  victim.shieldDamage = shieldHit.shieldDamage;
+  victim.shieldStaggeredUntil = shieldHit.staggeredUntil;
+  if (shieldHit.staggered) {
+    victim.sprinting = false;
+    victim.sliding = false;
+  }
   if (!damage) return;
   victim.health = Math.max(0, (victim.health || 0) - damage);
   victim.dirty = true;
   broadcastRaw(roomCode, JSON.stringify({ type: 'containmentPlayerHit', data: {
-    id: victim.id, health: victim.health, damage, enemyId: attackerId
+    id: victim.id,
+    health: victim.health,
+    damage,
+    enemyId: attackerId,
+    attackerPosition,
+    shieldBlocked: shieldHit.shieldBlocked,
+    shieldStaggered: shieldHit.staggered,
+    shieldDamage: Math.round(Number(victim.shieldDamage) || 0),
+    shieldCapacity: SHIELD.capacity,
+    shieldStaggeredUntil: Number(victim.shieldStaggeredUntil) || 0
   } }));
   if (victim.health <= 0) {
     setPlayerLifecycle(victim, 'waiting');
@@ -8928,7 +8967,7 @@ function handleContainmentHit(client, room, player, data = {}) {
   if (result.killed) {
     match.stats.kills += 1;
     if (headshot) match.stats.headshots += 1;
-    const reward = containment.rewardFor('kill', match, { headshot });
+    const reward = containment.rewardFor('kill', match, { headshot, enemy: result.enemy });
     containment.grant(match, player.id, reward);
     send(client, 'containmentState', containmentClientState(room, player.id));
   }
@@ -8954,7 +8993,7 @@ function damageContainmentEnemiesFromBlast(client, room, player, position) {
     if (!result.killed) continue;
     killed += 1;
     match.stats.kills += 1;
-    containment.grant(match, player.id, containment.rewardFor('kill', match, { headshot: false }));
+    containment.grant(match, player.id, containment.rewardFor('kill', match, { headshot: false, enemy: result.enemy }));
   }
   // One state push for the whole blast, not one per zombie caught in it.
   if (killed) send(client, 'containmentState', containmentClientState(room, player.id));
@@ -8981,6 +9020,10 @@ function handleContainmentBuyWeapon(client, room, player, data = {}) {
   }
   if (!player.containmentWeapons.includes(weapon)) player.containmentWeapons.push(weapon);
   player.weapon = weapon;
+  // Containment used to omit this record, making a purchased shield inert: the
+  // cover resolver correctly refused a shield the authoritative loadout did not
+  // say was equipped. Record it through the same path as PvP purchases.
+  setPlayerLoadoutWeapon(player, slot, weapon);
   player.dirty = true;
   send(client, 'weaponPurchased', { weapon, slot, credits: decision.remaining, containment: true });
   send(client, 'containmentState', containmentClientState(room, player.id));

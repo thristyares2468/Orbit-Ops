@@ -350,6 +350,7 @@
         #health-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #20d45a, #a8ff4a); transition: width 0.15s ease, background 0.15s ease; }
         #damage-indicators { position: absolute; inset: 0; pointer-events: none; z-index: 7; overflow: hidden; }
         .damage-indicator { position: absolute; left: 50%; top: 50%; width: 0; height: 0; border-left: 22px solid transparent; border-right: 22px solid transparent; border-bottom: 42px solid rgba(255, 40, 20, 0.88); filter: drop-shadow(0 0 10px rgba(255, 0, 0, 0.9)); transform-origin: 50% 190px; animation: damagePulse 0.9s ease-out forwards; }
+        .damage-indicator.shield-blocked { border-bottom-color: rgba(64, 220, 255, 0.96); filter: drop-shadow(0 0 12px rgba(45, 205, 255, 0.95)); }
         @keyframes damagePulse { 0% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-185px) scale(0.55); } 18% { opacity: 1; transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-185px) scale(1); } 100% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-185px) scale(1.2); } }
         #coord-toast { position: absolute; top: 92px; left: 50%; transform: translateX(-50%); max-width: min(880px, calc(100vw - 40px)); padding: 12px 16px; border: 1px solid #ffaa00; background: rgba(0,0,0,0.82); color: #fff; z-index: 9; display: none; font-family: 'Courier New', Courier, monospace; font-size: 14px; text-align: center; box-shadow: 0 0 20px rgba(255,170,0,0.2); }
         #death-overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: flex-end; flex-direction: column; padding-bottom: 10vh; pointer-events: none; z-index: 8; color: white; background: radial-gradient(circle at 50% 45%, transparent 0%, rgba(80,0,0,0.18) 50%, rgba(0,0,0,0.6) 100%); text-shadow: 2px 2px 0 #000; font-family: 'Courier New', Courier, monospace; }
@@ -7288,6 +7289,8 @@
         // (window.GameCore.WEAPONS). Each gun sources its armorDamage from there so
         // client prediction can never silently diverge from server-side validation.
         const wdmg = (name) => window.GameCore.WEAPONS[name].dmg;
+        const SHIELD = window.GameCore.SHIELD;
+        const SHIELD_GLOCK_RULES = window.GameCore.SHIELD_GLOCK;
         const weapons = [
             { id: 1, name: 'Knife', type: 'melee', damage: 50, rangeMod: 1.0, firerate: 0.5, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: true, speedMult: 1.0, pellets: 1, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1.2), muzzleOffset: new THREE.Vector3(0, 0, -1.2) },
 
@@ -7324,14 +7327,18 @@
             // buckshot load; applyBreacherLoad() swaps them for the slug between
             // pulls, so everything downstream describes the shot about to happen.
             { id: 26, name: 'Breacher', type: 'shotgun', damage: 13, armorDamage: wdmg('Nova'), rangeMod: 0.80, firerate: 0.85, spreadBase: 0.05, spreadMove: 0.05, mag: 6, reserve: 30, auto: false, speedMult: 0.88, pellets: 9, reloadTime: 3.2, barrelOffset: new THREE.Vector3(0, 0.1, -2.0), muzzleOffset: new THREE.Vector3(0, 0.1, -2.05) },
-            // Handheld shield. A primary: take it instead of a long gun and fight
-            // with your sidearm. Its own type, because it is the one held item that
-            // never fires - shoot() refuses it rather than running the gun path
-            // with an empty magazine.
-            { id: 27, name: 'Shield', type: 'shield', damage: 0, rangeMod: 1.0, firerate: 0.5, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.68, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
+            // Handheld shield. Its magazine belongs to the deliberately weaker,
+            // less accurate Glock fired around the raised plate. The distinct
+            // shield type keeps movement/pose/cover behavior tied to the held item.
+            { id: 27, name: 'Shield', type: 'shield', damage: SHIELD_GLOCK_RULES.dmg.body, armorDamage: SHIELD_GLOCK_RULES.dmg, rangeMod: 0.85, firerate: SHIELD_GLOCK_RULES.firerate, spreadBase: 0.01 * SHIELD.sidearmSpreadScale, spreadMove: 0.03 * SHIELD.sidearmSpreadScale, mag: SHIELD.sidearmMagazine, reserve: SHIELD.sidearmReserve, auto: false, speedMult: 0.68, pellets: 1, reloadTime: SHIELD.sidearmReloadTime, barrelOffset: new THREE.Vector3(-1.05, 0.12, -0.58), muzzleOffset: new THREE.Vector3(-1.05, 0.12, -0.64) },
             { id: 28, name: 'RPG', type: 'launcher', kind: 'rpg', damage: 0, rangeMod: 1.0, firerate: 1.1, spreadBase: 0, spreadMove: 0, mag: 1, reserve: 2, auto: false, speedMult: 0.67, pellets: 0, reloadTime: 2.8, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) },
             { id: 29, name: 'Minigun', type: 'rifle', damage: 10, armorDamage: wdmg('Minigun'), rangeMod: 0.98, firerate: window.GameCore.MINIGUN.fireInterval, spreadBase: 0.025, spreadMove: 0.065, mag: window.GameCore.MINIGUN.ammo, reserve: 0, auto: true, speedMult: window.GameCore.MINIGUN.speedMult, pellets: 1, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) }
         ];
+        const SHIELD_GLOCK_PROFILE = Object.freeze({
+            ...weapons.find(weapon => weapon.name === SHIELD.weapon),
+            name: SHIELD.sidearmWeapon,
+            type: 'pistol'
+        });
 
         // ---- Breacher: alternating buckshot / slug ----
         // The server decides which load a pull actually fires and owns the damage
@@ -7479,8 +7486,9 @@
             'C4': { path: '/assets/weapons/c4.glb', axis: 'z', fp: { length: 1.05, pos: [-0.6, 0.32, 1.15], rot: [0.28, Math.PI + 0.24, 0.16] }, tp: { length: 1.4, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'Breacher': { path: '/assets/weapons/breacher.glb', axis: 'x', fp: { length: 3.15, pos: [-0.28, -0.16, -0.78] }, tp: { length: 4.6, pos: [0, 0.04, -1.78] } },
             // rot [0,0,0] on purpose: the panel has to face square down the view.
-            // Any yaw here reads as carrying it at a gun's angle across the body.
-            'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.55, pos: [-2.6, 0.55, 0.5], rot: [0, 0, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } },
+            // Positive local X keeps it visibly braced in the right hand instead
+            // of crossing the left half of the view like an angled firearm.
+            'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.55, pos: [0.2, 0.55, 0.5], rot: [0, 0, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } },
             // Measured from the GLB's own world-space bounds, not guessed: the
             // tube runs along Z (span 8.08) with X only 0.73 wide, the sight sits
             // at +Y and the grips hang at -Y, and the warhead protrudes toward
@@ -7735,7 +7743,44 @@
         // Stated explicitly rather than derived from the hitboxes: deriving it
         // makes the fit circular the moment a hitbox is retuned, and it was that
         // coupling that hid the real bug behind two "floor sink" constants.
-        const CONTAINMENT_ZOMBIE_HEIGHT = { walker: 22.2, heavy: 23 };
+        // One profile per enemy kind: the height the shared GLB is scaled to,
+        // the three hitboxes, and the tint. Kept as data rather than the ladder
+        // of `heavy ? a : b` ternaries this was - unextendable past two kinds,
+        // and easy to update in one place and not the other.
+        //
+        // Every figure is final, in actor space, so the actor itself is never
+        // scaled: the network origin, the model and the raycast targets stay in
+        // one coordinate frame, which is what keeps a shot that looks like a hit
+        // one. Runner and crawler are the walker's numbers scaled uniformly, so
+        // the model the GLB fits to fills its own boxes exactly.
+        //
+        // The crawler's size IS its threat. At roughly nine-tenths of a metre
+        // its head sits about where a walker's belt does, so shots aimed where a
+        // zombie's head usually is sail clean over it - and its leg box still
+        // reaches the floor, so it cannot be shot through the shins either.
+        const CONTAINMENT_ZOMBIE_PROFILES = {
+            walker:  { height: 22.2, bodyScale: 1, tint: 0x42613d, shade: 0x243428,
+                       head: { size: [4.8, 5.2, 4.8], y: 19.6 },
+                       body: { size: [7.4, 9.2, 4.8], y: 11.8 },
+                       legs: { size: [6.8, 9.2, 4.6], y: 4.6 } },
+            // Slighter than a walker and read at a glance by its colour - a
+            // runner you notice late is a runner already on you.
+            runner:  { height: 20.9, bodyScale: 0.94, tint: 0x7a4a2c, shade: 0x33231a,
+                       head: { size: [4.5, 4.9, 4.5], y: 18.4 },
+                       body: { size: [7.0, 8.6, 4.5], y: 11.1 },
+                       legs: { size: [6.4, 8.6, 4.3], y: 4.3 } },
+            crawler: { height: 12.6, bodyScale: 0.567, tint: 0x4f5c2a, shade: 0x232a17,
+                       head: { size: [2.7, 2.9, 2.7], y: 11.1 },
+                       body: { size: [4.2, 5.2, 2.7], y: 6.7 },
+                       legs: { size: [3.9, 5.2, 2.6], y: 2.6 } },
+            heavy:   { height: 23, bodyScale: 1, tint: 0x664f34, shade: 0x332d28,
+                       head: { size: [5.4, 5.8, 5.4], y: 20.1 },
+                       body: { size: [9, 10.5, 6], y: 12.2 },
+                       legs: { size: [8.4, 10.2, 5.8], y: 5.1 } }
+        };
+        function containmentZombieProfile(kind) {
+            return CONTAINMENT_ZOMBIE_PROFILES[kind] || CONTAINMENT_ZOMBIE_PROFILES.walker;
+        }
         // Imported COD variants are now the public Zombies presentation. The
         // procedural actor remains a load-failure fallback, so an unavailable
         // GLB can never stop an enemy from spawning.
@@ -7747,6 +7792,8 @@
         let raycaster; let weaponGroup;
         let cutoffWall = null;
         let myHealth = 100;
+        let shieldGuardDamage = 0;
+        let shieldStaggeredUntil = 0;
         let isDead = false;
         let localWaitingForNextRound = false;
         let localDeathBody = null;
@@ -7945,8 +7992,7 @@
         const BARRICADE = window.GameCore.BARRICADE;
         // Remote C4 charge: geometry, blast and arming delay, shared via core.js.
         const C4 = window.GameCore.C4;
-        // Handheld shield cover rules, shared with the server (core.js).
-        const SHIELD = window.GameCore.SHIELD;
+        // Handheld shield cover rules were loaded above with the weapon table.
         const SHIELD_VIEW_BOB_SCALE = 0.25;
         // Admin testing room: per-room overrides for prices / availability / mode /
         // map size. null in normal rooms (helpers fall back to the constants above).
@@ -12347,7 +12393,7 @@
                 const sourceBounds = boneBounds(model);
                 const sourceHeight = Math.max(0.001, sourceBounds.max.y - sourceBounds.min.y);
                 if (!Number.isFinite(sourceHeight) || sourceHeight <= 0.001) return;
-                model.scale.multiplyScalar(CONTAINMENT_ZOMBIE_HEIGHT[actor.userData.kind] / sourceHeight);
+                model.scale.multiplyScalar(containmentZombieProfile(actor.userData.kind).height / sourceHeight);
                 const bounds = boneBounds(model);
                 const center = bounds.getCenter(new THREE.Vector3());
                 // Feet on the floor, centred on the actor. No sink: the rig's
@@ -12388,39 +12434,51 @@
             const actor = spawnPlayerTarget(pos.x, pos.y, pos.z);
             actor.name = `containment-${id}`;
             // Keep the network origin, feet, model and raycast targets in one
-            // coordinate frame. Heavy/walker differences live in their target
-            // geometry rather than scaling the entire actor after placement.
+            // coordinate frame. The per-kind scale is uniform and the actor
+            // origin is the floor, so the feet stay planted and the hitboxes
+            // move with the body they belong to - never one without the other.
             actor.scale.setScalar(1);
             actor.userData.isContainmentEnemy = true;
             actor.userData.containmentEnemyId = id;
-            actor.userData.kind = row.kind === 'heavy' ? 'heavy' : 'walker';
+            // An unknown kind falls back to walker rather than being dropped:
+            // a server that learns a new body type before this client does
+            // must still render something shootable.
+            actor.userData.kind = CONTAINMENT_ZOMBIE_PROFILES[row.kind] ? row.kind : 'walker';
             actor.userData.health = Number(row.health ?? row.maxHealth) || 100;
             actor.userData.maxHealth = Number(row.maxHealth ?? row.health) || actor.userData.health;
             actor.userData.targetPos = pos.clone();
             actor.userData.isMoving = false;
-            const heavy = actor.userData.kind === 'heavy';
+            const profile = containmentZombieProfile(actor.userData.kind);
             const joints = actor.userData.joints;
-            joints.hitHead.geometry.dispose();
-            joints.hitHead.geometry = new THREE.BoxGeometry(heavy ? 5.4 : 4.8, heavy ? 5.8 : 5.2, heavy ? 5.4 : 4.8);
-            joints.hitHead.position.y = heavy ? 20.1 : 19.6;
-            joints.hitBody.geometry.dispose();
-            joints.hitBody.geometry = new THREE.BoxGeometry(heavy ? 9 : 7.4, heavy ? 10.5 : 9.2, heavy ? 6 : 4.8);
-            joints.hitBody.position.y = heavy ? 12.2 : 11.8;
-            joints.hitLegs.geometry.dispose();
-            // Reaches the floor, like the player's leg box does (0 .. 10). It
-            // used to start at 0.4/0.2, leaving a gap a boot-height shot passed
-            // straight through - and that gap was also what the removed floor
-            // sink was quietly hiding by pushing the model down into it.
-            joints.hitLegs.geometry = new THREE.BoxGeometry(heavy ? 8.4 : 6.8, heavy ? 10.2 : 9.2, heavy ? 5.8 : 4.6);
-            joints.hitLegs.position.y = heavy ? 5.1 : 4.6;
+            // The procedural body is only ever seen if the GLB fails to load,
+            // but it has to be the same size as the hitboxes when it is -
+            // otherwise a crawler falls back to a full-height figure wrapped in
+            // a knee-high hitbox. Scaling the three visual pivots does that
+            // without touching the actor or the hit meshes hanging off it, so
+            // the network origin and the raycast targets stay in one frame.
+            if (profile.bodyScale !== 1) {
+                [joints.body, joints.leftLeg, joints.rightLeg]
+                    .forEach((pivot) => pivot?.scale?.setScalar(profile.bodyScale));
+                // The pivots sit at hip/shoulder height, so they have to drop
+                // with the body or a scaled figure floats above its own feet.
+                [joints.body, joints.leftLeg, joints.rightLeg]
+                    .forEach((pivot) => { if (pivot) pivot.position.y *= profile.bodyScale; });
+            }
+            // Legs reach the floor, like the player's leg box does (0 .. 10).
+            // They used to start at 0.4/0.2, leaving a gap a boot-height shot
+            // passed straight through - and that gap was also what the removed
+            // floor sink was quietly hiding by pushing the model down into it.
+            for (const [part, mesh] of [['head', joints.hitHead], ['body', joints.hitBody], ['legs', joints.hitLegs]]) {
+                mesh.geometry.dispose();
+                mesh.geometry = new THREE.BoxGeometry(...profile[part].size);
+                mesh.position.y = profile[part].y;
+            }
             actor.userData.thirdPersonWeapon?.removeFromParent?.();
             actor.userData.joints.leftArm.rotation.x = -0.72;
             actor.userData.joints.rightArm.rotation.x = -0.72;
-            const tint = actor.userData.kind === 'heavy' ? 0x664f34 : 0x42613d;
             actor.userData.flashObjects?.forEach((mesh, index) => {
                 if (mesh.material?.color) {
-                    const shade = index % 3 === 0 ? tint : (actor.userData.kind === 'heavy' ? 0x332d28 : 0x243428);
-                    mesh.material.color.setHex(shade);
+                    mesh.material.color.setHex(index % 3 === 0 ? profile.tint : profile.shade);
                 }
             });
             actor.userData.ogColors = actor.userData.flashObjects.map(mesh => mesh.material.color.clone());
@@ -12595,7 +12653,9 @@
             if (data.enemyId) triggerContainmentZombieAttack(data.enemyId);
             if (data.id === mySocketId) {
                 myHealth = Math.max(0, Number(data.health) || 0);
+                applyLocalShieldHitState(data);
                 updateHealthUI();
+                showDamageIndicator(data.attackerPosition, null, data);
                 if (myHealth <= 0 && !isDead) beginLocalDeath({ waitingForNextRound: true, killerName: 'the horde' });
             } else {
                 const remote = remotePlayers.get(data.id);
@@ -14648,6 +14708,7 @@
                 }
                 if (data.id === mySocketId) {
                     myHealth = data.health;
+                    applyLocalShieldHitState(data);
                     updateHealthUI();
                     showDamageIndicator(data.attackerPosition, data.attackerId, data);
                 }
@@ -17077,6 +17138,7 @@
             }
             clearObjectChildren(weaponGroup);
             let wp = weapons[currentWeaponIndex];
+            let weaponAssetParent = weaponGroup;
             const matBlack = new THREE.MeshPhongMaterial({ color: 0x111111 });
             const matDarkGrey = new THREE.MeshPhongMaterial({ color: 0x222222 });
             const matGrey = new THREE.MeshPhongMaterial({ color: 0x3a3a3a });
@@ -17084,8 +17146,8 @@
             const matWood = new THREE.MeshPhongMaterial({ color: 0x5c3a21 });
             const matOlive = new THREE.MeshPhongMaterial({ color: 0x4a5a3a });
             const matGlass = new THREE.MeshPhongMaterial({ color: 0x3366ff, shininess: 100 });
-            const createMesh = (geo, mat, x, y, z, rotX=0) => {
-                let m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.x = rotX; weaponGroup.add(m); return m;
+            const createMesh = (geo, mat, x, y, z, rotX = 0, parent = weaponGroup) => {
+                let m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.x = rotX; parent.add(m); return m;
             };
             const createPistol = (opts = {}) => {
                 const len = opts.len || 1.18;
@@ -17163,11 +17225,20 @@
                     thermal.minigunAnimation = buildMinigunThermal(thermal, barrels, -2.0);
                     break;
                 }
-                // Held out in front on the left, so it covers that side of the view.
+                // Shield in the right hand, with the compact Glock still visible
+                // to the left. The shield gets its own holder so its GLB can
+                // replace only the plate fallback without deleting the pistol.
                 case 'Shield': {
                     const matPlate = new THREE.MeshPhongMaterial({ color: 0x4b535c, shininess: 30 });
-                    createMesh(new THREE.BoxGeometry(0.95, 1.5, 0.09), matPlate, -0.5, -0.1, -0.75);
-                    createMesh(new THREE.BoxGeometry(0.34, 0.2, 0.12), new THREE.MeshPhongMaterial({ color: 0x11161b }), -0.5, 0.3, -0.8);
+                    const shieldAssetHolder = new THREE.Group();
+                    shieldAssetHolder.name = 'first-person-right-hand-shield';
+                    weaponGroup.add(shieldAssetHolder);
+                    weaponAssetParent = shieldAssetHolder;
+                    createMesh(new THREE.BoxGeometry(0.95, 1.5, 0.09), matPlate, 0.2, -0.1, -0.75, 0, shieldAssetHolder);
+                    createMesh(new THREE.BoxGeometry(0.34, 0.2, 0.12), new THREE.MeshPhongMaterial({ color: 0x11161b }), 0.2, 0.3, -0.8, 0, shieldAssetHolder);
+                    createMesh(new THREE.BoxGeometry(0.18, 0.25, 1.2), matBlack, -1.05, 0, 0);
+                    createMesh(new THREE.BoxGeometry(0.16, 0.6, 0.35), matGrey, -1.05, -0.35, 0.3, 0.15);
+                    createMesh(new THREE.BoxGeometry(0.04, 0.05, 0.05), matSilver, -1.05, 0.15, -0.55);
                     break;
                 }
                 // Holds the charge until one is planted, then the detonator.
@@ -17202,7 +17273,7 @@
             // The C4 asset is the charge itself. Once one is planted the slot holds
             // the detonator, which is procedural, so the asset must not replace it.
             if (wp.kind === 'c4' && myLiveC4Charge()) return;
-            attachWeaponAsset(weaponGroup, wp.name, 'firstPerson', equippedItem);
+            attachWeaponAsset(weaponAssetParent, wp.name, 'firstPerson', equippedItem);
         }
 
         function showLoadingScreen() {
@@ -19256,6 +19327,8 @@
             jumpQueued = false;
             jumpGraceTimer = 0;
             myHealth = 100;
+            shieldGuardDamage = 0;
+            shieldStaggeredUntil = 0;
             updateHealthUI();
             stimCharges = 0;
             grenadePurchasedThisLife = { frag: 0, smoke: 0, flash: 0, molotov: 0, barricade: 0, c4: 0 };
@@ -19385,6 +19458,9 @@
             if (weaponName === 'Shield') {
                 add(new THREE.BoxGeometry(2.4, 3.6, 0.24), matMetal, 0, 0.4, -0.35);
                 add(new THREE.BoxGeometry(0.8, 0.5, 0.3), matDark, 0, 1.35, -0.45);
+                // Procedural characters already parent this holder to the right
+                // arm. Replace the fallback with the authored asset when ready.
+                attachWeaponAsset(parent, weaponName, 'thirdPerson', skinItem);
                 return;
             }
 
@@ -20106,7 +20182,9 @@
         }
 
         function reloadWeapon() {
-            let wp = weapons[currentWeaponIndex];
+            const heldWeapon = weapons[currentWeaponIndex];
+            if (heldWeapon.type === 'shield' && Date.now() < shieldStaggeredUntil) return;
+            let wp = heldWeapon.type === 'shield' ? SHIELD_GLOCK_PROFILE : heldWeapon;
             if (wp.type === 'melee' || isReloading || healthshotUseState || currentAmmo === wp.mag || reserveAmmo === 0) return;
             if (isZoomed) toggleZoom();
             const insta = adminInstaReloadEnabled();
@@ -20144,12 +20222,26 @@
             rpgReloadRocket = null;
         }
 
+        function applyLocalShieldHitState(data = {}) {
+            const wasStaggered = Date.now() < shieldStaggeredUntil;
+            if (Number.isFinite(Number(data.shieldDamage))) {
+                shieldGuardDamage = THREE.MathUtils.clamp(Number(data.shieldDamage), 0, SHIELD.capacity);
+            }
+            if (Number.isFinite(Number(data.shieldStaggeredUntil))) {
+                shieldStaggeredUntil = Math.max(0, Number(data.shieldStaggeredUntil));
+            }
+            if (data.shieldStaggered && !wasStaggered) flashToast(`SHIELD BROKEN · STAGGERED ${(SHIELD.staggerMs / 1000).toFixed(1)}s`);
+            updateUI();
+        }
+
         function updateUI() {
             const activeWeapon = weapons[currentWeaponIndex];
+            const shieldStaggered = activeWeapon.name === SHIELD.weapon && Date.now() < shieldStaggeredUntil;
+            const shieldGuardRemaining = Math.max(0, SHIELD.capacity - shieldGuardDamage);
             const weaponText = activeWeapon.name === SHOTGUN_ALT.weapon
                 ? `${activeWeapon.name} · ${breacherSlugLoaded ? 'SLUG' : 'BUCK'}`
                 : (activeWeapon.name === SHIELD.weapon
-                    ? `${activeWeapon.name} · ${isCrouching ? 'FULL COVER' : 'HEAD EXPOSED'}`
+                    ? `${activeWeapon.name} · ${shieldStaggered ? 'STAGGERED' : `GUARD ${Math.ceil(shieldGuardRemaining)}/${SHIELD.capacity}`} · ${isCrouching ? 'FULL COVER' : 'HEAD EXPOSED'}`
                     : activeWeapon.name);
             const ammoText = `${currentAmmo} / ${reserveAmmo}`;
             const modeText = isTimedMode() ? formatDeathmatchTimer() : `GUN: ${gunGameLevel + 1} / ${gunGameOrder.length}`;
@@ -20378,6 +20470,10 @@
             indicator.style.setProperty('--angle', `${angle}rad`);
             if (context?.wallbang) indicator.style.borderBottomColor = 'rgba(88, 183, 255, 0.92)';
             if (context?.hitPart === 'head' || context?.headshot) indicator.style.borderBottomColor = 'rgba(255, 236, 90, 0.95)';
+            if (context?.shieldBlocked) {
+                indicator.classList.add('shield-blocked');
+                indicator.style.borderBottomColor = 'rgba(64, 220, 255, 0.96)';
+            }
             const scale = THREE.MathUtils.clamp((Number(context?.damage) || 20) / 55, 0.85, 1.45);
             indicator.style.scale = String(scale);
             damageIndicators.appendChild(indicator);
@@ -21610,9 +21706,11 @@
             if (isCasualActionLocked()) return;
             if (bombActionActive) return;
             inspectState = null;
-            let wp = weapons[currentWeaponIndex]; let time = performance.now();
-            // Held, never fired. Without this the gun path runs with a '-' magazine.
-            if (wp.type === 'shield') return;
+            const heldWeapon = weapons[currentWeaponIndex]; let time = performance.now();
+            if (heldWeapon.type === 'shield' && Date.now() < shieldStaggeredUntil) return;
+            // The Shield slot fires its own reduced-stat Glock while the plate
+            // remains the held item for movement, rendering and server cover.
+            let wp = heldWeapon.type === 'shield' ? SHIELD_GLOCK_PROFILE : heldWeapon;
             if (wp.type === 'grenade') {
                 if (time - lastFireTime < (wp.firerate || 0.8) * 1000) return;
                 lastFireTime = time;
@@ -24535,6 +24633,12 @@
             try {
             if (controls.isLocked === true || localSkinLabTest) {
                 let wp = weapons[currentWeaponIndex];
+                if (shieldStaggeredUntil && Date.now() >= shieldStaggeredUntil) {
+                    shieldGuardDamage = 0;
+                    shieldStaggeredUntil = 0;
+                    updateUI();
+                }
+                const shieldStaggered = wp.type === 'shield' && Date.now() < shieldStaggeredUntil;
 
                 if (crouchHeld !== isCrouching) setCrouchState(crouchHeld); // reconcile intent (self-gated on cooldown)
                 const targetHeight = isCrouching ? crouchHeight : playerHeight;
@@ -24556,9 +24660,14 @@
                 if (isZoomed) movementSpeedScale *= 0.5;
                 if (molotovSlowActive) movementSpeedScale *= MOLOTOV_SLOW_MULT;
                 isSprinting = sprintHeld && moveForward && !moveBackward && !isWalking && !isCrouching && !crouchHeld && !isSliding;
+                if (shieldStaggered) {
+                    movementSpeedScale *= SHIELD.staggerSpeedMult;
+                    isSprinting = false;
+                    if (isSliding) stopSlide();
+                }
                 let currentSpeed = Math.sqrt(velocity.x**2 + velocity.z**2); let speedRatio = Math.min(1, currentSpeed / runSpeed);
                 let onGround = !isJumping; let targetBobX = 0; let targetBobY = 0;
-                tryStartSlide(time, onGround && !wasAirborneLastFrame, currentSpeed, movementSpeedScale * Math.max(0.6, jumpStamina));
+                if (!shieldStaggered) tryStartSlide(time, onGround && !wasAirborneLastFrame, currentSpeed, movementSpeedScale * Math.max(0.6, jumpStamina));
                 if (isSliding && (!crouchHeld || !moveForward || moveBackward || isJumping || wasAirborneLastFrame || time - slideStartedAt >= SLIDE_DURATION_MS)) stopSlide();
 
                 if (!isZoomed) {
@@ -24734,6 +24843,12 @@
                     wPosZ += 0.16;
                     wRotX += 0.08;
                     wRotZ -= 0.12;
+                }
+                if (shieldStaggered && !isZoomed) {
+                    wPosY -= 0.85;
+                    wPosZ += 0.5;
+                    wRotX += 0.28;
+                    wRotZ += 0.22;
                 }
 
                 if (!isZoomed) {

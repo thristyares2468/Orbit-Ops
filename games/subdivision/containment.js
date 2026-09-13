@@ -39,6 +39,39 @@ const PHASES = Object.freeze({
 
 const TERMINAL_PHASES = Object.freeze(new Set([PHASES.DEFEAT, PHASES.EXTRACTED]));
 
+// ---------------------------------------------------------------------------
+// Enemy kinds
+// ---------------------------------------------------------------------------
+
+// Four silhouettes, each a multiplier on the wave's own budget rather than a
+// stat block of its own. That is the whole point: the wave curve stays the one
+// source of difficulty, and a kind only says how this body spends the wave's
+// allowance. A juggernaut on wave 3 is a wave-3 juggernaut.
+//
+// The multipliers are deliberately not a wash. A runner trades durability for
+// closing speed, a crawler trades both for being genuinely hard to hit, and a
+// juggernaut is a wall you are meant to walk away from. Each one should change
+// what the player does, not just how long they hold the trigger.
+const ENEMY_KINDS = Object.freeze({
+  // The baseline the others are described against.
+  walker: Object.freeze({ health: 1, speed: 1, damage: 1, reward: 1 }),
+
+  // Fast and papery. Arrives first, dies to a burst, and punishes standing
+  // still - the answer to a runner is to shoot it, not to back up.
+  runner: Object.freeze({ health: 0.55, speed: 1.6, damage: 0.85, reward: 1.15 }),
+
+  // Low to the ground. The stats are the least of it: the client gives a
+  // crawler a waist-height hitbox, so shots aimed where a zombie's head
+  // normally is sail clean over. Slow enough to ignore, which is the trap.
+  crawler: Object.freeze({ health: 0.5, speed: 0.8, damage: 1.2, reward: 1.3 }),
+
+  // The old boss, now a body type. Six times the health at two-thirds the
+  // pace: it cannot be outfought at the door, only outwalked.
+  heavy: Object.freeze({ health: 6, speed: 0.68, damage: 1.8, reward: 3.5 })
+});
+
+const ENEMY_KIND_NAMES = Object.freeze(Object.keys(ENEMY_KINDS));
+
 // Tuning lives in one frozen object so a host setting can override a copy of it
 // without any function reaching for a module-level constant.
 const DEFAULT_TUNING = Object.freeze({
@@ -109,6 +142,25 @@ const DEFAULT_TUNING = Object.freeze({
   preferOutOfSightDistance: 8,  // a visible spawn must be at least this far
   spawnIntervalMs: 700,
   bossEveryWaves: 8,
+
+  // Wave composition. Each kind joins at `from` and its share of the wave grows
+  // by `per` a wave up to `max`; walkers are whatever is left over, so the
+  // shares can never sum past 1 and there is always a default body type.
+  //
+  // Difficulty comes from the mix as much as from the stat curve. Wave 1 is
+  // plain walkers on purpose - a player should meet one kind at a time and
+  // learn what it does before the next one shows up.
+  kindMix: Object.freeze({
+    crawler:  Object.freeze({ from: 3,  per: 0.030, max: 0.26 }),
+    runner:   Object.freeze({ from: 5,  per: 0.035, max: 0.34 }),
+    heavy:    Object.freeze({ from: 9,  per: 0.012, max: 0.14 })
+  }),
+  // A boss wave is not a wave of nothing but juggernauts. It used to be -
+  // `budget.boss` was read per enemy, so wave 8 spawned twenty-odd bodies at
+  // six times health and the run ended there. This is the floor their share is
+  // raised to on those waves instead: a spine of juggernauts inside a normal
+  // wave, which is a fight rather than a wall.
+  bossHeavyShare: 0.25,
 
   // Approach shape. Every enemy chasing the exact same point turns a wave into
   // a single-file column, so each one is given a slot to walk to instead: an
@@ -201,6 +253,62 @@ function waveBudget(wave, players, tuning = DEFAULT_TUNING) {
     boss: w % t.bossEveryWaves === 0,
     spawnIntervalMs: Math.max(120, Math.round(t.spawnIntervalMs - (w - 1) * 18))
   };
+}
+
+// What this wave is made of, as a share per kind summing to exactly 1.
+// Pure arithmetic on the wave number, so a test can walk the whole curve the
+// same way it walks the stat curve.
+function waveComposition(wave, tuning = DEFAULT_TUNING) {
+  const t = { ...DEFAULT_TUNING, ...tuning };
+  const w = toWave(wave);
+  const mix = t.kindMix || DEFAULT_TUNING.kindMix;
+
+  const shares = {};
+  let taken = 0;
+  for (const kind of ENEMY_KIND_NAMES) {
+    if (kind === 'walker') continue;
+    const rule = mix[kind];
+    let share = !rule || w < rule.from ? 0 : clamp((w - rule.from + 1) * rule.per, 0, rule.max);
+    // Boss waves raise the juggernaut floor rather than replacing the wave, and
+    // they do it whether or not juggernauts have joined the ordinary mix yet -
+    // the first boss wave is meant to be where a player meets one.
+    if (kind === 'heavy' && t.bossEveryWaves > 0 && w % t.bossEveryWaves === 0) {
+      share = Math.max(share, clamp(Number(t.bossHeavyShare) || 0, 0, 1));
+    }
+    shares[kind] = share;
+    taken += share;
+  }
+
+  // Walkers absorb the remainder. If the specials ever over-subscribe the wave
+  // they are scaled back proportionally instead of squeezing walkers negative -
+  // a mis-set tuning should make a strange wave, not a broken one.
+  if (taken > 1) {
+    for (const kind of Object.keys(shares)) shares[kind] /= taken;
+    taken = 1;
+  }
+  shares.walker = 1 - taken;
+  return shares;
+}
+
+// Which kind the nth body of a wave is.
+//
+// Deterministic, not random: the same wave always produces the same mix, which
+// is what lets the curve be tested and keeps two servers running one match in
+// step. The serial is spread by the golden ratio before it is bucketed so the
+// kinds interleave - taking them in order would send every juggernaut in the
+// wave through the door together while the walkers queued behind.
+function enemyKindFor(wave, serial, tuning = DEFAULT_TUNING) {
+  const shares = waveComposition(wave, tuning);
+  const spread = (Math.abs(Math.floor(Number(serial) || 0)) * 0.6180339887498949) % 1;
+  let cursor = 0;
+  // Rarest first, so a kind with a small share still lands on the low end of
+  // the sequence rather than being rounded out of existence by walkers.
+  const order = [...ENEMY_KIND_NAMES].sort((a, b) => shares[a] - shares[b]);
+  for (const kind of order) {
+    cursor += shares[kind];
+    if (spread < cursor) return kind;
+  }
+  return 'walker';
 }
 
 // ---------------------------------------------------------------------------
@@ -445,14 +553,22 @@ function voteToSkipPreparation(match, playerId, eligiblePlayerIds, now) {
 function createEnemy(match, budget, spawn, now) {
   const id = `z${match.nextEnemyId++}`;
   const serial = match.nextEnemyId - 1;
+  // The kind is a multiplier on this wave's budget, never a stat block of its
+  // own, so every body still scales with the wave it arrived in.
+  const kind = enemyKindFor(budget.wave, serial, match.tuning);
+  const mult = ENEMY_KINDS[kind] || ENEMY_KINDS.walker;
+  const health = Math.max(1, Math.round(budget.health * mult.health));
   const enemy = {
     id,
-    kind: budget.boss ? 'heavy' : 'walker',
+    kind,
     x: spawn.x, y: spawn.y, z: spawn.z,
-    health: budget.boss ? budget.health * 6 : budget.health,
-    maxHealth: budget.boss ? budget.health * 6 : budget.health,
-    speed: budget.boss ? budget.speed * 0.72 : budget.speed,
-    damage: budget.boss ? Math.round(budget.damage * 1.8) : budget.damage,
+    health,
+    maxHealth: health,
+    speed: budget.speed * mult.speed,
+    damage: Math.max(1, Math.round(budget.damage * mult.damage)),
+    // Paid on kill, so a juggernaut is worth walking back for and a crawler is
+    // worth the awkward shot rather than being left to chew on someone.
+    rewardScale: mult.reward,
     targetId: null,
     lastAttackAt: 0,
     spawnedAt: now,
@@ -726,10 +842,21 @@ function grant(match, playerId, amount) {
 
 // What an event is worth. A single table so a reward can never be invented at
 // the call site, and so the numbers can be walked in a test.
+// An enemy's payout multiplier, defaulting to 1 for anything without one -
+// including an enemy restored from an older match state.
+function kindRewardScale(enemy) {
+  const scale = Number(enemy?.rewardScale);
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
 function rewardFor(event, match, options = {}) {
   const t = match?.tuning || DEFAULT_TUNING;
   switch (event) {
-    case 'kill': return t.killReward + (options.headshot ? t.headshotBonus : 0);
+    // The kind scale rides on the base only. A headshot is worth the same flat
+    // bonus whatever it was attached to, so precision is not quietly worth
+    // three times more against a juggernaut than against a walker.
+    case 'kill': return Math.round(t.killReward * kindRewardScale(options.enemy))
+      + (options.headshot ? t.headshotBonus : 0);
     case 'assist': return t.assistReward;
     case 'revive': return t.reviveReward;
     case 'repair': return t.repairReward;
@@ -829,7 +956,11 @@ module.exports = {
   PHASES,
   TERMINAL_PHASES,
   DEFAULT_TUNING,
+  ENEMY_KINDS,
+  ENEMY_KIND_NAMES,
   waveBudget,
+  waveComposition,
+  enemyKindFor,
   createMatch,
   registerPlayer,
   restorePlayer,

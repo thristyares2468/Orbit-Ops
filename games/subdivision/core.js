@@ -21,7 +21,7 @@
 
   // Bump on any change to authoritative rules/shape so stale clients can reject
   // mismatched game data before subtle desyncs happen.
-  const VERSION = '8';
+  const VERSION = '9';
 
   // Buy-menu prices (identical on both sides today).
   const WEAPON_PRICES = {
@@ -200,15 +200,90 @@
     bodyBlock: 0.85,        // share of a blocked body/leg hit that is absorbed
     headBlock: 0,           // standing, the head sits above the shield
     crouchHeadBlock: 0.85,  // crouched, the carrier is behind it completely
-    // No protection immediately after firing: it is the rule that makes the
-    // shield a choice rather than an accessory, and it also means a client that
-    // claims to hold one while shooting gets nothing for it.
-    fireLockoutMs: 700,
+    capacity: 150,          // absorbed damage before guard breaks
+    staggerMs: 1200,        // guard-down window after capacity is exhausted
+    staggerSpeedMult: 0.28,
+    // The shield stays raised while its built-in Glock fires, with only a short
+    // exposure window around each shot. Capacity/stagger is the main trade-off.
+    fireLockoutMs: 120,
+    sidearmWeapon: 'Glock',
+    sidearmDamageScale: 0.85,
+    sidearmFireRateScale: 1.25,
+    sidearmSpreadScale: 1.35,
+    sidearmMagazine: 12,
+    sidearmReserve: 48,
+    sidearmReloadTime: 2.5,
     // Taking the shield as your primary means giving up a long gun. The server
     // accepts damage from these types only while it is your main slot, so a
     // client cannot carry a shield loadout and fight with a rifle behind it.
     allowedWeaponTypes: ['pistol', 'melee', 'shield']
   };
+
+  const SHIELD_GLOCK = Object.freeze({
+    ...WEAPONS.Glock,
+    firerate: WEAPONS.Glock.firerate * SHIELD.sidearmFireRateScale,
+    dmg: Object.freeze(Object.fromEntries(Object.entries(WEAPONS.Glock.dmg)
+      .map(([part, amount]) => [part, Math.max(1, Math.round(amount * SHIELD.sidearmDamageScale))])))
+  });
+
+  // Pure cover resolver shared by the live server and its regression tests.
+  // `now` is injected so this remains deterministic and runtime-agnostic.
+  function shieldBlockFraction(target, attackerPos, headshot, now) {
+    if (!target?.position || !attackerPos) return 0;
+    if (target.weapon !== SHIELD.weapon || target.loadout?.main !== SHIELD.weapon) return 0;
+    if (!Number.isFinite(Number(now))) return 0;
+    if (Number(target.shieldStaggeredUntil || 0) > Number(now)) return 0;
+    if (Number(now) - Number(target.lastShotAt || 0) < SHIELD.fireLockoutMs) return 0;
+
+    const dx = Number(attackerPos.x) - Number(target.position.x);
+    const dz = Number(attackerPos.z) - Number(target.position.z);
+    const distance = Math.hypot(dx, dz);
+    if (!Number.isFinite(distance) || distance < 1e-6) return 0;
+
+    const yaw = Number(target.rotation?.y) || 0;
+    const forwardX = -Math.sin(yaw);
+    const forwardZ = -Math.cos(yaw);
+    const facingDot = forwardX * (dx / distance) + forwardZ * (dz / distance);
+    if (facingDot < SHIELD.arcCos) return 0;
+    if (headshot) return target.crouching ? SHIELD.crouchHeadBlock : SHIELD.headBlock;
+    return SHIELD.bodyBlock;
+  }
+
+  // Resolve one direct hit against the guard without mutating the player. The
+  // server applies the returned state, making capacity and stagger authoritative.
+  function resolveShieldHit(target, attackerPos, headshot, incomingDamage, now) {
+    const rawDamage = Math.max(0, Number(incomingDamage) || 0);
+    const priorStaggerUntil = Number(target?.shieldStaggeredUntil || 0);
+    const staggerActive = priorStaggerUntil > Number(now);
+    const recoveredFromStagger = priorStaggerUntil > 0 && !staggerActive;
+    const priorDamage = recoveredFromStagger
+      ? 0
+      : Math.max(0, Math.min(SHIELD.capacity, Number(target?.shieldDamage) || 0));
+    const fraction = shieldBlockFraction(target, attackerPos, headshot, now);
+    if (!fraction || !rawDamage) {
+      return {
+        damage: Math.round(rawDamage),
+        absorbed: 0,
+        shieldDamage: priorDamage,
+        shieldBlocked: false,
+        staggered: staggerActive,
+        staggeredUntil: staggerActive ? priorStaggerUntil : 0
+      };
+    }
+
+    const remaining = Math.max(0, SHIELD.capacity - priorDamage);
+    const absorbed = Math.min(remaining, rawDamage * fraction);
+    const shieldDamage = Math.min(SHIELD.capacity, priorDamage + absorbed);
+    const staggered = shieldDamage >= SHIELD.capacity;
+    return {
+      damage: Math.max(0, Math.round(rawDamage - absorbed)),
+      absorbed,
+      shieldDamage,
+      shieldBlocked: absorbed > 0,
+      staggered,
+      staggeredUntil: staggered ? Number(now) + SHIELD.staggerMs : 0
+    };
+  }
   WEAPONS.Shield = { type: 'shield', firerate: 0.5, pellets: 0, range: 0, dmg: { head: 0, body: 0, legs: 0 } };
   WEAPONS.RPG = { type: 'launcher', firerate: 1.1, pellets: 0, range: 0, dmg: { head: 0, body: 0, legs: 0 } };
   // Classic Legendary baseline: 20 damage, 12 shots/sec; requested half damage
@@ -313,6 +388,9 @@
     BARRICADE,
     C4,
     SHIELD,
+    SHIELD_GLOCK,
+    shieldBlockFraction,
+    resolveShieldHit,
     SHOTGUN_ALT,
     WEAPON_NAMES,
     SNAPSHOT_FLAGS,

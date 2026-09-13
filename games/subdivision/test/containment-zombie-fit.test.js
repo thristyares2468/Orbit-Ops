@@ -75,8 +75,8 @@ test('the model stands on the actor origin, like a player does', () => {
 test('height is authored per kind rather than derived from the hitboxes', () => {
   // Deriving it from the hitbox span makes the fit circular the moment a hitbox
   // is retuned, which is how the original bug stayed hidden.
-  assert.match(html, /const CONTAINMENT_ZOMBIE_HEIGHT = \{ walker: 22\.2, heavy: 23 \};/u);
-  assert.match(attach, /CONTAINMENT_ZOMBIE_HEIGHT\[actor\.userData\.kind\] \/ sourceHeight/u);
+  assert.match(html, /const CONTAINMENT_ZOMBIE_PROFILES = \{/u);
+  assert.match(attach, /containmentZombieProfile\(actor\.userData\.kind\)\.height \/ sourceHeight/u);
   assert.doesNotMatch(attachCode, /hitboxBounds/u, 'the fit no longer reads the hitboxes');
 });
 
@@ -113,17 +113,59 @@ test('the idle animation cannot undo the facing correction', () => {
     'assigning .y here would overwrite the derived facing every frame');
 });
 
+// Every kind's hitboxes, parsed out of the profile table so a kind added there
+// is checked here without being listed twice.
+function zombieProfiles() {
+  const table = html.slice(html.indexOf('const CONTAINMENT_ZOMBIE_PROFILES = {'));
+  const block = table.slice(0, table.indexOf('\n        };'));
+  const out = {};
+  const kinds = [...block.matchAll(/(\w+):\s*\{ height: ([\d.]+)[\s\S]*?legs: \{ size: \[([\d.]+), ([\d.]+), ([\d.]+)\], y: ([\d.]+) \}/gu)];
+  for (const m of kinds) {
+    const part = (name) => {
+      const hit = block.match(new RegExp(`${m[1]}:[\\s\\S]*?${name}: \\{ size: \\[([\\d.]+), ([\\d.]+), ([\\d.]+)\\], y: ([\\d.]+) \\}`, 'u'));
+      return { w: +hit[1], h: +hit[2], d: +hit[3], y: +hit[4] };
+    };
+    out[m[1]] = { height: +m[2], head: part('head'), body: part('body'), legs: part('legs') };
+  }
+  return out;
+}
+
 test('the leg hitbox reaches the floor, as the player one does', () => {
   // The player's legs box spans 0..10. The zombie boxes used to start at
   // 0.4/0.2, leaving a gap that a boot-height shot passed straight through -
   // and that gap is also what the removed floor sink was pushing the model into.
-  assert.match(html, /new THREE\.BoxGeometry\(heavy \? 8\.4 : 6\.8, heavy \? 10\.2 : 9\.2, heavy \? 5\.8 : 4\.6\)/u);
-  assert.match(html, /joints\.hitLegs\.position\.y = heavy \? 5\.1 : 4\.6;/u);
-
-  // Bottom edge = centre - height/2, and it must be 0 for both kinds.
-  for (const [half, centre] of [[9.2 / 2, 4.6], [10.2 / 2, 5.1]]) {
-    assert.ok(Math.abs((centre - half) - 0) < 1e-9, 'the leg box must start at y = 0');
+  const profiles = zombieProfiles();
+  assert.deepEqual(Object.keys(profiles).sort(), ['crawler', 'heavy', 'runner', 'walker'],
+    'every kind the server can spawn needs a profile');
+  for (const [kind, p] of Object.entries(profiles)) {
+    assert.ok(Math.abs((p.legs.y - p.legs.h / 2) - 0) < 1e-6, `${kind}'s leg box must start at y = 0`);
+    // No seam wide enough to shoot through, at any size. The walker carries a
+    // ~0.6 neck gap that has always been there; this catches a new kind being
+    // authored with a hole in it, not that historic one.
+    assert.ok(p.body.y - p.body.h / 2 <= p.legs.y + p.legs.h / 2, `${kind} has a gap above its legs`);
+    const neck = (p.head.y - p.head.h / 2) - (p.body.y + p.body.h / 2);
+    assert.ok(neck < 1, `${kind} has a ${neck.toFixed(2)} gap above its body`);
   }
+});
+
+test('the model is scaled to the height its own hitboxes reach', () => {
+  // The GLB is fitted to profile.height while the shots land on these boxes.
+  // If the two disagree the player is shooting at a volume that is not where
+  // the zombie appears to be - the original bug, in a new place.
+  for (const [kind, p] of Object.entries(zombieProfiles())) {
+    const top = p.head.y + p.head.h / 2;
+    assert.ok(Math.abs(top - p.height) < 1.2,
+      `${kind}: hitboxes reach ${top} but the model is scaled to ${p.height}`);
+  }
+});
+
+test('a crawler is genuinely low, not just a renamed walker', () => {
+  // The whole point of the kind. If its head sits at walker height then a
+  // player never has to change their aim for one and it is only a reskin.
+  const { crawler, walker } = zombieProfiles();
+  assert.ok(crawler.height < walker.height * 0.65, 'a crawler must be well under a walker');
+  assert.ok(crawler.head.y < walker.body.y,
+    "a crawler's head has to sit below where a walker's torso is, or aim never changes");
 });
 
 test('the fitted skeleton spans exactly the authored height', () => {
