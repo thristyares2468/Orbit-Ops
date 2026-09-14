@@ -108,21 +108,68 @@ const DEFAULT_TUNING = Object.freeze({
   maxConcurrent: 26,            // alive at once; the rest queue behind them
   maxCount: 180,                // absolute per-wave ceiling
 
-  // Enemy stats. Health compounds; speed and damage are capped so a late wave is
-  // dense rather than impossible.
+  // Enemy stats.
+  //
+  // The rule for all three: every wave's zombies must be stronger than the last
+  // wave's, for as long as the arithmetic allows it. The caps below used to be
+  // hard, and from about wave 29 they all bound at once - wave 36 and wave 60
+  // were the same wave, forever, in a mode whose whole premise is that it never
+  // ends. Two of the three are soft now, and the one that stays hard is the one
+  // with a safety reason.
   baseHealth: 100,
   healthGrowth: 1.11,
   healthLinear: 12,
+  // A SOFT cap. Past it the compound curve is replaced by a log-compressed
+  // climb: still rising every wave and unbounded, but no longer doubling, so a
+  // wave-80 zombie is a wall rather than a number no weapon in the game can
+  // move. Health is the right stat to leave unbounded - it makes a wave longer
+  // and more dangerous without ever making it unsurvivable, because a player
+  // can still walk away from something that is merely tough.
   maxHealth: 4_000,
+  healthPastCapRate: 0.35,
+
   // Players walk at 35 u/s and sprint at 75 u/s. The old 3.15 u/s horde
   // barely moved on these full-scale maps; this keeps early zombies kiteable
   // while making later waves an actual pursuit.
+  //
+  // Also a SOFT cap, but with a hard ceiling behind it, and that ceiling is a
+  // safety limit rather than a taste one: a zombie that out-sprints a player
+  // cannot be disengaged from, and Containment stops having an answer to
+  // anything. The curve approaches speedCeiling asymptotically and never
+  // reaches it, so speed rises every single wave and still never closes the
+  // gap on a sprint.
   baseSpeed: 20,
   speedPerWave: 0.65,
   maxSpeed: 42,
+  speedCeiling: 52,
+  speedPastCapRate: 0.05,
+  // The same shape of invariant as maxBiteDamage, and for the same reason:
+  // speedCeiling bounds the WAVE's figure, and a kind multiplier lands on top
+  // of it. The runner's 1.6 turned a 58 ceiling into a 92.8 u/s zombie - faster
+  // than a sprinting player, which means it cannot be disengaged from at all.
+  // Clamped per enemy so a future kind cannot reintroduce that, and set with
+  // real margin under the 75 u/s sprint rather than a photo finish.
+  maxEnemySpeed: 68,
+
+  // Damage is an integer, and that is what made it the worst offender: at
+  // 0.8 a wave it rounded to the SAME number every fifth wave - 4, 9, 14, 19,
+  // 24 - so one wave in five hit exactly as hard as the one before it, right
+  // in the range where people actually play. Any per-wave step under 1 does
+  // that. 1 is the smallest step that cannot.
   baseDamage: 12,
-  damagePerWave: 0.8,
-  maxDamage: 38,
+  damagePerWave: 1,
+  // Hard, and deliberately so. A player has 100 health, so this is the line
+  // between "three bites and you are down" and "two" - and it must stay under
+  // 100, because a bite that one-shots a full-health player is not difficulty,
+  // it is a coin flip on being touched.
+  maxDamage: 50,
+  // The invariant the number above is protecting, stated where it cannot be
+  // broken by accident. maxDamage bounds the WAVE's figure; a kind multiplier
+  // is applied on top of it, and at 1.8 the juggernaut turned a 60-damage wave
+  // into a 108-damage bite - an instant kill on a full-health player from
+  // anything that touched you. Clamped per enemy, so a kind added later with a
+  // bigger multiplier cannot reintroduce it.
+  maxBiteDamage: 90,
   attackCooldownMs: 1100,
   attackRange: 1.75,
 
@@ -188,6 +235,27 @@ function ateWaveClearReward() {
 
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 
+// Past a soft cap a stat keeps climbing - just far more slowly. Both shapes
+// below are continuous at the cap (they return exactly `cap` when the raw
+// curve is at it) and strictly increasing above it, so a wave is never a
+// repeat of the one before it.
+
+// Bounded. Approaches `ceiling` and never reaches it, which is what lets a
+// stat rise forever while still honouring a hard safety limit.
+function easeToCeiling(raw, cap, ceiling, rate) {
+  if (!(raw > cap)) return raw;
+  if (!(ceiling > cap) || !(rate > 0)) return cap;
+  return cap + (ceiling - cap) * (1 - Math.exp(-rate * (raw - cap)));
+}
+
+// Unbounded, but log-compressed: doubling the raw curve adds a fixed amount
+// rather than doubling the result, so a compound curve stops compounding
+// without ever stopping.
+function easeAboveCap(raw, cap, rate) {
+  if (!(raw > cap) || !(cap > 0)) return raw;
+  return cap * (1 + Math.max(0, rate) * Math.log(raw / cap));
+}
+
 function toWave(wave) {
   const n = Math.floor(Number(wave) || 0);
   return n < 1 ? 1 : n;
@@ -232,14 +300,20 @@ function waveBudget(wave, players, tuning = DEFAULT_TUNING) {
   const capShortfall = count > 0 ? desiredCount / count : 1;
   const healthMultiplier = Math.max(1, teamHealthFactor * capShortfall);
 
-  const health = clamp(
-    Math.round(
-      (t.baseHealth * Math.pow(t.healthGrowth, w - 1) + t.healthLinear * (w - 1)) * healthMultiplier
-    ),
-    1,
-    healthCeiling
-  );
-  const speed = clamp(t.baseSpeed + t.speedPerWave * (w - 1), 0.1, t.maxSpeed);
+  // Health keeps rising forever, just not geometrically forever. The soft cap
+  // is healthCeiling, not t.maxHealth: it is already scaled by the team factor
+  // above for the reason given there, and compressing against the unscaled
+  // figure would break the teamScaling contract - a four-player pool would stop
+  // being four times a solo one the moment the compression started biting.
+  const rawHealth = (t.baseHealth * Math.pow(t.healthGrowth, w - 1) + t.healthLinear * (w - 1)) * healthMultiplier;
+  const health = Math.max(1, Math.round(easeAboveCap(rawHealth, healthCeiling, t.healthPastCapRate)));
+
+  // Speed rises every wave and never reaches speedCeiling, so it can never
+  // out-run a sprinting player however deep the run goes.
+  const rawSpeed = t.baseSpeed + t.speedPerWave * (w - 1);
+  const speed = Math.max(0.1, easeToCeiling(rawSpeed, t.maxSpeed, t.speedCeiling, t.speedPastCapRate));
+
+  // Damage is the one hard cap left, and the comment on maxDamage says why.
   const damage = clamp(Math.round(t.baseDamage + t.damagePerWave * (w - 1)), 1, t.maxDamage);
 
   return {
@@ -248,7 +322,10 @@ function waveBudget(wave, players, tuning = DEFAULT_TUNING) {
     count,
     concurrent: Math.min(count, t.maxConcurrent),
     health,
-    speed: Math.round(speed * 1000) / 1000,
+    // Floored, not rounded. Rounding up puts speed exactly ON speedCeiling once
+    // the asymptote gets within half a thousandth of it - around wave 355 - and
+    // that ceiling is a safety limit the curve is supposed to never reach.
+    speed: Math.floor(speed * 1000) / 1000,
     damage,
     boss: w % t.bossEveryWaves === 0,
     spawnIntervalMs: Math.max(120, Math.round(t.spawnIntervalMs - (w - 1) * 18))
@@ -550,6 +627,10 @@ function voteToSkipPreparation(match, playerId, eligiblePlayerIds, now) {
 // Enemies
 // ---------------------------------------------------------------------------
 
+function tuningOf(match) {
+  return match && match.tuning ? { ...DEFAULT_TUNING, ...match.tuning } : DEFAULT_TUNING;
+}
+
 function createEnemy(match, budget, spawn, now) {
   const id = `z${match.nextEnemyId++}`;
   const serial = match.nextEnemyId - 1;
@@ -564,8 +645,8 @@ function createEnemy(match, budget, spawn, now) {
     x: spawn.x, y: spawn.y, z: spawn.z,
     health,
     maxHealth: health,
-    speed: budget.speed * mult.speed,
-    damage: Math.max(1, Math.round(budget.damage * mult.damage)),
+    speed: Math.min(budget.speed * mult.speed, tuningOf(match).maxEnemySpeed),
+    damage: clamp(Math.round(budget.damage * mult.damage), 1, tuningOf(match).maxBiteDamage),
     // Paid on kill, so a juggernaut is worth walking back for and a crawler is
     // worth the awkward shot rather than being left to chew on someone.
     rewardScale: mult.reward,

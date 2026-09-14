@@ -7330,7 +7330,7 @@
             // Handheld shield. Its magazine belongs to the deliberately weaker,
             // less accurate Glock fired around the raised plate. The distinct
             // shield type keeps movement/pose/cover behavior tied to the held item.
-            { id: 27, name: 'Shield', type: 'shield', damage: SHIELD_GLOCK_RULES.dmg.body, armorDamage: SHIELD_GLOCK_RULES.dmg, rangeMod: 0.85, firerate: SHIELD_GLOCK_RULES.firerate, spreadBase: 0.01 * SHIELD.sidearmSpreadScale, spreadMove: 0.03 * SHIELD.sidearmSpreadScale, mag: SHIELD.sidearmMagazine, reserve: SHIELD.sidearmReserve, auto: false, speedMult: 0.68, pellets: 1, reloadTime: SHIELD.sidearmReloadTime, barrelOffset: new THREE.Vector3(-1.05, 0.12, -0.58), muzzleOffset: new THREE.Vector3(-1.05, 0.12, -0.64) },
+            { id: 27, name: 'Shield', type: 'shield', damage: SHIELD_GLOCK_RULES.dmg.body, armorDamage: SHIELD_GLOCK_RULES.dmg, rangeMod: 0.85, firerate: SHIELD_GLOCK_RULES.firerate, spreadBase: 0.01 * SHIELD.sidearmSpreadScale, spreadMove: 0.03 * SHIELD.sidearmSpreadScale, mag: SHIELD.sidearmMagazine, reserve: SHIELD.sidearmReserve, auto: false, speedMult: 0.68, pellets: 1, reloadTime: SHIELD.sidearmReloadTime, barrelOffset: new THREE.Vector3(-0.18, 0.15, -0.6), muzzleOffset: new THREE.Vector3(-0.18, 0.15, -0.65) },
             { id: 28, name: 'RPG', type: 'launcher', kind: 'rpg', damage: 0, rangeMod: 1.0, firerate: 1.1, spreadBase: 0, spreadMove: 0, mag: 1, reserve: 2, auto: false, speedMult: 0.67, pellets: 0, reloadTime: 2.8, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) },
             { id: 29, name: 'Minigun', type: 'rifle', damage: 10, armorDamage: wdmg('Minigun'), rangeMod: 0.98, firerate: window.GameCore.MINIGUN.fireInterval, spreadBase: 0.025, spreadMove: 0.065, mag: window.GameCore.MINIGUN.ammo, reserve: 0, auto: true, speedMult: window.GameCore.MINIGUN.speedMult, pellets: 1, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) }
         ];
@@ -7486,9 +7486,9 @@
             'C4': { path: '/assets/weapons/c4.glb', axis: 'z', fp: { length: 1.05, pos: [-0.6, 0.32, 1.15], rot: [0.28, Math.PI + 0.24, 0.16] }, tp: { length: 1.4, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'Breacher': { path: '/assets/weapons/breacher.glb', axis: 'x', fp: { length: 3.15, pos: [-0.28, -0.16, -0.78] }, tp: { length: 4.6, pos: [0, 0.04, -1.78] } },
             // rot [0,0,0] on purpose: the panel has to face square down the view.
-            // Positive local X keeps it visibly braced in the right hand instead
-            // of crossing the left half of the view like an angled firearm.
-            'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.55, pos: [0.2, 0.55, 0.5], rot: [0, 0, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } },
+            // Negative local X braces the plate in the left hand, leaving the
+            // right half clear for the Glock and its muzzle line.
+            'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.55, pos: [-2.6, 0.55, 0.5], rot: [0, 0, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } },
             // Measured from the GLB's own world-space bounds, not guessed: the
             // tube runs along Z (span 8.08) with X only 0.73 wide, the sight sits
             // at +Y and the grips hang at -Y, and the warhead protrudes toward
@@ -16183,28 +16183,30 @@
             return found;
         }
 
-        function findAgentWeaponHandBone(model) {
+        function findAgentWeaponHandBone(model, hand = 'right') {
+            const side = hand === 'left' ? 'L' : 'R';
             return findCharacterBone(model, [
-                /^Bip01[_\s-]*R[_\s-]*Hand$/i,
-                /^--[_\s-]*R[_\s-]*wrist$/i,
-                /(?:^|[_\s.-])R[_\s.-]*Hand$/i,
-                /hand[_\s.-]*R/i
+                new RegExp(`^Bip01[_\\s-]*${side}[_\\s-]*Hand$`, 'i'),
+                new RegExp(`^--[_\\s-]*${side}[_\\s-]*wrist$`, 'i'),
+                new RegExp(`(?:^|[_\\s.-])${side}[_\\s.-]*Hand$`, 'i'),
+                new RegExp(`hand[_\\s.-]*${side}`, 'i')
             ]);
         }
 
-        function createAgentWeaponHolder(model, spec) {
-            const weaponBone = findAgentWeaponHandBone(model);
+        function createAgentWeaponHolder(model, spec, hand = 'right') {
+            const weaponBone = findAgentWeaponHandBone(model, hand);
             if (!weaponBone) return null;
             const holder = new THREE.Group();
             const wpos = spec.weaponPos || [0, 0, 0];
             const wrot = spec.weaponRot || [0, 0, 0];
-            holder.name = 'agent-right-hand-weapon-holder';
+            holder.name = `agent-${hand}-hand-weapon-holder`;
             holder.position.set(wpos[0] || 0, wpos[1] || 0, wpos[2] || 0);
             holder.rotation.set(wrot[0] || 0, wrot[1] || 0, wrot[2] || 0);
             holder.scale.setScalar((spec.weaponScale || 1) / (model.scale.x || 1));
             holder.userData.agentModelScale = model.scale.x || 1;
             holder.userData.defaultKnifeTeam = null;
             holder.userData.isAgentWeaponHolder = true;
+            holder.userData.agentWeaponHand = hand;
             holder.userData.attachedBoneName = weaponBone.name || '';
             weaponBone.add(holder);
             return holder;
@@ -16508,7 +16510,8 @@
                 rig.userData.assetClips = new Map(animations.map(clip => [clip.name, clip]));
                 rig.userData.assetActions = new Map();
                 setupEmbeddedAgentMotionRig(rig, model);
-                rig.userData.assetWeaponHolder = createAgentWeaponHolder(model, spec);
+                rig.userData.assetWeaponHolder = createAgentWeaponHolder(model, spec, 'right');
+                rig.userData.assetShieldHolder = createAgentWeaponHolder(model, spec, 'left');
                 playEmbeddedCharacterClip(rig, 'ref_aim_ak47_blend05', 0);
                 keepCharacterAssetGrounded(rig);
             }
@@ -16721,6 +16724,7 @@
                 if (obj.userData?.isCharacterVisual) obj.visible = visible;
             });
             if (remote.userData?.thirdPersonWeapon) remote.userData.thirdPersonWeapon.visible = visible;
+            if (remote.userData?.thirdPersonShield) remote.userData.thirdPersonShield.visible = visible;
         }
 
         function countRenderableCharacterMeshes(root) {
@@ -16737,13 +16741,25 @@
             if (!remote?.userData) return;
             const name = weaponName || remote.userData.weapon || 'AK47';
             const skinItemRef = remote.userData.skinLoadout?.[name];
+            const shieldHeld = name === SHIELD.weapon;
+            const glockSkinItemRef = remote.userData.skinLoadout?.[SHIELD.sidearmWeapon];
             if (remote.userData.thirdPersonWeapon) {
-                buildThirdPersonWeaponModel(remote.userData.thirdPersonWeapon, name, skinItemRef);
+                buildThirdPersonWeaponModel(remote.userData.thirdPersonWeapon, shieldHeld ? SHIELD.sidearmWeapon : name, shieldHeld ? glockSkinItemRef : skinItemRef);
+            }
+            if (remote.userData.thirdPersonShield) {
+                if (shieldHeld) buildThirdPersonWeaponModel(remote.userData.thirdPersonShield, SHIELD.weapon, skinItemRef);
+                else clearObjectChildren(remote.userData.thirdPersonShield);
             }
             const assetHolder = remote.userData.characterAsset?.userData?.assetWeaponHolder;
             if (assetHolder) {
                 assetHolder.userData.defaultKnifeTeam = remote.userData.team;
-                buildThirdPersonWeaponModel(assetHolder, name, skinItemRef);
+                buildThirdPersonWeaponModel(assetHolder, shieldHeld ? SHIELD.sidearmWeapon : name, shieldHeld ? glockSkinItemRef : skinItemRef);
+            }
+            const assetShieldHolder = remote.userData.characterAsset?.userData?.assetShieldHolder;
+            if (assetShieldHolder) {
+                assetShieldHolder.userData.defaultKnifeTeam = remote.userData.team;
+                if (shieldHeld) buildThirdPersonWeaponModel(assetShieldHolder, SHIELD.weapon, skinItemRef);
+                else clearObjectChildren(assetShieldHolder);
             }
         }
 
@@ -17035,12 +17051,12 @@
 
         function prepareAgentWeaponHolder(holder, weaponName = 'AK47') {
             if (!holder?.userData?.isAgentWeaponHolder) return;
-            // HIGH WARNING: this holder is parented to Bip01_R_Hand, not the
-            // procedural body weapon socket. Tiny changes here are very visible:
-            // +X pushes the gun too far to the agent's outside hand side.
-            if (AGENT_HELD_GRENADES.has(weaponName)) holder.position.set(-0.1, 0.1, -0.48);
-            else if (weaponName === 'Knife') holder.position.set(-0.06, 0.06, -0.22);
-            else holder.position.set(-0.1, 0.1, AGENT_HELD_FIREARM_FORWARD_Z);
+            // Imported agents have mirrored hand holders. Tiny changes here are
+            // very visible, so only the lateral offset is mirrored.
+            const handSign = holder.userData.agentWeaponHand === 'left' ? 1 : -1;
+            if (AGENT_HELD_GRENADES.has(weaponName)) holder.position.set(handSign * 0.1, 0.1, -0.48);
+            else if (weaponName === 'Knife') holder.position.set(handSign * 0.06, 0.06, -0.22);
+            else holder.position.set(handSign * 0.1, 0.1, AGENT_HELD_FIREARM_FORWARD_Z);
             holder.rotation.set(0, Math.PI / 2, 0);
             holder.scale.setScalar(agentHeldWeaponScale(weaponName) / (holder.userData.agentModelScale || 1));
         }
@@ -17139,6 +17155,7 @@
             clearObjectChildren(weaponGroup);
             let wp = weapons[currentWeaponIndex];
             let weaponAssetParent = weaponGroup;
+            let shieldSidearmAssetParent = null;
             const matBlack = new THREE.MeshPhongMaterial({ color: 0x111111 });
             const matDarkGrey = new THREE.MeshPhongMaterial({ color: 0x222222 });
             const matGrey = new THREE.MeshPhongMaterial({ color: 0x3a3a3a });
@@ -17225,20 +17242,24 @@
                     thermal.minigunAnimation = buildMinigunThermal(thermal, barrels, -2.0);
                     break;
                 }
-                // Shield in the right hand, with the compact Glock still visible
-                // to the left. The shield gets its own holder so its GLB can
-                // replace only the plate fallback without deleting the pistol.
+                // Shield in the left hand, Glock in the right. Each gets its own
+                // holder so either GLB can replace its fallback independently;
+                // the Glock uses the player's equipped Glock skin below.
                 case 'Shield': {
                     const matPlate = new THREE.MeshPhongMaterial({ color: 0x4b535c, shininess: 30 });
                     const shieldAssetHolder = new THREE.Group();
-                    shieldAssetHolder.name = 'first-person-right-hand-shield';
+                    shieldAssetHolder.name = 'first-person-left-hand-shield';
                     weaponGroup.add(shieldAssetHolder);
                     weaponAssetParent = shieldAssetHolder;
-                    createMesh(new THREE.BoxGeometry(0.95, 1.5, 0.09), matPlate, 0.2, -0.1, -0.75, 0, shieldAssetHolder);
-                    createMesh(new THREE.BoxGeometry(0.34, 0.2, 0.12), new THREE.MeshPhongMaterial({ color: 0x11161b }), 0.2, 0.3, -0.8, 0, shieldAssetHolder);
-                    createMesh(new THREE.BoxGeometry(0.18, 0.25, 1.2), matBlack, -1.05, 0, 0);
-                    createMesh(new THREE.BoxGeometry(0.16, 0.6, 0.35), matGrey, -1.05, -0.35, 0.3, 0.15);
-                    createMesh(new THREE.BoxGeometry(0.04, 0.05, 0.05), matSilver, -1.05, 0.15, -0.55);
+                    createMesh(new THREE.BoxGeometry(0.95, 1.5, 0.09), matPlate, -2.6, -0.1, -0.75, 0, shieldAssetHolder);
+                    createMesh(new THREE.BoxGeometry(0.34, 0.2, 0.12), new THREE.MeshPhongMaterial({ color: 0x11161b }), -2.6, 0.3, -0.8, 0, shieldAssetHolder);
+                    const glockAssetHolder = new THREE.Group();
+                    glockAssetHolder.name = 'first-person-right-hand-glock';
+                    weaponGroup.add(glockAssetHolder);
+                    shieldSidearmAssetParent = glockAssetHolder;
+                    createMesh(new THREE.BoxGeometry(0.18, 0.25, 1.2), matBlack, -0.18, 0, 0, 0, glockAssetHolder);
+                    createMesh(new THREE.BoxGeometry(0.16, 0.6, 0.35), matGrey, -0.18, -0.35, 0.3, 0.15, glockAssetHolder);
+                    createMesh(new THREE.BoxGeometry(0.04, 0.05, 0.05), matSilver, -0.18, 0.15, -0.55, 0, glockAssetHolder);
                     break;
                 }
                 // Holds the charge until one is planted, then the detonator.
@@ -17274,6 +17295,9 @@
             // the detonator, which is procedural, so the asset must not replace it.
             if (wp.kind === 'c4' && myLiveC4Charge()) return;
             attachWeaponAsset(weaponAssetParent, wp.name, 'firstPerson', equippedItem);
+            if (shieldSidearmAssetParent) {
+                attachWeaponAsset(shieldSidearmAssetParent, SHIELD.sidearmWeapon, 'firstPerson', equippedSkinItem(SHIELD.sidearmWeapon));
+            }
         }
 
         function showLoadingScreen() {
@@ -19458,8 +19482,8 @@
             if (weaponName === 'Shield') {
                 add(new THREE.BoxGeometry(2.4, 3.6, 0.24), matMetal, 0, 0.4, -0.35);
                 add(new THREE.BoxGeometry(0.8, 0.5, 0.3), matDark, 0, 1.35, -0.45);
-                // Procedural characters already parent this holder to the right
-                // arm. Replace the fallback with the authored asset when ready.
+                // Shield holders are parented to the left hand by both player
+                // rigs. Replace the fallback with the authored asset when ready.
                 attachWeaponAsset(parent, weaponName, 'thirdPerson', skinItem);
                 return;
             }
@@ -19602,6 +19626,11 @@
             thirdPersonWeapon.scale.setScalar(1.12);
             rightArmPivot.add(thirdPersonWeapon);
             buildThirdPersonWeaponModel(thirdPersonWeapon, 'AK47');
+            const thirdPersonShield = new THREE.Group();
+            thirdPersonShield.name = 'third-person-left-hand-shield';
+            thirdPersonShield.position.set(0, -8.6, -0.7);
+            thirdPersonShield.scale.setScalar(1.12);
+            leftArmPivot.add(thirdPersonShield);
 
             const leftLegPivot = new THREE.Group(); leftLegPivot.position.set(-2, 10, 0); group.add(leftLegPivot);
             const leftLeg = addMesh(new THREE.BoxGeometry(3, 9, 3), mPants, leftLegPivot, 0, -4.5, 0);
@@ -19627,7 +19656,7 @@
                 forward: new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0,1,0), group.rotation.y),
                 isMoving: false, isCrouching: false, isJumping: false, isShooting: false,
                 targetPos: null, actionTimer: 0, animPhase: Math.random() * 10,
-                isRemotePlayer: false, remoteId: null, weapon: 'AK47', thirdPersonWeapon: thirdPersonWeapon,
+                isRemotePlayer: false, remoteId: null, weapon: 'AK47', thirdPersonWeapon: thirdPersonWeapon, thirdPersonShield: thirdPersonShield,
                 joints: { body: bodyPivot, head: headPivot, leftArm: leftArmPivot, rightArm: rightArmPivot, leftLeg: leftLegPivot, rightLeg: rightLegPivot, hitHead: hitHead, hitBody: hitBody, hitLegs: hitLegs }
             };
 

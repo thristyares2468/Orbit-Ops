@@ -162,11 +162,17 @@ test('the shield is presented square to the view, not held like a gun', () => {
   assert.deepEqual(fpRot[1].split(',').map(part => Number(part.trim())), [0, 0, 0]);
   const fpPos = spec[0].match(/fp: \{[^}]*pos: \[([^\]]*)\]/);
   assert.ok(fpPos, 'the shield needs an explicit first-person position');
-  assert.ok(Number(fpPos[1].split(',')[0]) > 0, 'positive local X places the shield in the right hand');
-  assert.match(client, /first-person-right-hand-shield/);
+  assert.ok(Number(fpPos[1].split(',')[0]) < 0, 'negative local X places the shield in the left hand');
+  assert.match(client, /first-person-left-hand-shield/);
+  assert.match(client, /first-person-right-hand-glock/);
   assert.match(client, /attachWeaponAsset\(weaponAssetParent, wp\.name, 'firstPerson'/);
-  assert.match(client, /if \(weaponName === 'Shield'\)[\s\S]*?attachWeaponAsset\(parent, weaponName, 'thirdPerson', skinItem\);/,
-    'third person must replace the right-hand fallback with the authored shield');
+  assert.match(client, /attachWeaponAsset\(shieldSidearmAssetParent, SHIELD\.sidearmWeapon, 'firstPerson', equippedSkinItem\(SHIELD\.sidearmWeapon\)\)/,
+    'the right-hand Glock must load the player equipped Glock skin');
+  assert.match(client, /third-person-left-hand-shield/);
+  assert.match(client, /buildThirdPersonWeaponModel\(remote\.userData\.thirdPersonWeapon, shieldHeld \? SHIELD\.sidearmWeapon : name/,
+    'third person must put the Glock in the right-hand weapon holder');
+  assert.match(client, /buildThirdPersonWeaponModel\(remote\.userData\.thirdPersonShield, SHIELD\.weapon, skinItemRef\)/,
+    'third person must put the shield in its left-hand holder');
   // And it is braced rather than swung, so the gun bob is damped.
   assert.match(client, /const SHIELD_VIEW_BOB_SCALE = 0\.\d+;/);
   assert.match(client, /type === 'shield' \? SHIELD_VIEW_BOB_SCALE : 1/);

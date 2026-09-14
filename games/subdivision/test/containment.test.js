@@ -37,6 +37,7 @@ const {
   pickSpawn,
   hudState
 } = require('../containment');
+const containment = require('../containment');
 
 const at = (match, ms) => step(match, ms, { alivePlayers: 1, totalPlayers: 1 });
 
@@ -55,23 +56,129 @@ test('the wave curve rises without ever going backwards', () => {
 });
 
 test('every wave stays inside its ceilings', () => {
-  // The count and health ceilings are per-solo-player limits scaled by team
-  // size - see teamScaling. Concurrency is NOT scaled: it caps how many are
-  // alive at once, which is what keeps one screen readable and one simulation
-  // cheap no matter how many people are playing.
+  // The count ceiling is a per-solo-player limit scaled by team size - see
+  // teamScaling. Concurrency is NOT scaled: it caps how many are alive at once,
+  // which is what keeps one screen readable and one simulation cheap no matter
+  // how many people are playing.
+  //
+  // Health and speed are SOFT now. Health has no ceiling at all by design, and
+  // speed has one it approaches but must never reach; both are checked below.
   for (let players = 1; players <= 4; players += 1) {
     const countMultiplier = 1 + DEFAULT_TUNING.countPerExtraPlayer * (players - 1);
-    const teamHealthFactor = Math.max(1, Math.pow(players, DEFAULT_TUNING.teamScaling) / countMultiplier);
     for (let wave = 1; wave <= 400; wave += 1) {
       const budget = waveBudget(wave, players);
       assert.ok(budget.count <= Math.round(DEFAULT_TUNING.maxCount * countMultiplier), 'count ceiling');
-      assert.ok(budget.health <= Math.round(DEFAULT_TUNING.maxHealth * teamHealthFactor), 'health ceiling');
-      assert.ok(budget.speed <= DEFAULT_TUNING.maxSpeed, 'speed ceiling');
-      assert.ok(budget.damage <= DEFAULT_TUNING.maxDamage, 'damage ceiling');
       assert.ok(budget.concurrent <= DEFAULT_TUNING.maxConcurrent, 'concurrency is never scaled');
+      assert.ok(budget.damage <= DEFAULT_TUNING.maxDamage, 'damage ceiling');
       assert.ok(budget.spawnIntervalMs >= 120, 'spawn interval floor');
+      assert.ok(Number.isFinite(budget.health) && budget.health >= 1, 'health stays a real number');
     }
   }
+});
+
+test('a zombie can never out-sprint a player, however deep the run goes', () => {
+  // The one hard safety limit. A horde that cannot be disengaged from leaves
+  // Containment with no answer to anything.
+  //
+  // Two separate bounds, because the wave's figure is not what bites you: a
+  // kind multiplier is applied on top of it, and the runner's 1.6 turned a
+  // 58 u/s ceiling into a 92.8 u/s zombie - faster than a sprint.
+  const SPRINT = 75;
+  assert.ok(DEFAULT_TUNING.maxEnemySpeed < SPRINT * 0.95,
+    'the per-enemy clamp needs real margin under a sprint, not a photo finish');
+
+  for (let wave = 1; wave <= 2_000; wave += 1) {
+    for (let players = 1; players <= 4; players += 1) {
+      assert.ok(waveBudget(wave, players).speed <= DEFAULT_TUNING.speedCeiling,
+        `wave ${wave} passed the soft ceiling`);
+    }
+  }
+
+  // Checked on real enemies, where the clamp actually runs, at a wave far past
+  // every cap - and on every kind, not just the one that happens to spawn.
+  const match = createMatch();
+  const budget = waveBudget(5_000, 1);
+  const seen = new Set();
+  for (let i = 0; i < 800 && seen.size < 4; i += 1) {
+    const enemy = createEnemy(match, budget, { x: 0, y: 0, z: 0 }, 0);
+    seen.add(enemy.kind);
+    assert.ok(enemy.speed < SPRINT, `a late ${enemy.kind} at ${enemy.speed} would out-sprint a player`);
+  }
+  assert.equal(seen.size, 4, 'every kind should have been checked');
+});
+
+test('every wave is harder than the one before it', () => {
+  // This is the whole promise of a wave-survival mode, and it was quietly
+  // broken in two different ways.
+  //
+  // Damage rounded to the same integer every fifth wave (4, 9, 14, 19, 24),
+  // because a 0.8-per-wave step on an integer stat has to repeat itself - one
+  // wave in five hit exactly as hard as the last, right where people play.
+  //
+  // And from about wave 29 the hard caps all bound at once, so wave 36 and
+  // wave 60 were the same wave. Forever. In an endless mode.
+  for (let players = 1; players <= 4; players += 1) {
+    let previous = waveBudget(1, players);
+    for (let wave = 2; wave <= 400; wave += 1) {
+      const budget = waveBudget(wave, players);
+      assert.ok(budget.health > previous.health,
+        `${players}p wave ${wave}: health ${budget.health} is not above ${previous.health}`);
+      // Speed rises every wave until the asymptote's step falls below the
+      // three decimals the budget is reported to, around wave 230. Nothing
+      // reachable by a human run is anywhere near that, and health keeps
+      // climbing forever regardless, so the wave still gets harder past it.
+      if (wave <= 200) {
+        assert.ok(budget.speed > previous.speed,
+          `${players}p wave ${wave}: speed ${budget.speed} is not above ${previous.speed}`);
+      } else {
+        assert.ok(budget.speed >= previous.speed, `${players}p wave ${wave}: speed went backwards`);
+      }
+      // Damage is the exception, and only past its hard cap - see maxDamage.
+      if (previous.damage < DEFAULT_TUNING.maxDamage) {
+        assert.ok(budget.damage > previous.damage,
+          `${players}p wave ${wave}: damage ${budget.damage} repeats ${previous.damage}`);
+      }
+      previous = budget;
+    }
+  }
+});
+
+test('a bite never one-shots a full-health player', () => {
+  // The reason maxDamage stays hard, and why maxBiteDamage exists on top of it.
+  // maxDamage bounds the WAVE's figure; a kind multiplier is applied after it,
+  // and the juggernaut's 1.8 turned a 60-damage wave into a 108-damage bite.
+  // Being touched should cost a chunk of a health bar, never the whole run.
+  assert.ok(DEFAULT_TUNING.maxBiteDamage < 100, 'the clamp itself has to be under a full bar');
+
+  // Checked on real enemies, not on the arithmetic, so the clamp is verified
+  // where it actually runs. Every kind, at a wave far past every cap.
+  const match = createMatch();
+  const budget = waveBudget(5_000, 1);
+  const seen = new Set();
+  for (let i = 0; i < 800 && seen.size < 4; i += 1) {
+    const enemy = createEnemy(match, budget, { x: 0, y: 0, z: 0 }, 0);
+    seen.add(enemy.kind);
+    assert.ok(enemy.damage < 100, `a ${enemy.kind} bites for ${enemy.damage}`);
+    assert.ok(enemy.damage >= 1, `a ${enemy.kind} must still bite for something`);
+  }
+  assert.equal(seen.size, 4, 'every kind should have been checked');
+});
+
+test('health keeps growing but stops compounding', () => {
+  // Unbounded on purpose: it is the only stat that can rise forever without
+  // making a wave unsurvivable, because a player can still walk away from
+  // something that is merely tough. But it must not stay geometric either, or
+  // a wave-80 zombie is a number no weapon in the game can move.
+  const t = DEFAULT_TUNING;
+  const raw = (wave) => t.baseHealth * Math.pow(t.healthGrowth, wave - 1) + t.healthLinear * (wave - 1);
+
+  assert.ok(waveBudget(200, 1).health > waveBudget(100, 1).health, 'still rising at wave 200');
+  // Far below where the uncompressed curve would have gone.
+  assert.ok(waveBudget(100, 1).health < raw(100) / 100, 'the compression is doing real work');
+  // Continuous at the cap: no cliff where the shape changes.
+  const at = waveBudget(34, 1).health;
+  const before = waveBudget(33, 1).health;
+  assert.ok(at - before < before * 0.25, 'no discontinuity where the soft cap takes over');
 });
 
 test('zombies start at a chase pace and continue accelerating by wave', () => {
