@@ -87,12 +87,12 @@ architecture was used as an implementation reference.
 
 ## Subdivision weapon models from Sketchfab
 
-Three Subdivision weapon assets were supplied by the project owner. Two are Sketchfab exports that
-carry their author and licence in the file's own `asset.extras` metadata, which the shipped copies
+Four Subdivision assets were supplied by the project owner. Two are Sketchfab exports that carry
+their author and licence in the file's own `asset.extras` metadata, which the shipped copies
 preserve: both are licensed **CC BY 4.0** (http://creativecommons.org/licenses/by/4.0/), which
 permits this use and requires the attribution below. Neither is relicensed by Orbit Ops'
-GPL-3.0-only source licence; each remains under CC BY 4.0. The third carries no metadata at all and
-its provenance is still open.
+GPL-3.0-only source licence; each remains under CC BY 4.0. The other two carry no metadata at all
+and their provenance is still open.
 
 - **"Basic Explosive"** by **Blender3D** (https://sketchfab.com/Blender3D) —
   https://sketchfab.com/3d-models/basic-explosive-e2ef33fefa4241b59c2aaf45c75a20ee
@@ -110,6 +110,16 @@ its provenance is still open.
   OBJ to binary glTF
   (fan-triangulated to 194 triangles, normals and UVs preserved) and authored a plain PBR material,
   since none was supplied. Geometry is unchanged.
+
+- **Barricade** — provenance not recorded. Supplied by the project owner as `baricade.glb`, a
+  Blender glTF export whose `asset.extras` is empty, so nothing in the file identifies its author,
+  its licence, or the source of the concrete/graffiti texture baked into it. **This entry needs the
+  owner to confirm the source and licence of both the model and its texture before the asset is
+  distributed.** It ships as `games/subdivision/assets/weapons/barricade.glb` as the deployed
+  barricade panel. **Modified by Orbit Ops.** Geometry, UVs and the texture are untouched; both
+  materials were left on the glTF default `metallicFactor` of 1, which renders as near-black without
+  an environment map, so the concrete was set to non-metallic and the glass section was given a
+  translucent base colour. Three unsupported material extensions were dropped with them.
 
 - **"Shotgun"** by **tinycomputer** (https://sketchfab.com/tinycomputer) —
   https://sketchfab.com/3d-models/shotgun-cf4830cc5d09441495843ac79f005b73
