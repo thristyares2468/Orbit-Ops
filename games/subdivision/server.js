@@ -427,6 +427,14 @@ function countsForAccuracyStats(room, player) {
 // ---------------------------------------------------------------------------
 
 const WEAPON_NAMES = core.WEAPON_NAMES; // shared snapshot weapon-index order (core.js)
+// What an admin dummy is allowed to be holding. Validated against the same
+// shared list the snapshot encoder uses, so a dummy can never be armed with a
+// name no other client knows how to build a model for. Anything unrecognised
+// falls back to the AK47 the dummy has always spawned with.
+function adminDummyWeapon(name) {
+  const wanted = String(name || '');
+  return WEAPON_NAMES.includes(wanted) ? wanted : 'AK47';
+}
 const WEAPONS = core.WEAPONS;           // authoritative damage table, shared via core.js
 
 // ---------------------------------------------------------------------------
@@ -2057,10 +2065,22 @@ function handleMessage(client, raw) {
       health: Math.max(1, Math.min(10000, Math.round(Number(data.health) || 100))),
       maxHealth: Math.max(1, Math.min(10000, Math.round(Number(data.health) || 100))),
       immune: !!data.immune,
-      team: Number(data.team) === 1 ? 1 : 0
+      team: Number(data.team) === 1 ? 1 : 0,
+      weapon: adminDummyWeapon(data.weapon)
     };
     room.adminDummies.set(dummy.id, dummy);
     broadcastToRoom(client.roomCode, null, 'adminDummySpawned', dummy);
+    return;
+  }
+
+  if (type === 'adminSetDummyWeapon') {
+    if (client.roomCode !== ADMIN_ROOM_CODE || !isAdminUser(client)) return;
+    if (!room.adminDummies?.size) return;
+    // Re-arm what is already standing there rather than making the admin clear
+    // and re-summon to see a different gun in a dummy's hands.
+    const weapon = adminDummyWeapon(data.weapon);
+    for (const dummy of room.adminDummies.values()) dummy.weapon = weapon;
+    broadcastToRoom(client.roomCode, null, 'adminDummyWeapon', { weapon });
     return;
   }
 

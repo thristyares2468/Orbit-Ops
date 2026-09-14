@@ -2298,6 +2298,9 @@
                         <option value="1">Terrorist</option>
                     </select>
                 </label>
+                <label>Dummy weapon
+                    <select id="admin-dummy-weapon"></select>
+                </label>
                 <label class="check-label">
                     <input id="admin-dummy-immune" type="checkbox">
                     Immune
@@ -2305,6 +2308,7 @@
             </div>
             <div class="host-mode-row">
                 <button class="menu-btn" id="btn-admin-summon-dummy">Summon Dummy</button>
+                <button class="menu-btn" id="btn-admin-arm-dummies">Arm Dummies</button>
                 <button class="menu-btn" id="btn-admin-clear-dummies">Clear Dummies</button>
             </div>
             <div class="host-menu-note">First-person gun overlay tuning. Dev-only: copy the JSON after adjusting values.</div>
@@ -4455,6 +4459,7 @@
         document.getElementById('btn-admin-infinite-round').addEventListener('click', () => sendAdminConfig({ infiniteRound: !adminInfiniteRoundEnabled() }));
         document.getElementById('btn-admin-zombie-spawns').addEventListener('click', () => sendAdminConfig({ zombieSpawnsPaused: !adminZombieSpawnsPaused() }));
         document.getElementById('btn-admin-summon-dummy').addEventListener('click', summonAdminDummy);
+        document.getElementById('btn-admin-arm-dummies').addEventListener('click', armAdminDummies);
         document.getElementById('btn-admin-clear-dummies').addEventListener('click', () => sendPacket('adminClearDummies', {}));
         document.getElementById('btn-admin-room-case-editor').addEventListener('click', () => showCaseEditor('pause'));
         document.getElementById('btn-owner-case-editor').addEventListener('click', () => showCaseEditor(banManagerReturn));
@@ -4891,6 +4896,45 @@
             sendPacket('adminConfig', { settings: patch });
         }
 
+        // The dummy's weapon list is the shared snapshot order from core.js, the
+        // same list server.js validates against, so the picker can never offer
+        // something the server will refuse or another client cannot model.
+        const ADMIN_DUMMY_DEFAULT_WEAPON = 'AK47';
+        function adminDummyWeaponNames() {
+            return window.GameCore?.WEAPON_NAMES || [ADMIN_DUMMY_DEFAULT_WEAPON];
+        }
+
+        function renderAdminDummyWeaponPicker() {
+            const select = document.getElementById('admin-dummy-weapon');
+            if (!select || select.options.length) return;
+            select.innerHTML = adminDummyWeaponNames()
+                .map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+            select.value = ADMIN_DUMMY_DEFAULT_WEAPON;
+        }
+
+        function selectedAdminDummyWeapon() {
+            renderAdminDummyWeaponPicker();
+            const wanted = document.getElementById('admin-dummy-weapon')?.value || '';
+            return adminDummyWeaponNames().includes(wanted) ? wanted : ADMIN_DUMMY_DEFAULT_WEAPON;
+        }
+
+        // Re-arm the dummies already standing in the room. Without this the only
+        // way to see a different gun in a dummy's hands is to clear and re-summon.
+        function armAdminDummies() {
+            if (!isAdminRoom) return;
+            sendPacket('adminSetDummyWeapon', { weapon: selectedAdminDummyWeapon() });
+        }
+
+        function applyAdminDummyWeapon(group, weapon) {
+            if (!group?.userData) return;
+            group.userData.weapon = adminDummyWeaponNames().includes(weapon) ? weapon : ADMIN_DUMMY_DEFAULT_WEAPON;
+            refreshRemoteThirdPersonWeapon(group);
+        }
+
+        function setAllAdminDummyWeapons(weapon) {
+            adminDummies.forEach(group => applyAdminDummyWeapon(group, weapon));
+        }
+
         function summonAdminDummy() {
             if (!isAdminRoom || !controls || !camera) return;
             const eye = controls.getObject().position.clone();
@@ -4908,7 +4952,8 @@
                 crouching: isCrouching,
                 health,
                 team,
-                immune
+                immune,
+                weapon: selectedAdminDummyWeapon()
             });
         }
 
@@ -4955,6 +5000,10 @@
             });
             applyAdminDummyVisual(group);
             adminDummies.set(id, group);
+            // Before refreshRemoteThirdPersonWeapon, which reads userData.weapon
+            // and otherwise falls through to its AK47 default.
+            group.userData.weapon = adminDummyWeaponNames().includes(def.weapon)
+                ? def.weapon : ADMIN_DUMMY_DEFAULT_WEAPON;
             refreshRemoteThirdPersonWeapon(group);
             applyBackroomsCharacterModel(group);
         }
@@ -5034,6 +5083,7 @@
                     existing.userData.team = Number.isFinite(Number(def.team)) ? Number(def.team) : existing.userData.team;
                     if (def.position) existing.position.set(def.position.x || 0, def.position.y || 0, def.position.z || 0);
                     existing.rotation.y = Number(def.yaw) || existing.rotation.y || 0;
+                    if (def.weapon && def.weapon !== existing.userData.weapon) applyAdminDummyWeapon(existing, def.weapon);
                     applyAdminDummyVisual(existing);
                 } else {
                     spawnAdminDummy(def);
@@ -5116,6 +5166,7 @@
         function renderAdminPanel() {
             if (!isAdminRoom || !adminControls || adminControls.style.display !== 'block') return;
             renderFpTunePanel();
+            renderAdminDummyWeaponPicker();
             requestCaseEditorData();
             if (adminMapToggle) {
                 const fullOnly = FULL_MAP_ONLY_IDS.has(currentRoomSettings.mapId);
@@ -14571,6 +14622,8 @@
                 spawnAdminDummy(data);
             } else if (type === 'adminDummyHit') {
                 applyAdminDummyHit(data);
+            } else if (type === 'adminDummyWeapon') {
+                setAllAdminDummyWeapons(data?.weapon);
             } else if (type === 'adminDummiesCleared') {
                 clearAdminDummies();
             } else if (type === 'adminToolResult') {
