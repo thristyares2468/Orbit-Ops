@@ -1,0 +1,87 @@
+<!doctype html><meta charset="utf-8"><title>Shield viewmodel measurement</title>
+<style>body{margin:0;background:#111;color:#ddd;font:13px monospace}#out{padding:8px;white-space:pre}canvas{display:block}</style>
+<div id="out">loading…</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+// Replicates the exact first-person chain from index.html so the numbers below
+// are the ones the player actually sees:
+//   camera(FOV 70) -> weaponGroup(WEAPON_REST_POS) -> holder -> rig(spec.fp)
+const FOV = 70, W = 1920, H = 1080;
+const REST = new THREE.Vector3(1.2, -1.0, -2.0);
+const SPEC = { length: 2.55, pos: [-2.6, 0.55, 0.5], rot: [0, 0, 0] };  // axis 'z', no fp tune
+
+const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+renderer.setSize(W, H); document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.add(new THREE.AmbientLight(0xffffff, 1));
+const camera = new THREE.PerspectiveCamera(FOV, W / H, 0.1, 2000);
+scene.add(camera);
+const weaponGroup = new THREE.Group(); weaponGroup.position.copy(REST); camera.add(weaponGroup);
+const holder = new THREE.Group(); weaponGroup.add(holder);
+
+function place(model, spec) {
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const scale = (spec.length) / (Math.max(size.x, size.y, size.z) || 1);
+  model.scale.setScalar(scale);
+  model.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+  const rig = new THREE.Group(); rig.add(model);
+  rig.position.set(spec.pos[0], spec.pos[1], spec.pos[2]);
+  rig.rotation.set(spec.rot[0], spec.rot[1], spec.rot[2]);
+  return rig;
+}
+
+// Screen coverage, measured from the drawn pixels rather than from a bounding
+// box: a bounding box counts the empty corners of a curved shield as blocked.
+function measure() {
+  renderer.setClearColor(0x000000, 1);
+  renderer.render(scene, camera);
+  const gl = renderer.getContext();
+  const px = new Uint8Array(W * H * 4);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  let covered = 0, minX = W, maxX = -1, minY = H, maxY = -1;
+  const colCovered = new Array(W).fill(0);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 4;
+    if (px[i] + px[i + 1] + px[i + 2] > 12) {
+      covered++; colCovered[x]++;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+  }
+  // readPixels is bottom-up; convert to top-down screen coordinates.
+  const topRow = H - 1 - maxY, bottomRow = H - 1 - minY;
+  return {
+    coverage: covered / (W * H),
+    topPct: topRow / H,            // 0 = top of screen
+    bottomPct: bottomRow / H,
+    leftPct: minX / W, rightPct: maxX / W,
+    // Does it reach the crosshair row/column?
+    crossBlocked: (() => {
+      const cx = W >> 1, cy = H >> 1;
+      const i = ((H - 1 - cy) * W + cx) * 4;
+      return px[i] + px[i + 1] + px[i + 2] > 12;
+    })()
+  };
+}
+
+const out = document.getElementById('out');
+new THREE.GLTFLoader().load('/assets/weapons/shield.glb', (gltf) => {
+  const lines = [];
+  const variants = [];
+  const yValues = [0.55, 0.1, -0.2, -0.5, -0.8, -1.1, -1.4];
+  for (const y of yValues) {
+    holder.clear();
+    const spec = { ...SPEC, pos: [SPEC.pos[0], y, SPEC.pos[2]] };
+    holder.add(place(gltf.scene.clone(true), spec));
+    const m = measure();
+    variants.push({ y, ...m });
+    lines.push(`y=${String(y).padStart(5)}  coverage=${(m.coverage*100).toFixed(1).padStart(5)}%  top=${(m.topPct*100).toFixed(0).padStart(3)}%  bottom=${(m.bottomPct*100).toFixed(0).padStart(3)}%  x=${(m.leftPct*100).toFixed(0)}..${(m.rightPct*100).toFixed(0)}%  crosshairBlocked=${m.crossBlocked}`);
+  }
+  out.textContent = lines.join('\n');
+  window.__result = variants;
+  window.__done = true;
+}, undefined, (e) => { out.textContent = 'LOAD FAIL ' + e; window.__done = true; });
+</script>

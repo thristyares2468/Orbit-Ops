@@ -198,3 +198,35 @@ test('the converted model ships in the shape the loader expects', () => {
   assert.equal(prim.mode, 4, 'triangles: the OBJ n-gons had to be triangulated');
   assert.match(client, /'Shield': \{ path: '\/assets\/weapons\/shield\.glb', axis: 'z'/);
 });
+
+test('the shield viewmodel sits at the middle of the screen, not the top of it', () => {
+  // Measured from drawn pixels in a harness that replicates the real chain
+  // (camera FOV 70 -> weaponGroup at WEAPON_REST_POS -> the fp spec below),
+  // counting covered pixels rather than a bounding box so the empty corners
+  // of the shield's curve are not counted as blocked view:
+  //
+  //     fp.y    coverage   top edge
+  //     0.55      27.8%        4%     <- a quarter of the screen, to the ceiling
+  //    -0.28      15.1%       50%     <- halfway up, as asked for
+  //
+  // tools/shield-measure.html reproduces it.
+  const spec = client.match(/'Shield': \{ path: '[^']+', axis: 'z', fp: \{ length: ([\d.]+), pos: \[(-?[\d.]+), (-?[\d.]+), (-?[\d.]+)\]/u);
+  assert.ok(spec, 'the Shield asset spec is where this expects');
+  const y = Number(spec[3]);
+  assert.equal(y, -0.28, 'the shield hangs from the middle of the view');
+  assert.ok(y < 0, 'above the weapon rest height it starts eating the top of the screen');
+});
+
+test('what the shield actually blocks is server-side, not the model', () => {
+  // Why the change above was one number rather than a coupled pair. The RPG's
+  // speed needed four edits in step because the server re-derives it; the
+  // shield's cover is authored entirely in core.js and never reads the
+  // viewmodel, so moving the model changes what you can see and nothing else.
+  // If that ever stops being true, this is where it should fail.
+  const shieldBlock = core.SHIELD;
+  assert.ok(Number.isFinite(shieldBlock.arcCos), 'the cover arc is a constant');
+  assert.ok(Number.isFinite(shieldBlock.bodyBlock) && shieldBlock.bodyBlock > 0);
+  const fpSpec = client.slice(client.indexOf("'Shield': { path:"), client.indexOf("'Shield': { path:") + 400);
+  assert.doesNotMatch(fpSpec, /arcCos|bodyBlock|headBlock/u,
+    'the viewmodel spec must never carry a gameplay figure');
+});

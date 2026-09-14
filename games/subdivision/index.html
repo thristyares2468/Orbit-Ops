@@ -7488,7 +7488,14 @@
             // rot [0,0,0] on purpose: the panel has to face square down the view.
             // Negative local X braces the plate in the left hand, leaving the
             // right half clear for the Glock and its muzzle line.
-            'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.55, pos: [-2.6, 0.55, 0.5], rot: [0, 0, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } },
+            // fp.y is -0.28, not 0.55. At 0.55 the shield's top edge sat 4% from
+            // the top of the screen and it covered 27.8% of the view - a quarter
+            // of the screen gone, measured from drawn pixels rather than a
+            // bounding box, so the curve's empty corners are not counted. -0.28
+            // puts the top edge at 50.2%: halfway up, 15.1% covered. Safe to
+            // change alone - the shield's actual protection is SHIELD.arcCos and
+            // bodyBlock in core.js, server-side and unrelated to the viewmodel.
+            'Shield': { path: '/assets/weapons/shield.glb', axis: 'z', fp: { length: 2.55, pos: [-2.6, -0.28, 0.5], rot: [0, 0, 0] }, tp: { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] } },
             // Measured from the GLB's own world-space bounds, not guessed: the
             // tube runs along Z (span 8.08) with X only 0.73 wide, the sight sits
             // at +Y and the grips hang at -Y, and the warhead protrudes toward
