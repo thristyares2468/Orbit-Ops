@@ -197,9 +197,14 @@
     // Frontal cover, as the cosine of the half-angle so the server can compare it
     // straight against a dot product.
     arcCos: Math.cos((110 * Math.PI / 180) / 2),
-    bodyBlock: 0.85,        // share of a blocked body/leg hit that is absorbed
+    // A hit that the shield catches is caught outright. These were 0.85, which
+    // meant 15% of every blocked round still reached the carrier - damage
+    // "through the shield" from the player's side of it. The shield's cost is
+    // not a leak rate, it is `capacity`: absorb 150 and the guard breaks, and
+    // everything after that lands in full until the stagger ends.
+    bodyBlock: 1,           // share of a blocked body/leg hit that is absorbed
     headBlock: 0,           // standing, the head sits above the shield
-    crouchHeadBlock: 0.85,  // crouched, the carrier is behind it completely
+    crouchHeadBlock: 1,     // crouched, the carrier is behind it completely
     capacity: 150,          // absorbed damage before guard breaks
     staggerMs: 1200,        // guard-down window after capacity is exhausted
     staggerSpeedMult: 0.28,

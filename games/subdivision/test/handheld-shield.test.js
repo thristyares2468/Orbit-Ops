@@ -26,7 +26,9 @@ test('core carries one authoritative shield table', () => {
   const shield = core.SHIELD;
   assert.ok(shield, 'core must export SHIELD');
   assert.equal(shield.weapon, 'Shield');
-  assert.ok(shield.bodyBlock > 0 && shield.bodyBlock < 1, 'a shield reduces damage, it does not erase it');
+  // A block, not a reduction: a round the plate catches does not reach the
+  // carrier at all. The cost is capacity, facing and the fire lockout below.
+  assert.equal(shield.bodyBlock, 1, 'a caught body/leg hit is caught outright');
   assert.equal(shield.headBlock, 0, 'standing, the head is above the shield');
   assert.equal(shield.crouchHeadBlock, shield.bodyBlock, 'crouched, the carrier is behind it completely');
   assert.ok(shield.capacity > 100, 'the guard must absorb a meaningful but finite amount');
@@ -75,20 +77,22 @@ test('the pure resolver enforces facing, posture, fire opening, capacity and sta
   };
 
   const frontBody = core.resolveShieldHit(target, { x: 0, y: 0, z: -10 }, false, 14, now);
-  assert.equal(frontBody.damage, 2);
+  assert.equal(frontBody.damage, 0, 'a caught round does not leak any damage through');
   assert.equal(frontBody.shieldBlocked, true);
-  assert.equal(frontBody.absorbed, 11.9);
+  assert.equal(frontBody.absorbed, 14);
   assert.equal(frontBody.staggered, false);
 
   assert.equal(core.resolveShieldHit(target, { x: 0, y: 0, z: -10 }, true, 56, now).damage, 56,
     'standing headshots clear the plate');
-  assert.equal(core.resolveShieldHit({ ...target, crouching: true }, { x: 0, y: 0, z: -10 }, true, 56, now).damage, 8,
+  assert.equal(core.resolveShieldHit({ ...target, crouching: true }, { x: 0, y: 0, z: -10 }, true, 56, now).damage, 0,
     'crouching brings the head behind the plate');
   assert.equal(core.resolveShieldHit(target, { x: 0, y: 0, z: 10 }, false, 14, now).damage, 14,
     'rear hits bypass it');
   assert.equal(core.resolveShieldHit({ ...target, lastShotAt: now - 50 }, { x: 0, y: 0, z: -10 }, false, 14, now).damage, 14,
     'the short Glock firing opening bypasses it');
 
+  // The only damage that ever reaches a facing carrier is the overflow past
+  // the last of the capacity - this is the guard breaking, not a leak rate.
   const broken = core.resolveShieldHit({ ...target, shieldDamage: 145 }, { x: 0, y: 0, z: -10 }, false, 27, now);
   assert.deepEqual({ damage: broken.damage, absorbed: broken.absorbed, shieldDamage: broken.shieldDamage },
     { damage: 22, absorbed: 5, shieldDamage: core.SHIELD.capacity });
@@ -98,7 +102,7 @@ test('the pure resolver enforces facing, posture, fire opening, capacity and sta
   const duringStagger = core.resolveShieldHit({ ...target, shieldDamage: 150, shieldStaggeredUntil: now + 500 }, { x: 0, y: 0, z: -10 }, false, 27, now);
   assert.equal(duringStagger.damage, 27, 'the broken guard provides no cover');
   const recovered = core.resolveShieldHit({ ...target, shieldDamage: 150, shieldStaggeredUntil: now - 1 }, { x: 0, y: 0, z: -10 }, false, 14, now);
-  assert.equal(recovered.shieldDamage, 11.9, 'the next hit after stagger starts a fresh guard');
+  assert.equal(recovered.shieldDamage, 14, 'the next hit after stagger starts a fresh guard');
 });
 
 test('cover applies to direct fire only', () => {
@@ -229,4 +233,75 @@ test('what the shield actually blocks is server-side, not the model', () => {
   const fpSpec = client.slice(client.indexOf("'Shield': { path:"), client.indexOf("'Shield': { path:") + 400);
   assert.doesNotMatch(fpSpec, /arcCos|bodyBlock|headBlock/u,
     'the viewmodel spec must never carry a gameplay figure');
+});
+
+// --- what OTHER players see the shield carrier holding -----------------------
+
+test('the third-person shield hangs off the torso, not off the swinging arm', () => {
+  // It used to be `leftArmPivot.add(thirdPersonShield)` with position and scale
+  // copied byte-for-byte from thirdPersonWeapon, the RIGHT-hand rifle holder.
+  // The arm pivot carries the support-hand aim pose (rotation.x ~= PI/2.2, plus
+  // a y/z twist) and the walk swing, so the plate came out edge-on above the
+  // head and flapped as the carrier walked. tools/shield-thirdperson.html
+  // renders both: before, the plate measured 2.5 units tall at y 15.8..18.3 -
+  // a sliver through the face; body-locked it is 11.1 tall at y 6.1..17.2,
+  // which is the torso.
+  const decl = client.match(
+    /const thirdPersonShield = new THREE\.Group\(\);[\s\S]{0,400}?\.add\(thirdPersonShield\);/u);
+  assert.ok(decl, 'index.html must build a third-person shield holder');
+  const block = decl[0];
+  assert.match(block, /bodyPivot\.add\(thirdPersonShield\);/u,
+    'the shield must be parented to the torso');
+  assert.doesNotMatch(block, /leftArmPivot\.add\(thirdPersonShield\);/u,
+    'parented to the arm it inherits the aim pose and the walk swing');
+
+  const gun = client.match(
+    /const thirdPersonWeapon = new THREE\.Group\(\);[\s\S]{0,300}?rightArmPivot\.add\(thirdPersonWeapon\);/u);
+  assert.ok(gun, 'index.html must build a third-person weapon holder');
+  const grab = (text, name) => {
+    const pos = text.match(new RegExp(`${name}\\.position\\.set\\(([^)]*)\\)`, 'u'));
+    const scale = text.match(new RegExp(`${name}\\.scale\\.setScalar\\(([^)]*)\\)`, 'u'));
+    return { pos: pos && pos[1].trim(), scale: scale && scale[1].trim() };
+  };
+  const shield = grab(block, 'thirdPersonShield');
+  const rifle = grab(gun[0], 'thirdPersonWeapon');
+  assert.ok(shield.pos && rifle.pos, 'both holders must set a position');
+  assert.notEqual(shield.pos, rifle.pos, 'a shield is not held where a rifle is');
+  assert.notEqual(shield.scale, rifle.scale, 'a body-sized plate is not rifle-sized');
+});
+
+test('a shield carrier braces the off arm instead of swinging it', () => {
+  const brace = client.match(
+    /const SHIELD_THIRD_PERSON_ARM = Object\.freeze\(\{ x: (-?[\d.]+), y: (-?[\d.]+), z: (-?[\d.]+) \}\)/u);
+  assert.ok(brace, 'index.html must declare the shield brace pose');
+  assert.ok(Number(brace[1]) < Math.PI / 2.2,
+    'the braced forearm tucks in behind the plate rather than reaching past it');
+
+  // All three procedural-body pose sites - the streaming-in fallback, remote
+  // players, and the MVP actor - have to agree, or the shield detaches from the
+  // arm on whichever body the viewer happens to be looking at.
+  const uses = client.match(/SHIELD_THIRD_PERSON_ARM/gu) || [];
+  assert.equal(uses.length, 4, 'one declaration and three pose sites');
+  for (const site of ['shieldArmA', 'shieldArm', 'shieldArmC']) {
+    assert.match(client, new RegExp(`const ${site} = [^;]*SHIELD\\.weapon \\? SHIELD_THIRD_PERSON_ARM : null`, 'u'),
+      `${site} must gate the brace on the held weapon`);
+  }
+  // The brace is a constant, so no swing term may reach it.
+  assert.doesNotMatch(client,
+    /SHIELD_THIRD_PERSON_ARM\.x \+ (movingSwing|swing|shootingKick)/u,
+    'the brace must not pick the walk swing back up');
+});
+
+test('an agent-held shield skips the rifle grip corrections', () => {
+  // applyAgentHeldWeaponTransform aims a barrel down the hand: the first of its
+  // corrections is `rig.rotation.x += AGENT_HELD_WEAPON_GRIP_ROT_X`, and that
+  // constant is PI. On a flat plate a half turn about X is just hanging the
+  // shield upside down.
+  assert.match(client, /const AGENT_HELD_WEAPON_GRIP_ROT_X = Math\.PI;/u);
+  const fn = client.slice(client.indexOf('function applyAgentHeldWeaponTransform'));
+  const body = fn.slice(0, fn.indexOf('\n        function ', 1));
+  const shieldReturn = body.indexOf('weaponName === SHIELD.weapon');
+  const gripRoll = body.indexOf('AGENT_HELD_WEAPON_GRIP_ROT_X');
+  assert.ok(shieldReturn > 0, 'the shield must have its own branch');
+  assert.ok(shieldReturn < gripRoll, 'and it must return before the rifle grip roll');
 });

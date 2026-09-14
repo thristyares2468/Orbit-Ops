@@ -4981,10 +4981,11 @@
                     joints.body.position.y = THREE.MathUtils.lerp(joints.body.position.y, 10, lerpSpeed);
                     joints.body.rotation.x = THREE.MathUtils.lerp(joints.body.rotation.x, 0.04, lerpSpeed);
                     joints.rightArm.rotation.x = THREE.MathUtils.lerp(joints.rightArm.rotation.x, isKnife ? Math.PI / 2.8 : Math.PI / 2.2, lerpSpeed);
-                    joints.leftArm.rotation.x = THREE.MathUtils.lerp(joints.leftArm.rotation.x, isKnife ? 0 : Math.PI / 2.2, lerpSpeed);
-                    joints.leftArm.rotation.y = THREE.MathUtils.lerp(joints.leftArm.rotation.y, isKnife ? 0 : -0.34, lerpSpeed);
+                    const shieldArmA = data.weapon === SHIELD.weapon ? SHIELD_THIRD_PERSON_ARM : null;
+                    joints.leftArm.rotation.x = THREE.MathUtils.lerp(joints.leftArm.rotation.x, shieldArmA ? shieldArmA.x : (isKnife ? 0 : Math.PI / 2.2), lerpSpeed);
+                    joints.leftArm.rotation.y = THREE.MathUtils.lerp(joints.leftArm.rotation.y, shieldArmA ? shieldArmA.y : (isKnife ? 0 : -0.34), lerpSpeed);
                     joints.rightArm.rotation.y = THREE.MathUtils.lerp(joints.rightArm.rotation.y, isKnife ? 0 : 0.34, lerpSpeed);
-                    joints.leftArm.rotation.z = THREE.MathUtils.lerp(joints.leftArm.rotation.z, isKnife ? 0 : 0.42, lerpSpeed);
+                    joints.leftArm.rotation.z = THREE.MathUtils.lerp(joints.leftArm.rotation.z, shieldArmA ? shieldArmA.z : (isKnife ? 0 : 0.42), lerpSpeed);
                     joints.rightArm.rotation.z = THREE.MathUtils.lerp(joints.rightArm.rotation.z, isKnife ? 0.15 : -0.42, lerpSpeed);
                     joints.leftLeg.rotation.x = THREE.MathUtils.lerp(joints.leftLeg.rotation.x, 0, lerpSpeed);
                     joints.rightLeg.rotation.x = THREE.MathUtils.lerp(joints.rightLeg.rotation.x, 0, lerpSpeed);
@@ -8000,6 +8001,11 @@
         // Remote C4 charge: geometry, blast and arming delay, shared via core.js.
         const C4 = window.GameCore.C4;
         // Handheld shield cover rules were loaded above with the weapon table.
+        // Third-person brace for a shield carrier's left arm. The default
+        // support-hand pose reaches out past the plate; this tucks the forearm
+        // in behind it and is deliberately swing-free, so the body-locked
+        // shield and the arm holding it never separate while walking.
+        const SHIELD_THIRD_PERSON_ARM = Object.freeze({ x: 1.05, y: -0.55, z: 0.55 });
         const SHIELD_VIEW_BOB_SCALE = 0.25;
         // Admin testing room: per-room overrides for prices / availability / mode /
         // map size. null in normal rooms (helpers fall back to the constants above).
@@ -16204,6 +16210,8 @@
             const weaponBone = findAgentWeaponHandBone(model, hand);
             if (!weaponBone) return null;
             const holder = new THREE.Group();
+            // Only the initial pose - prepareAgentWeaponHolder re-authors all
+            // three of these per weapon the moment anything is attached.
             const wpos = spec.weaponPos || [0, 0, 0];
             const wrot = spec.weaponRot || [0, 0, 0];
             holder.name = `agent-${hand}-hand-weapon-holder`;
@@ -17079,6 +17087,13 @@
             // float away from the hand. Remove that body offset and flip the GLB
             // into the imported agent's grip space.
             rig.position.set(0, 0, 0);
+            if (weaponName === SHIELD.weapon) {
+                // A shield is not rifle-gripped. The corrections below exist to
+                // point a barrel down the hand - the first of them is a half
+                // turn about X, which on a flat plate simply hangs it upside
+                // down. The holder's own hold above is what aims a shield.
+                return;
+            }
             rig.rotation.x += AGENT_HELD_WEAPON_GRIP_ROT_X;
             if (AGENT_HELD_GRENADES.has(weaponName)) {
                 // Utility is not rifle-gripped. Keep the cap/pin side upright and
@@ -19633,11 +19648,18 @@
             thirdPersonWeapon.scale.setScalar(1.12);
             rightArmPivot.add(thirdPersonWeapon);
             buildThirdPersonWeaponModel(thirdPersonWeapon, 'AK47');
+            // The shield hangs off the TORSO, not off leftArmPivot. Parented to
+            // the arm it inherited the support-hand aim pose (rotation.x ~82
+            // degrees, plus a y/z twist and the walk swing) on top of a hold
+            // transform copied verbatim from the right-hand rifle - so it came
+            // out edge-on, rotated into the body and flapping as the player
+            // walked. Body-locked, it is a stable plate in front of the chest
+            // and the braced left arm below sits behind it.
             const thirdPersonShield = new THREE.Group();
             thirdPersonShield.name = 'third-person-left-hand-shield';
-            thirdPersonShield.position.set(0, -8.6, -0.7);
-            thirdPersonShield.scale.setScalar(1.12);
-            leftArmPivot.add(thirdPersonShield);
+            thirdPersonShield.position.set(-1.2, 1.2, -3.6);
+            thirdPersonShield.scale.setScalar(2.45);
+            bodyPivot.add(thirdPersonShield);
 
             const leftLegPivot = new THREE.Group(); leftLegPivot.position.set(-2, 10, 0); group.add(leftLegPivot);
             const leftLeg = addMesh(new THREE.BoxGeometry(3, 9, 3), mPants, leftLegPivot, 0, -4.5, 0);
@@ -19862,15 +19884,16 @@
                     const bodyY = data.isCrouching ? 6 : 10;
                     const bodyRotX = data.isCrouching ? 0.18 : 0.04;
                     const rightArmX = (isKnife ? Math.PI / 2.8 : Math.PI / 2.2) + shootingKick + movingSwing;
-                    const leftArmX = isKnife ? Math.sin(data.animPhase) * 0.05 : Math.PI / 2.2 + shootingKick + movingSwing * 0.6;
+                    const shieldArm = data.weapon === SHIELD.weapon ? SHIELD_THIRD_PERSON_ARM : null;
+                    const leftArmX = shieldArm ? shieldArm.x : (isKnife ? Math.sin(data.animPhase) * 0.05 : Math.PI / 2.2 + shootingKick + movingSwing * 0.6);
                     const legSwing = data.isMoving ? Math.sin(time * 0.014 + data.animPhase) * 0.45 : 0;
                     joints.body.position.y = THREE.MathUtils.lerp(joints.body.position.y, bodyY, lerpSpd);
                     joints.body.rotation.x = THREE.MathUtils.lerp(joints.body.rotation.x, bodyRotX, lerpSpd);
                     joints.rightArm.rotation.x = THREE.MathUtils.lerp(joints.rightArm.rotation.x, rightArmX, lerpSpd);
                     joints.leftArm.rotation.x = THREE.MathUtils.lerp(joints.leftArm.rotation.x, leftArmX, lerpSpd);
-                    joints.leftArm.rotation.y = THREE.MathUtils.lerp(joints.leftArm.rotation.y, isKnife ? 0 : -0.34, lerpSpd);
+                    joints.leftArm.rotation.y = THREE.MathUtils.lerp(joints.leftArm.rotation.y, shieldArm ? shieldArm.y : (isKnife ? 0 : -0.34), lerpSpd);
                     joints.rightArm.rotation.y = THREE.MathUtils.lerp(joints.rightArm.rotation.y, isKnife ? 0 : 0.34, lerpSpd);
-                    joints.leftArm.rotation.z = THREE.MathUtils.lerp(joints.leftArm.rotation.z, isKnife ? 0 : 0.42, lerpSpd);
+                    joints.leftArm.rotation.z = THREE.MathUtils.lerp(joints.leftArm.rotation.z, shieldArm ? shieldArm.z : (isKnife ? 0 : 0.42), lerpSpd);
                     joints.rightArm.rotation.z = THREE.MathUtils.lerp(joints.rightArm.rotation.z, isKnife ? 0.15 : -0.42, lerpSpd);
                     joints.leftLeg.rotation.x = THREE.MathUtils.lerp(joints.leftLeg.rotation.x, -legSwing, lerpSpd);
                     joints.rightLeg.rotation.x = THREE.MathUtils.lerp(joints.rightLeg.rotation.x, legSwing, lerpSpd);
@@ -21111,14 +21134,15 @@
             const isKnife = data.weapon === 'Knife';
             const bodyY = 10 + (moving ? Math.abs(Math.sin(phase)) * 0.35 : 0);
             const rightArmX = (isKnife ? Math.PI / 2.8 : Math.PI / 2.2) + movingSwing;
-            const leftArmX = isKnife ? Math.sin(phase) * 0.05 : Math.PI / 2.2 + movingSwing * 0.6;
+            const shieldArmC = data.weapon === SHIELD.weapon ? SHIELD_THIRD_PERSON_ARM : null;
+            const leftArmX = shieldArmC ? shieldArmC.x : (isKnife ? Math.sin(phase) * 0.05 : Math.PI / 2.2 + movingSwing * 0.6);
             joints.body.position.y = THREE.MathUtils.lerp(joints.body.position.y, bodyY, lerpSpd);
             joints.body.rotation.x = THREE.MathUtils.lerp(joints.body.rotation.x, 0.04, lerpSpd);
             joints.rightArm.rotation.x = THREE.MathUtils.lerp(joints.rightArm.rotation.x, rightArmX, lerpSpd);
             joints.leftArm.rotation.x = THREE.MathUtils.lerp(joints.leftArm.rotation.x, leftArmX, lerpSpd);
-            joints.leftArm.rotation.y = THREE.MathUtils.lerp(joints.leftArm.rotation.y, isKnife ? 0 : -0.34, lerpSpd);
+            joints.leftArm.rotation.y = THREE.MathUtils.lerp(joints.leftArm.rotation.y, shieldArmC ? shieldArmC.y : (isKnife ? 0 : -0.34), lerpSpd);
             joints.rightArm.rotation.y = THREE.MathUtils.lerp(joints.rightArm.rotation.y, isKnife ? 0 : 0.34, lerpSpd);
-            joints.leftArm.rotation.z = THREE.MathUtils.lerp(joints.leftArm.rotation.z, isKnife ? 0 : 0.42, lerpSpd);
+            joints.leftArm.rotation.z = THREE.MathUtils.lerp(joints.leftArm.rotation.z, shieldArmC ? shieldArmC.z : (isKnife ? 0 : 0.42), lerpSpd);
             joints.rightArm.rotation.z = THREE.MathUtils.lerp(joints.rightArm.rotation.z, isKnife ? 0.15 : -0.42, lerpSpd);
             joints.leftLeg.rotation.x = THREE.MathUtils.lerp(joints.leftLeg.rotation.x, -legSwing, lerpSpd);
             joints.rightLeg.rotation.x = THREE.MathUtils.lerp(joints.rightLeg.rotation.x, legSwing, lerpSpd);

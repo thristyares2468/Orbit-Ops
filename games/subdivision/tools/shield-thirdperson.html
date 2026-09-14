@@ -1,0 +1,212 @@
+<!doctype html><meta charset="utf-8"><title>Third-person shield playtest</title>
+<style>body{margin:0;background:#1b1f24;color:#ddd;font:12px monospace}
+#out{padding:6px;white-space:pre}#grid{display:flex;flex-wrap:wrap;gap:4px;padding:4px}
+figure{margin:0}figcaption{text-align:center;padding:2px}</style>
+<div id="out">loading…</div><div id="grid"></div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/utils/SkeletonUtils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/utils/WorkerPool.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/KTX2Loader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/loaders/DRACOLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/libs/meshopt_decoder.js"></script>
+<script>
+// What another player SEES when a teammate carries the shield. Both bodies
+// exist in game - the procedural box rig (shown until a character GLB streams
+// in, and in modes that never load one) and the imported agent - so both are
+// rendered here from the same transforms index.html uses.
+const W = 560, H = 720;
+const PLAYER_VISUAL_HEIGHT = 22.5;
+const SHIELD_THIRD_PERSON_ARM = { x: 1.05, y: -0.55, z: 0.55 };
+const AGENT_SPEC = { path: '/assets/characters/ct/SAS.glb', height: PLAYER_VISUAL_HEIGHT,
+  modelRot: [0, Math.PI, 0], modelYOffset: 11.3 };
+const AGENT_SHIELD_POS = [0.22, 0.06, -0.34];   // handSign is +1 for the left hand
+const AGENT_SHIELD_ROT = [0, -Math.PI / 2, 0];
+const AGENT_SHIELD_SCALE = 3.6;
+const SHIELD_TP = { length: 3.4, pos: [0, 0.1, -0.5], rot: [0, Math.PI, 0] };
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: false });
+renderer.setSize(W, H);
+const grid = document.getElementById('grid');
+const out = document.getElementById('out');
+
+function newScene() {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x20262d);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+  const key = new THREE.DirectionalLight(0xffffff, 0.8); key.position.set(-20, 30, -25); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.4); fill.position.set(25, 12, 20); scene.add(fill);
+  return scene;
+}
+
+// index.html's buildWeaponAssetInstance: centre the GLB, scale its longest axis
+// to viewSpec.length, then offset/rotate by the spec.
+function weaponRig(model, viewSpec) {
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  // buildWeaponAssetInstance multiplies third-person lengths by 1.32.
+  const scale = (viewSpec.length * 1.32) / (Math.max(size.x, size.y, size.z) || 1);
+  model.scale.setScalar(scale);
+  model.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+  const rig = new THREE.Group(); rig.add(model);
+  rig.position.set(...viewSpec.pos);
+  rig.rotation.set(...viewSpec.rot);
+  return rig;
+}
+
+// The procedural box body from index.html, reduced to what bears on the shield:
+// bodyPivot, both arm pivots, the torso and the legs, at their real dimensions.
+function buildBoxBody(shieldMount) {
+  const group = new THREE.Group();
+  const mShirt = new THREE.MeshPhongMaterial({ color: 0x2b3a42 });
+  const mPants = new THREE.MeshPhongMaterial({ color: 0x1a2421 });
+  const mArmor = new THREE.MeshPhongMaterial({ color: 0x111111 });
+  const mSkin = new THREE.MeshPhongMaterial({ color: 0xffccaa });
+  const mHelmet = new THREE.MeshPhongMaterial({ color: 0x223322 });
+  const mGlove = new THREE.MeshPhongMaterial({ color: 0x050505 });
+  const add = (geo, mat, parent, x, y, z) => {
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m;
+  };
+  const bodyPivot = new THREE.Group(); bodyPivot.position.y = 10; group.add(bodyPivot);
+  add(new THREE.BoxGeometry(7, 8, 4), mShirt, bodyPivot, 0, 4, 0);
+  add(new THREE.BoxGeometry(7.2, 5, 4.2), mArmor, bodyPivot, 0, 4.5, 0);
+  const headPivot = new THREE.Group(); headPivot.position.set(0, 8, 0); bodyPivot.add(headPivot);
+  add(new THREE.BoxGeometry(4, 4, 4), mSkin, headPivot, 0, 2, 0);
+  add(new THREE.BoxGeometry(4.2, 2.2, 4.2), mHelmet, headPivot, 0, 3.2, 0);
+  const leftArmPivot = new THREE.Group(); leftArmPivot.position.set(-4.5, 7, 0); bodyPivot.add(leftArmPivot);
+  add(new THREE.BoxGeometry(2, 7, 2), mShirt, leftArmPivot, 0, -3.5, 0);
+  add(new THREE.BoxGeometry(2.2, 2, 2.2), mGlove, leftArmPivot, 0, -7.5, 0);
+  const rightArmPivot = new THREE.Group(); rightArmPivot.position.set(4.5, 7, 0); bodyPivot.add(rightArmPivot);
+  add(new THREE.BoxGeometry(2, 7, 2), mShirt, rightArmPivot, 0, -3.5, 0);
+  add(new THREE.BoxGeometry(2.2, 2, 2.2), mGlove, rightArmPivot, 0, -7.5, 0);
+  for (const [x] of [[-2], [2]]) {
+    const leg = new THREE.Group(); leg.position.set(x, 10, 0); group.add(leg);
+    add(new THREE.BoxGeometry(3, 9, 3), mPants, leg, 0, -4.5, 0);
+  }
+  const shield = new THREE.Group();
+  shield.position.set(...shieldMount.pos);
+  shield.scale.setScalar(shieldMount.scale);
+  (shieldMount.parent === 'arm' ? leftArmPivot : bodyPivot).add(shield);
+  return { group, bodyPivot, leftArmPivot, rightArmPivot, shield };
+}
+
+function poseArms(rig, shieldHeld, swing) {
+  const arm = shieldHeld ? SHIELD_THIRD_PERSON_ARM : { x: Math.PI / 2.2 + swing * 0.6, y: -0.34, z: 0.42 };
+  rig.leftArmPivot.rotation.set(arm.x, arm.y, arm.z);
+  rig.rightArmPivot.rotation.set(Math.PI / 2.2 + swing, 0.34, -0.42);
+  rig.bodyPivot.rotation.x = 0.04;
+}
+
+// Framed on the subject's own bounding box - the box rig stands on y=0 while
+// the imported agent is lifted by modelYOffset, so one fixed camera would show
+// two different halves of the two bodies.
+function shot(scene, yawDeg, label, focus = { y: 12, r: 46, x: 0 }) {
+  const cam = new THREE.PerspectiveCamera(45, W / H, 0.1, 500);
+  const r = focus.r, a = yawDeg * Math.PI / 180;
+  const cx = focus.cx || 0, cz = focus.cz || 0;
+  cam.position.set(cx + Math.sin(a) * r, focus.y + 2, cz + Math.cos(a) * r);
+  cam.lookAt(cx, focus.y, cz);
+  renderer.render(scene, cam);
+  const fig = document.createElement('figure');
+  const img = new Image(); img.src = renderer.domElement.toDataURL();
+  img.width = W; img.height = H;
+  const cap = document.createElement('figcaption'); cap.textContent = label;
+  fig.appendChild(img); fig.appendChild(cap); grid.appendChild(fig);
+}
+
+// Same loader wiring as index.html's configureGltfLoader - the character GLBs
+// carry KTX2 textures and the loader refuses them without a transcoder.
+const loader = new THREE.GLTFLoader();
+if (window.MeshoptDecoder) loader.setMeshoptDecoder(window.MeshoptDecoder);
+loader.setDRACOLoader(new THREE.DRACOLoader().setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/libs/draco/'));
+loader.setKTX2Loader(new THREE.KTX2Loader()
+  .setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.135.0/examples/js/libs/basis/')
+  .detectSupport(renderer));
+const load = (url) => new Promise((res, rej) => loader.load(url, res, undefined, rej));
+
+(async () => {
+  const lines = [];
+  const shieldGlb = await load('/assets/weapons/shield.glb');
+
+  // --- procedural box body: before (arm-parented, gun transform) vs after ---
+  const cases = [
+    { name: 'BEFORE box rig', mount: { parent: 'arm', pos: [0, -8.6, -0.7], scale: 1.12 }, braced: false },
+    { name: 'AFTER box rig',  mount: { parent: 'body', pos: [-1.2, 1.2, -3.6], scale: 2.45 }, braced: true }
+  ];
+  for (const c of cases) {
+    const scene = newScene();
+    const rig = buildBoxBody(c.mount);
+    rig.shield.add(weaponRig(shieldGlb.scene.clone(true), SHIELD_TP));
+    poseArms(rig, c.braced, 0.18);   // mid-stride, where the old swing was worst
+    scene.add(rig.group);
+    rig.group.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(rig.shield);
+    lines.push(`${c.name.padEnd(16)} plate world x=${box.min.x.toFixed(1)}..${box.max.x.toFixed(1)} `
+      + `y=${box.min.y.toFixed(1)}..${box.max.y.toFixed(1)} z=${box.min.z.toFixed(1)}..${box.max.z.toFixed(1)}`);
+    const bodyBox = new THREE.Box3().setFromObject(rig.group);
+    const focus = { cx: 0, cz: 0, y: (bodyBox.min.y + bodyBox.max.y) / 2, r: 46 };
+    for (const [yaw, view] of [[180, 'front'], [135, '3/4'], [90, 'side']]) shot(scene, yaw, `${c.name} ${view}`, focus);
+  }
+
+  // --- imported agent: sweep the off-hand holder offset around the rifle hold ---
+  const agent = await load(AGENT_SPEC.path);
+  const agentCases = [{ name: 'BEFORE', pos: [0.1, 0.1, -0.14], rot: [0, Math.PI / 2, 0], scale: 2.2, gripRoll: true }];
+  // Candidate off-hand holds come in through the URL hash so the sweep can be
+  // re-run without editing the file: #[{"name":"a","pos":[..],"rot":[..],"scale":2.2}]
+  try { for (const cand of JSON.parse(decodeURIComponent(location.hash.slice(1)) || '[]')) agentCases.push(cand); } catch (e) { lines.push('bad hash: ' + e); }
+  for (const c of agentCases) {
+    const scene = newScene();
+    const model = THREE.SkeletonUtils.clone(agent.scene);
+    const raw = new THREE.Box3().setFromObject(model);
+    const s = AGENT_SPEC.height / (raw.getSize(new THREE.Vector3()).y || 1);
+    model.scale.setScalar(s);
+    model.rotation.set(...AGENT_SPEC.modelRot);
+    model.position.y = AGENT_SPEC.modelYOffset;
+    // The agent is not in its T-pose in game: it holds ref_aim_ak47_blend05.
+    if (agent.animations?.length) {
+      const mixer = new THREE.AnimationMixer(model);
+      const clip = agent.animations.find((x) => /ref_aim_ak47_blend05/i.test(x.name)) || agent.animations[0];
+      mixer.clipAction(clip).play();
+      mixer.update(0);
+    }
+    let hand = null;
+    model.traverse((o) => { if (!hand && o.isBone && /(?:^|[_\s.-])L[_\s.-]*Hand$|hand[_\s.-]*L/i.test(o.name)) hand = o; });
+    if (!hand) { lines.push(`${c.name}: NO LEFT HAND BONE`); continue; }
+    const holder = new THREE.Group();
+    holder.position.set(...c.pos);
+    holder.rotation.set(...c.rot);
+    holder.scale.setScalar(c.scale / s);
+    hand.add(holder);
+    const agentRig = weaponRig(shieldGlb.scene.clone(true), c.tp || SHIELD_TP);
+    if (c.gripRoll) {
+      // applyAgentHeldWeaponTransform's firearm corrections, verbatim:
+      // AGENT_HELD_WEAPON_GRIP_ROT_X = PI, AGENT_HELD_WEAPON_ROTATE_Y = -PI/2,
+      // AGENT_HELD_FIREARM_PITCH_Z = 0. It also zeroes the rig offset first.
+      agentRig.position.set(0, 0, 0);
+      agentRig.rotation.x += Math.PI;
+      agentRig.rotation.y += -Math.PI / 2;
+    }
+    holder.add(agentRig);
+    scene.add(model);
+    model.updateMatrixWorld(true);
+    const plate = new THREE.Box3().setFromObject(holder);
+    // Box3.setFromObject ignores `visible`, so detach rather than hide.
+    hand.remove(holder);
+    model.updateMatrixWorld(true);
+    const body = new THREE.Box3().setFromObject(model);
+    hand.add(holder);
+    model.updateMatrixWorld(true);
+    const f = (n) => n.toFixed(1).padStart(6);
+    const hp = hand.getWorldPosition(new THREE.Vector3());
+    lines.push(`${c.name.padEnd(22)} plate x${f(plate.min.x)}..${f(plate.max.x)} y${f(plate.min.y)}..${f(plate.max.y)} z${f(plate.min.z)}..${f(plate.max.z)}`
+      + `  | hand ${f(hp.x)},${f(hp.y)},${f(hp.z)} | body y${f(body.min.y)}..${f(body.max.y)} z${f(body.min.z)}..${f(body.max.z)}`);
+    const focus = { cx: (body.min.x + body.max.x) / 2, cz: (body.min.z + body.max.z) / 2,
+                    y: (body.min.y + body.max.y) / 2, r: 46 };
+    for (const [yaw, view] of [[180, 'front'], [135, '3/4'], [90, 'side']]) shot(scene, yaw, `${c.name} ${view}`, focus);
+  }
+
+  out.textContent = lines.join('\n');
+  window.__done = true;
+})().catch((e) => { out.textContent = 'FAIL ' + e; window.__done = true; });
+</script>
