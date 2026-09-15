@@ -64,6 +64,34 @@ test('a deployed panel is solid cover on the client', () => {
   assert.match(client, /barricadeId;\s*\n\s*if \(barricadeId\) \{\s*\n\s*reportBarricadeHit/, 'bullet impacts report to the server');
 });
 
+test('the deployed panel wears the authored model, fitted to its collider', () => {
+  const glb = path.join(ROOT, 'assets/weapons/barricade.glb');
+  assert.ok(fs.existsSync(glb), 'the barricade model must ship with the client');
+  const bytes = fs.readFileSync(glb);
+  assert.equal(bytes.toString('utf8', 0, 4), 'glTF', 'models are binary glTF');
+  assert.ok(bytes.length < 1024 * 1024);
+  const json = JSON.parse(bytes.toString('utf8', 20, 20 + bytes.readUInt32LE(12)));
+  // Blender left both materials on the glTF defaults (metallic 1), which renders
+  // as near-black in three.js with no environment map.
+  for (const material of json.materials) {
+    assert.equal(material.pbrMetallicRoughness?.metallicFactor, 0, `${material.name} must not ship fully metallic`);
+  }
+  assert.match(client, /'Barricade': \{ path: '\/assets\/weapons\/barricade\.glb'/);
+  // Fitted per-axis to the collider, so what is drawn is what stops bullets.
+  assert.match(client, /BARRICADE\.width \/ \(size\.x \|\| 1\)[\s\S]{0,120}BARRICADE\.height \/ \(size\.y \|\| 1\)[\s\S]{0,120}BARRICADE\.thickness \/ \(size\.z \|\| 1\)/);
+  // The collider stays raycastable once the model covers it, and the shared
+  // asset must survive the panel being removed.
+  assert.match(client, /body\.material\.opacity = 0;/);
+  assert.match(client, /model\.userData\.isSharedAsset = true;/);
+  assert.match(client, /if \(child\.userData\?\.isSharedAsset\) continue;/);
+  // What you carry is the folded panel, which only exists procedurally. Order,
+  // not adjacency: other weapons guard the same call.
+  const build = client.slice(client.indexOf('function buildGunModel'));
+  const guard = build.indexOf("wp.kind === 'barricade'");
+  const attach = build.indexOf('attachWeaponAsset(');
+  assert.ok(guard > 0 && attach > guard, 'the carried barricade must keep its procedural model');
+});
+
 test('the client never places a panel on its own authority', () => {
   const deploy = client.slice(client.indexOf('function attemptDeployBarricade'));
   const body = deploy.slice(0, deploy.indexOf('\n        }\n'));

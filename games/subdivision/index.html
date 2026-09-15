@@ -7535,6 +7535,10 @@
             'Smoke': { path: '/assets/weapons/smokegrenade.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.62, pos: [-0.32, 0.34, 0.8], rot: [1.04, 0, -1.38] }, tp: { length: 1.0, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'Flash': { path: '/assets/weapons/flashbang.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.68, pos: [-0.28, 0.22, 0.58], rot: [0.96, 0, 0.8] }, tp: { length: 1.0, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'Molotov': { path: '/assets/models/molotov.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.72, pos: [-0.72, 0.76, 1.36], rot: [1.08, 0, 0] }, tp: { length: 1.15, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
+            // World panel only - buildGunModel keeps the folded procedural version in
+            // the hands. The fp/tp entries exist because loadWeaponAsset requires a
+            // spec to resolve the path at all.
+            'Barricade': { path: '/assets/weapons/barricade.glb', axis: 'z', fp: { length: 1.25, pos: [-0.55, 0.18, 0.85], rot: [0, 0, 0] }, tp: { length: 2.2, pos: [0, 0, -0.3], rot: [0, Math.PI, 0] } },
             'C4': { path: '/assets/weapons/c4.glb', axis: 'z', fp: { length: 1.05, pos: [-0.6, 0.32, 1.15], rot: [0.28, Math.PI + 0.24, 0.16] }, tp: { length: 1.4, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'Breacher': { path: '/assets/weapons/breacher.glb', axis: 'x', fp: { length: 3.15, pos: [-0.28, -0.16, -0.78] }, tp: { length: 4.6, pos: [0, 0.04, -1.78] } },
             // rot [0,0,0] on purpose: the panel has to face square down the view.
@@ -17369,6 +17373,10 @@
             // The C4 asset is the charge itself. Once one is planted the slot holds
             // the detonator, which is procedural, so the asset must not replace it.
             if (wp.kind === 'c4' && myLiveC4Charge()) return;
+            // The barricade asset is the deployed panel, a full-height barrier. What
+            // you carry is the folded one, which only exists procedurally, so the
+            // hands keep it and the authored model stays in the world.
+            if (wp.kind === 'barricade') return;
             attachWeaponAsset(weaponAssetParent, wp.name, 'firstPerson', equippedItem);
             if (shieldSidearmAssetParent) {
                 attachWeaponAsset(shieldSidearmAssetParent, SHIELD.sidearmWeapon, 'firstPerson', equippedSkinItem(SHIELD.sidearmWeapon));
@@ -23070,23 +23078,30 @@
                 return group;
             }
 
+            // Placeholder frame, shown until the authored panel loads.
+            const placeholder = [];
             const frameMat = new THREE.MeshPhongMaterial({ color: 0x2f3841, shininess: 40 });
             const stripeMat = new THREE.MeshPhongMaterial({ color: 0xd9a12b });
             for (const side of [-1, 1]) {
                 const post = new THREE.Mesh(new THREE.BoxGeometry(0.9, height, thickness + 0.5), frameMat);
                 post.position.set(side * (width / 2 - 0.45), height / 2, 0);
                 group.add(post);
+                placeholder.push(post);
                 const foot = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.6, thickness + 4.2), frameMat);
                 foot.position.set(side * (width / 2 - 1.2), 0.3, 0);
                 group.add(foot);
+                placeholder.push(foot);
                 const brace = new THREE.Mesh(new THREE.BoxGeometry(0.5, height * 0.75, 0.5), frameMat);
                 brace.position.set(side * (width / 2 - 1.2), height * 0.38, thickness / 2 + 1.5);
                 brace.rotation.x = -0.42;
                 group.add(brace);
+                placeholder.push(brace);
             }
             const stripe = new THREE.Mesh(new THREE.BoxGeometry(width - 1.6, 1.1, thickness + 0.2), stripeMat);
             stripe.position.y = height - 2.6;
             group.add(stripe);
+            placeholder.push(stripe);
+            group.userData.placeholder = placeholder;
 
             // Health strip along the top edge, anchored left so it drains sideways.
             const fillGeometry = new THREE.BoxGeometry(width - 1.2, 0.5, thickness + 0.3);
@@ -23095,7 +23110,50 @@
             fill.position.set(-(width - 1.2) / 2, height - 0.55, 0);
             group.add(fill);
             group.userData.healthFill = fill;
+            attachDeployedBarricadeModel(group);
             return group;
+        }
+
+        // The authored panel replaces the placeholder box once it loads. It is fitted
+        // to the collider rather than scaled uniformly, so the thing you can see is
+        // exactly the thing that stops bullets - the box stays in the scene as that
+        // collider, just no longer drawn.
+        function attachDeployedBarricadeModel(group) {
+            const promise = typeof loadWeaponAsset === 'function' ? loadWeaponAsset('Barricade') : null;
+            if (!promise) return;
+            promise.then((template) => {
+                if (!template || !group.parent) return;
+                const model = template.clone(true);
+                const box = new THREE.Box3().setFromObject(model);
+                const size = box.getSize(new THREE.Vector3());
+                const centre = box.getCenter(new THREE.Vector3());
+                model.scale.set(
+                    BARRICADE.width / (size.x || 1),
+                    BARRICADE.height / (size.y || 1),
+                    BARRICADE.thickness / (size.z || 1)
+                );
+                model.position.set(
+                    -centre.x * model.scale.x,
+                    -centre.y * model.scale.y + BARRICADE.height / 2,
+                    -centre.z * model.scale.z
+                );
+                model.traverse((child) => {
+                    if (!child.isMesh) return;
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                });
+                // Cloned from the shared weapon-asset cache: its geometry and textures
+                // belong to the cache, so removal must not dispose them.
+                model.userData.isSharedAsset = true;
+                group.add(model);
+                const body = group.userData.body;
+                if (body?.material) {
+                    body.material.transparent = true;
+                    body.material.opacity = 0;
+                    body.material.depthWrite = false;
+                }
+                for (const part of group.userData.placeholder || []) part.visible = false;
+            }).catch(() => {});
         }
 
         function applyBarricadeHealthVisual(group, health, maxHealth) {
@@ -23106,7 +23164,11 @@
                 fill.material.color.setHex(ratio > 0.6 ? 0x6fe08a : (ratio > 0.3 ? 0xe3c86f : 0xe3563f));
             }
             const body = group.userData.body;
-            if (body) body.material.color.setHex(BARRICADE_STEEL).lerp(new THREE.Color(BARRICADE_SCORCHED), (1 - ratio) * 0.75);
+            // Only tints while the placeholder is what you see; once the authored
+            // panel is in, the health strip carries the damage read instead.
+            if (body?.visible && body.material.opacity !== 0) {
+                body.material.color.setHex(BARRICADE_STEEL).lerp(new THREE.Color(BARRICADE_SCORCHED), (1 - ratio) * 0.75);
+            }
             group.userData.health = Number(health) || 0;
         }
 
@@ -23140,11 +23202,14 @@
             objects = objects.filter(obj => obj.userData?.barricadeId !== key);
             mapObjects = mapObjects.filter(obj => obj.userData?.barricadeId !== key);
             group.removeFromParent?.();
-            group.traverse?.((child) => {
-                child.geometry?.dispose?.();
-                if (Array.isArray(child.material)) child.material.forEach(mat => mat?.dispose?.());
-                else child.material?.dispose?.();
-            });
+            for (const child of group.children) {
+                if (child.userData?.isSharedAsset) continue; // owned by the asset cache
+                child.traverse?.((node) => {
+                    node.geometry?.dispose?.();
+                    if (Array.isArray(node.material)) node.material.forEach(mat => mat?.dispose?.());
+                    else node.material?.dispose?.();
+                });
+            }
             if (options.destroyed) {
                 const centre = group.position.clone().setY(group.position.y + BARRICADE.height / 2);
                 spawnBarricadeDebris(centre);

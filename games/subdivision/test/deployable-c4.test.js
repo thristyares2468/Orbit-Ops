@@ -103,7 +103,12 @@ test('the authored charge model is wired to the asset loader', () => {
   assert.match(client, /'C4': \{ path: '\/assets\/weapons\/c4\.glb', axis: 'z'/);
   // The asset is the charge; the detonator that replaces it is procedural, so
   // the loader must be skipped in that state or it overwrites the view model.
-  assert.match(client, /if \(wp\.kind === 'c4' && myLiveC4Charge\(\)\) return;\n\s*attachWeaponAsset\(weaponGroup/);
+  // Order, not adjacency: other weapons guard the same call, and the parent it
+  // attaches to has been renamed once already.
+  const build = client.slice(client.indexOf('function buildGunModel'));
+  const guard = build.indexOf("wp.kind === 'c4' && myLiveC4Charge()");
+  const attach = build.indexOf('attachWeaponAsset(');
+  assert.ok(guard > 0 && attach > guard, 'the C4 detonator guard must run before the asset is attached');
   // Clones share the cache's geometry and textures - removing a charge must not
   // dispose them, or the next charge renders broken.
   assert.match(client, /model\.userData\.isSharedAsset = true;/);
