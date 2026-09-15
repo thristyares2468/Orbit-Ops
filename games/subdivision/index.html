@@ -7323,6 +7323,7 @@
             if (!weaponGroup || !wp) return camera?.getWorldPosition(new THREE.Vector3()) || null;
             weaponGroup.updateMatrixWorld(true);
             const local = (wp.muzzleOffset || wp.barrelOffset || new THREE.Vector3()).clone();
+            if (wp.name === 'Dual Berettas') local.set(dualShotSide * 0.78 - WEAPON_REST_POS.x, 0.12, -1.62);
             return local.applyMatrix4(weaponGroup.matrixWorld);
         }
         function soundHitConfirm(context = {}) {
@@ -7363,7 +7364,7 @@
             { id: 15, name: 'Five-SeveN', type: 'pistol', damage: 31, armorDamage: wdmg('Five-SeveN'), rangeMod: 0.9, firerate: 0.15, spreadBase: 0.011, spreadMove: 0.045, mag: 20, reserve: 100, auto: false, speedMult: 0.94, pellets: 1, reloadTime: 2.3, barrelOffset: new THREE.Vector3(0, 0.16, -0.78), muzzleOffset: new THREE.Vector3(0, 0.16, -0.84) },
             { id: 16, name: 'Tec-9', type: 'pistol', damage: 33, armorDamage: wdmg('Tec-9'), rangeMod: 0.78, firerate: 0.12, spreadBase: 0.017, spreadMove: 0.09, mag: 18, reserve: 90, auto: false, speedMult: 0.94, pellets: 1, reloadTime: 2.4, barrelOffset: new THREE.Vector3(0, 0.16, -0.84), muzzleOffset: new THREE.Vector3(0, 0.16, -0.9) },
             { id: 17, name: 'CZ75-Auto', type: 'pistol', damage: 31, armorDamage: wdmg('CZ75-Auto'), rangeMod: 0.76, firerate: 0.085, spreadBase: 0.02, spreadMove: 0.085, mag: 12, reserve: 24, auto: true, speedMult: 0.93, pellets: 1, reloadTime: 2.7, barrelOffset: new THREE.Vector3(0, 0.16, -0.82), muzzleOffset: new THREE.Vector3(0, 0.16, -0.88) },
-            { id: 18, name: 'Dual Berettas', type: 'pistol', damage: 26, armorDamage: wdmg('Dual Berettas'), rangeMod: 0.82, firerate: 0.12, spreadBase: 0.018, spreadMove: 0.07, mag: 30, reserve: 120, auto: false, speedMult: 0.92, pellets: 1, reloadTime: 3.4, barrelOffset: new THREE.Vector3(0, 0.16, -0.78), muzzleOffset: new THREE.Vector3(0, 0.16, -0.84) },
+            { id: 18, name: 'Dual Berettas', type: 'pistol', damage: 21, armorDamage: wdmg('Dual Berettas'), rangeMod: 0.79, firerate: window.GameCore.WEAPONS['Dual Berettas'].firerate, spreadBase: 0.018, spreadMove: 0.07, mag: window.GameCore.WEAPONS['Dual Berettas'].mag, reserve: window.GameCore.WEAPONS['Dual Berettas'].reserve, auto: false, speedMult: 0.92, pellets: 1, reloadTime: window.GameCore.WEAPONS['Dual Berettas'].reloadTime, barrelOffset: new THREE.Vector3(0, 0.16, -0.78), muzzleOffset: new THREE.Vector3(0, 0.16, -0.84) },
             { id: 19, name: 'R8 Revolver', type: 'pistol', damage: 86, armorDamage: wdmg('R8 Revolver'), rangeMod: 0.86, firerate: 0.75, spreadBase: 0.004, spreadMove: 0.12, mag: 8, reserve: 24, auto: false, speedMult: 0.88, pellets: 1, reloadTime: 2.6, barrelOffset: new THREE.Vector3(0, 0.2, -0.92), muzzleOffset: new THREE.Vector3(0, 0.2, -1.0) },
             { id: 20, name: 'Frag', type: 'grenade', kind: 'frag', damage: 0, rangeMod: 1.0, firerate: 0.8, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.92, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
             { id: 21, name: 'Smoke', type: 'grenade', kind: 'smoke', damage: 0, rangeMod: 1.0, firerate: 0.8, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: false, speedMult: 0.92, pellets: 0, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1), muzzleOffset: new THREE.Vector3(0, 0, -1) },
@@ -7530,7 +7531,7 @@
             'Five-SeveN': { path: '/assets/weapons/glock18.glb', axis: 'x', fp: { length: 1.28, pos: [0.18, -0.2, -0.76] }, tp: { length: 2.25, pos: [0, 0.02, -0.84] } },
             'Tec-9': { path: '/assets/weapons/glock18.glb', axis: 'x', fp: { length: 1.38, pos: [0.2, -0.2, -0.84] }, tp: { length: 2.45, pos: [0, 0.02, -0.94] } },
             'CZ75-Auto': { path: '/assets/weapons/glock18.glb', axis: 'x', fp: { length: 1.3, pos: [0.2, -0.2, -0.78] }, tp: { length: 2.3, pos: [0, 0.02, -0.86] } },
-            'Dual Berettas': { path: '/assets/weapons/glock18.glb', axis: 'x', fp: { length: 1.32, pos: [0.22, -0.2, -0.78] }, tp: { length: 2.3, pos: [0, 0.02, -0.86] } },
+            'Dual Berettas': { path: '/assets/weapons/dual_elite.glb', axis: 'z', fp: { length: 1.65, pos: [0, -0.22, -0.8], rot: [0, Math.PI, 0] }, tp: { length: 2.3, pos: [0, 0.02, -0.86], rot: [0, Math.PI, 0] } },
             'R8 Revolver': { path: '/assets/weapons/deagle.glb', axis: 'x', fp: { length: 1.58, pos: [-0.18, -0.08, -0.66] }, tp: { length: 2.55, pos: [0, 0.02, -0.98] } },
             'Frag': { path: '/assets/weapons/hegrenade.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.58, pos: [-0.34, 0.24, 0.72], rot: [1.2, 0.04, 1.28] }, tp: { length: 1.0, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
             'Smoke': { path: '/assets/weapons/smokegrenade.glb', axis: 'z', fpEndFlip: Math.PI, fp: { length: 0.62, pos: [-0.32, 0.34, 0.8], rot: [1.04, 0, -1.38] }, tp: { length: 1.0, pos: [0, 0, -0.2], rot: [0, Math.PI, 0] } },
@@ -7566,7 +7567,7 @@
             'RPG': { path: '/assets/weapons/rpg.glb', axis: 'z', fp: { length: 4.4, pos: [0.45, -0.38, -1.6] }, tp: { length: 5.2, pos: [0, 0.06, -1.8] } },
             'Minigun': { path: '/assets/weapons/minigun.glb', axis: 'z', fp: { length: 5, pos: [0.65, -0.65, -1.65], rot: [0, Math.PI, 0] }, tp: { length: 5.2, pos: [0, 0, -1.6], rot: [0, Math.PI, 0] } }
         };
-        const PROCEDURAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
+        const PROCEDURAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'R8 Revolver']);
         const PLAYER_STAND_EYE_HEIGHT = 18;
         const PLAYER_CROUCH_EYE_HEIGHT = 11;
         const PLAYER_VISUAL_HEIGHT = 22.5;
@@ -8012,7 +8013,7 @@
         let minigunThermal = {}, minigunTriggerAt = null;
         const baseSidearmIndexes = [1, 2];
         const casualSidearmIndexes = baseSidearmIndexes;
-        const CASUAL_ONLY_SIDEARMS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
+        const CASUAL_ONLY_SIDEARMS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'R8 Revolver']);
         const deathmatchLoadout = { main: 8, sidearm: 1, knife: 0 };
         let deathmatchActiveSlot = 'main';
         let buyMenuPointerOpen = false;
@@ -8082,6 +8083,7 @@
             return GRENADE_PRICES[kind];
         }
         function isWeaponEnabled(name) {
+            if (window.GameCore.WEAPONS[name]?.adminOnly && !isAdminRoom) return false;
             return !(Array.isArray(adminConfig?.weaponDisabled) && adminConfig.weaponDisabled.includes(name));
         }
         function isGrenadeEnabled(kind) {
@@ -16870,6 +16872,18 @@
                 if (shieldHeld) buildThirdPersonWeaponModel(remote.userData.thirdPersonShield, SHIELD.weapon, skinItemRef);
                 else clearObjectChildren(remote.userData.thirdPersonShield);
             }
+            if (name === 'Dual Berettas' && !remote.userData.dualLeftHolder && remote.userData.joints?.leftArm) {
+                const holder = new THREE.Group();
+                holder.position.set(0, -8.6, -0.7);
+                holder.scale.setScalar(1.12);
+                holder.userData.agentWeaponHand = 'left';
+                remote.userData.joints.leftArm.add(holder);
+                remote.userData.dualLeftHolder = holder;
+            }
+            if (remote.userData.dualLeftHolder) {
+                if (name === 'Dual Berettas') buildThirdPersonWeaponModel(remote.userData.dualLeftHolder, name, skinItemRef);
+                else clearObjectChildren(remote.userData.dualLeftHolder);
+            }
             const assetHolder = remote.userData.characterAsset?.userData?.assetWeaponHolder;
             if (assetHolder) {
                 assetHolder.userData.defaultKnifeTeam = remote.userData.team;
@@ -16879,6 +16893,7 @@
             if (assetShieldHolder) {
                 assetShieldHolder.userData.defaultKnifeTeam = remote.userData.team;
                 if (shieldHeld) buildThirdPersonWeaponModel(assetShieldHolder, SHIELD.weapon, skinItemRef);
+                else if (name === 'Dual Berettas') buildThirdPersonWeaponModel(assetShieldHolder, name, skinItemRef);
                 else clearObjectChildren(assetShieldHolder);
             }
         }
@@ -17001,7 +17016,73 @@
             return { current: 'ambient', barrels, puffs, muzzleZ };
         }
 
+        // Split whole triangles in the supplied combined mesh, preserving UVs.
+        const dualPistolParts = new WeakMap();
+        let dualShotSide = 1;
+        let dualShotAt = -Infinity;
+        function dualPistolPart(template, side) {
+            let parts = dualPistolParts.get(template);
+            if (!parts) {
+                template.updateMatrixWorld(true);
+                const middle = new THREE.Box3().setFromObject(template).getCenter(new THREE.Vector3()).x;
+                parts = [-1, 1].map(sign => {
+                    const group = new THREE.Group();
+                    group.userData.dualSingle = true;
+                    template.traverse(obj => {
+                        if (!obj.isMesh) return;
+                        const geometry = obj.geometry.index ? obj.geometry.toNonIndexed() : obj.geometry.clone();
+                        geometry.applyMatrix4(obj.matrixWorld);
+                        const attrs = Object.fromEntries(Object.keys(geometry.attributes).map(key => [key, []]));
+                        const positions = geometry.attributes.position;
+                        for (let i = 0; i < positions.count; i += 3) {
+                            const x = (positions.getX(i) + positions.getX(i + 1) + positions.getX(i + 2)) / 3;
+                            if ((x >= middle ? 1 : -1) !== sign) continue;
+                            for (const [key, values] of Object.entries(attrs)) {
+                                const attr = geometry.attributes[key];
+                                for (let v = i; v < i + 3; v++) for (let c = 0; c < attr.itemSize; c++) values.push(attr.array[v * attr.itemSize + c]);
+                            }
+                        }
+                        const half = new THREE.BufferGeometry();
+                        for (const [key, values] of Object.entries(attrs)) half.setAttribute(key, new THREE.Float32BufferAttribute(values, geometry.attributes[key].itemSize));
+                        group.add(new THREE.Mesh(half, obj.material));
+                        geometry.dispose();
+                    });
+                    return group;
+                });
+                dualPistolParts.set(template, parts);
+            }
+            return parts[side < 0 ? 0 : 1];
+        }
+
+        function updateDualPistolPose(time) {
+            weaponGroup.traverse(pistol => {
+                const side = pistol.userData.dualHand;
+                if (!side) return;
+                const kick = side === dualShotSide ? Math.max(0, 1 - (time - dualShotAt) / 150) : 0;
+                const progress = isReloading && reloadDuration > 0 ? 1 - reloadTimer / reloadDuration : 0;
+                const dip = Math.sin(Math.PI * Math.min(1, Math.max(0, (progress - (side < 0 ? 0.12 : 0)) / 0.88)));
+                pistol.position.copy(pistol.userData.dualRest);
+                pistol.position.z += kick * 0.22;
+                pistol.position.y -= dip * 0.75;
+                pistol.rotation.x = -kick * 0.12 + dip * 0.5;
+                pistol.rotation.z = side * dip * 0.3;
+            });
+        }
+
         function buildWeaponAssetInstance(template, weaponName, view, skinItem = null) {
+            if (weaponName === 'Dual Berettas' && !template.userData.dualSingle) {
+                if (view === 'thirdPerson') return buildWeaponAssetInstance(dualPistolPart(template, 1), weaponName, view, skinItem);
+                const pair = new THREE.Group();
+                pair.name = 'dual-pistols';
+                for (const side of [-1, 1]) {
+                    const pistol = buildWeaponAssetInstance(dualPistolPart(template, side), weaponName, view, skinItem);
+                    pistol.position.x = side * 0.78 - WEAPON_REST_POS.x;
+                    pistol.userData.dualHand = side;
+                    pistol.userData.dualRest = pistol.position.clone();
+                    pair.add(pistol);
+                }
+                return pair;
+            }
             // In-game model path: first-person viewmodel and third-person/world
             // weapons. Do not assume a fix here also fixes inventory thumbnails.
             const spec = WEAPON_ASSET_SPECS[weaponName];
@@ -17228,7 +17309,9 @@
             parent.userData.weaponAssetToken = token;
             promise.then((template) => {
                 if (parent.userData.weaponAssetToken !== token) return;
-                const rig = buildWeaponAssetInstance(template, weaponName, view, skinItem);
+                const source = weaponName === 'Dual Berettas' && view === 'thirdPerson'
+                    ? dualPistolPart(template, parent.userData.agentWeaponHand === 'left' ? -1 : 1) : template;
+                const rig = buildWeaponAssetInstance(source, weaponName, view, skinItem);
                 if (!rig) return;
                 if (parent.userData?.isAgentWeaponHolder) applyAgentHeldWeaponTransform(parent, rig, weaponName);
                 clearObjectChildren(parent);
@@ -19673,6 +19756,7 @@
                     add(new THREE.BoxGeometry(0.26, 0.85, 0.46), matDark, x, -0.55, 0.18, 0.24);
                     add(new THREE.CylinderGeometry(0.055, 0.055, 0.8), matMetal, x, 0.06, -1.75, Math.PI / 2);
                 });
+                attachWeaponAsset(parent, weaponName, 'thirdPerson', skinItem);
                 return;
             }
 
@@ -20025,6 +20109,7 @@
         }
 
         function switchWeapon(idx, force = false) {
+            if (!weapons[idx] || !isWeaponEnabled(weapons[idx].name)) return;
             if (isReloading && !force) return;
             minigunTriggerAt = null;
             if (force) isReloading = false;
@@ -20106,7 +20191,7 @@
         }
 
         function availableSidearmIndexes() {
-            return baseSidearmIndexes;
+            return isAdminRoom ? [...baseSidearmIndexes, 17] : baseSidearmIndexes;
         }
 
         function isTimedMode() {
@@ -20122,7 +20207,7 @@
                     if (knife >= 0) deathmatchLoadout.knife = knife;
                     deathmatchActiveSlot = 'sidearm';
                 }
-                if (!isCasual() && CASUAL_ONLY_SIDEARMS.has(weapons[deathmatchLoadout.sidearm]?.name)) {
+                if (!isWeaponEnabled(weapons[deathmatchLoadout.sidearm]?.name) || (!isCasual() && CASUAL_ONLY_SIDEARMS.has(weapons[deathmatchLoadout.sidearm]?.name))) {
                     deathmatchLoadout.sidearm = 1;
                     if (deathmatchActiveSlot === 'sidearm') currentWeaponIndex = 1;
                 }
@@ -21776,8 +21861,7 @@
             bulletMesh.add(new THREE.Mesh(trailGeo, trailMat));
 
             weaponGroup.updateMatrixWorld(true);
-            let startPos = (wp.muzzleOffset || wp.barrelOffset).clone();
-            startPos.applyMatrix4(weaponGroup.matrixWorld);
+            let startPos = currentWeaponMuzzleWorld(wp);
 
             bulletMesh.position.copy(startPos);
 
@@ -21880,6 +21964,7 @@
             if (bombActionActive) return;
             inspectState = null;
             const heldWeapon = weapons[currentWeaponIndex]; let time = performance.now();
+            if (!isWeaponEnabled(heldWeapon.name)) return;
             if (heldWeapon.type === 'shield' && Date.now() < shieldStaggeredUntil) return;
             // The Shield slot fires its own reduced-stat Glock while the plate
             // remains the held item for movement, rendering and server cover.
@@ -21949,6 +22034,10 @@
                 updateUI();
             }
             clearLocalSpawnProtectionForAction();
+            if (wp.name === 'Dual Berettas') {
+                dualShotSide = currentAmmo % 2 ? 1 : -1;
+                dualShotAt = time;
+            }
             soundShoot(wp.name, null, { heavy: isAlt }); lastFireTime = time; lastLocalShotAt = time;
             if (wp.type === 'melee') {
                 knifeAttackHeavy = isAlt;
@@ -21966,7 +22055,7 @@
             if (wp.type === 'sniper' && !isZoomed) kickPitch *= 3.0;
             let kickYaw = recoilStep.yaw || ((Math.random() - 0.5) * kickPitch * 0.8);
             recoilTargetPitch += kickPitch; recoilTargetYaw += kickYaw;
-            if (!isZoomed && wp.type !== 'melee') {
+            if (!isZoomed && wp.type !== 'melee' && wp.name !== 'Dual Berettas') {
                 let gunKick = (wp.type === 'sniper') ? 0.8 : (wp.type === 'shotgun' ? 0.6 : 0.3);
                 gunKickTargetZ += gunKick; gunKickTargetRot += gunKick * 0.5;
             }
@@ -24974,6 +25063,8 @@
                             );
                             rpgReloadRocket.rotation.set(-0.08, 0, -0.04 * (1 - insert));
                         }
+                    } else if (wp.name === 'Dual Berettas') {
+                        // Each pistol performs its own staggered reload below.
                     } else if (progress < 0.5) {
                         let p = progress * 2;
                         wPosY = THREE.MathUtils.lerp(WEAPON_REST_POS.y, WEAPON_REST_POS.y - 1.5, p);
@@ -25383,6 +25474,7 @@
                     spread *= THREE.MathUtils.lerp(1, 0.35, Math.min(1, sustained / 1.5));
                 } else if(wp.type !== 'melee') spread += bloom;
                 currentSpread = spread; updateCrosshairGap(currentSpread);
+                if (wp.name === 'Dual Berettas') updateDualPistolPose(time);
                 if (localAdminMapTestId) {
                     document.body.dataset.adminMapPlayerPosition = [playerPos.x, playerPos.y, playerPos.z].join(',');
                 }

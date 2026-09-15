@@ -21,7 +21,7 @@
 
   // Bump on any change to authoritative rules/shape so stale clients can reject
   // mismatched game data before subtle desyncs happen.
-  const VERSION = '9';
+  const VERSION = '10';
 
   // Buy-menu prices (identical on both sides today).
   const WEAPON_PRICES = {
@@ -163,7 +163,7 @@
     'Five-SeveN': { type: 'pistol', firerate: 0.15, pellets: 1, range: 1000, dmg: { head: 126, body: 31, legs: 28 } },
     'Tec-9':  { type: 'pistol',  firerate: 0.12,  pellets: 1, range: 1000, dmg: { head: 132, body: 33, legs: 28 } },
     'CZ75-Auto': { type: 'pistol', firerate: 0.085, pellets: 1, range: 1000, dmg: { head: 124, body: 31, legs: 26 } },
-    'Dual Berettas': { type: 'pistol', firerate: 0.12, pellets: 1, range: 1000, dmg: { head: 104, body: 26, legs: 22 } },
+    'Dual Berettas': { type: 'pistol', adminOnly: true, firerate: 0.12, pellets: 1, range: 1000, mag: 30, reserve: 60, reloadTime: 3.77, dmg: { head: 84, body: 21, legs: 18 } },
     'R8 Revolver': { type: 'pistol', firerate: 0.75, pellets: 1, range: 1000, dmg: { head: 344, body: 86, legs: 70 } },
     'MAC10':  { type: 'smg',     firerate: 0.075, pellets: 1, range: 1000, dmg: { head: 66, body: 16, legs: 22 } },
     'P90':    { type: 'smg',     firerate: 0.07,  pellets: 1, range: 1000, dmg: { head: 72, body: 18, legs: 20 } },

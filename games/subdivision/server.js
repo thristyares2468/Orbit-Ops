@@ -1442,6 +1442,7 @@ function handleMessage(client, raw) {
   }
 
   const room = rooms.get(client.roomCode);
+  if (WEAPONS[String(data.weapon || '')]?.adminOnly && !isAdminRoom(room)) return;
   const player = room?.players.get(client.id);
   if (!room || !player) return;
 
@@ -4794,6 +4795,7 @@ function handlePlayerShoot(client, room, player, data) {
   cancelBombAction(room, player.id);
   const weapon = String(data.weapon || player.weapon).slice(0, 32);
   const start = sanitizeVector(data.start, null);
+  if (WEAPONS[weapon]?.adminOnly && !isAdminRoom(room)) return;
   const target = sanitizeVector(data.target, null);
   const shieldSidearm = player.weapon === SHIELD.weapon && player.loadout?.main === SHIELD.weapon;
   if (shieldSidearm && (weapon !== SHIELD.sidearmWeapon || Number(player.shieldStaggeredUntil || 0) > now)) return;
@@ -4986,6 +4988,7 @@ function handlePlayerHit(client, room, player, data) {
   } else {
     const weapon = String(data.weapon || player.weapon).slice(0, 32);
     resolvedWeapon = weapon;
+    if (WEAPONS[weapon]?.adminOnly && !isAdminRoom(room)) return;
     const heldShieldSidearm = player.weapon === SHIELD.weapon && player.loadout?.main === SHIELD.weapon;
     if (heldShieldSidearm && weapon !== SHIELD.sidearmWeapon) return;
     let wdef = heldShieldSidearm ? SHIELD_GLOCK : WEAPONS[weapon];
@@ -6866,6 +6869,7 @@ function isCasualMode(room) {
 function isWeaponAvailableInMode(room, weaponName) {
   if (!WEAPONS[weaponName]) return false;
   if (isWeaponDisabledByAdmin(room, weaponName)) return false;
+  if (WEAPONS[weaponName].adminOnly) return isAdminRoom(room);
   return isCasualMode(room) || !CASUAL_ONLY_WEAPONS.has(weaponName);
 }
 
