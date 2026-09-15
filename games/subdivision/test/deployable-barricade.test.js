@@ -142,3 +142,37 @@ test('placement yaw turns the panel face toward the player', () => {
       'the width sits across the line of sight');
   }
 });
+
+test('the deployed panel stands the right way up and has real depth', () => {
+  // The source model is a folding barrier: 5.56 wide, 3.78 tall, and 4.82 deep
+  // because its wings sweep back. Fitting that depth into the old 1.82 crushed
+  // it to 0.38x while the height stretched 4.47x, which flattened the wings out
+  // of existence. Depth has to stay a meaningful fraction of the width or the
+  // panel reads as a painted sheet.
+  assert.ok(core.BARRICADE.thickness / core.BARRICADE.width > 0.2,
+    'the panel must be deep enough for its wings to survive the fit');
+  // ...but never so deep that a panel could overlap its neighbour: two panels
+  // may sit `spacing` apart, so their half-depths must add up to less than that.
+  assert.ok(core.BARRICADE.thickness < core.BARRICADE.spacing,
+    'two panels at minimum spacing must not intersect');
+
+  const fn = client.slice(client.indexOf('function attachDeployedBarricadeModel'));
+  const body = fn.slice(0, fn.indexOf('\n        function ', 1));
+  assert.ok(body, 'index.html must attach the authored panel');
+  // The source has its blank concrete kicker at the top of its bounds, so the
+  // panel arrives upside down and wears a bare grey band across the third of it
+  // a player actually looks at.
+  assert.match(body, /flipped\.rotation\.z = Math\.PI;/u,
+    'the authored panel must be turned the right way up');
+  // Order is load-bearing. Box3 measures world bounds, so the flip has to be
+  // inside what gets measured; rotating after the fit would leave scale.y
+  // stretching what is now the depth and scale.z squashing the height.
+  const flip = body.indexOf('flipped.rotation.z');
+  const measure = body.indexOf('new THREE.Box3().setFromObject(model)');
+  const fit = body.indexOf('model.scale.set(');
+  assert.ok(flip > 0 && measure > flip && fit > measure,
+    'the flip must be applied before the bounds are measured and fitted');
+  // The wrapper still carries the cache flag, or removing a panel would dispose
+  // geometry the shared weapon-asset cache still owns.
+  assert.match(body, /model\.userData\.isSharedAsset = true;/u);
+});
