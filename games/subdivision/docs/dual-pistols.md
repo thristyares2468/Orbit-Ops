@@ -20,7 +20,9 @@ Research references:
 - https://www.counter-strike.net/newsentry/508485755865137963 — Valve notes
   first-person and spectator Dual Berettas fixes; verify both perspectives.
 
-Orbit Ops tuning: semi-auto, 0.12 seconds between shots, 30/60 ammunition,
+Orbit Ops tuning: semi-auto, 0.12 seconds between shots, 24/72 ammunition
+(deliberately not CS2's 30/60 — smaller magazines make the 3.77s reload bite
+more often, and three whole spare mags is easier to read than a loose count),
 3.77-second reload, 84/21/18 head/body/leg damage, range modifier 0.79,
 standing spread 0.018 and moving spread 0.07. The damage values use this game's
 existing per-part convention rather than introducing a separate armor system.

@@ -20,7 +20,10 @@ for (const room of [{}, {casual:true}, {settings:{gamemode:'containment'}}, null
 assert.equal(scope.isWeaponAvailableInMode(adminRoom,'Dual Berettas'),true);
 adminRoom.disabled=true;
 assert.equal(scope.isWeaponAvailableInMode(adminRoom,'Dual Berettas'),false);
-assert.equal(core.WEAPONS['Dual Berettas'].mag,30);
+assert.equal(core.WEAPONS['Dual Berettas'].mag,24);
+assert.equal(core.WEAPONS['Dual Berettas'].reserve,72);
+// Three spare magazines, not a loose round count.
+assert.equal(core.WEAPONS['Dual Berettas'].reserve % core.WEAPONS['Dual Berettas'].mag, 0);
 assert.equal(core.WEAPONS['Dual Berettas'].dmg.body,21);
 const glb=fs.readFileSync(require('node:path').join(__dirname,'../assets/weapons/dual_elite.glb'));
 assert.equal(glb.toString('ascii',0,4),'glTF');
@@ -50,3 +53,17 @@ assert.ok(splitAt > 0 && specAt > 0, 'both the dual branch and the generic path 
 assert.ok(splitAt < specAt, 'the dual branch runs before the generic measure/scale path');
 assert.match(buildBody.slice(0, splitAt), /dualSingle/, 'the recursion into a single half is guarded by a dualSingle marker');
 console.log('Dual pistols: damage rewards aiming high; the pair splits before the viewmodel measures it.');
+
+// The muzzle flash and the viewmodel are positioned by two calls a long way
+// apart in the file. They drifted apart once; a flash that starts beside the
+// barrel instead of at it is the visible symptom, so pin them to one constant.
+assert.match(client, /const DUAL_PISTOL_SPREAD = [\d.]+;/, 'the spread is a named constant');
+assert.match(client, /dualShotSide \* DUAL_PISTOL_SPREAD - WEAPON_REST_POS\.x/, 'the muzzle flash reads it');
+assert.match(client, /side \* DUAL_PISTOL_SPREAD - WEAPON_REST_POS\.x/, 'the GLB pair reads it');
+// The stand-in has to land where the GLB lands, or the guns jump on load.
+const standIn = client.match(/case 'Dual Berettas': \[-1, 1\]\.forEach\(side => createPistol\(\{[^}]*\}\)\)/);
+assert.ok(standIn, 'the stand-in builds a pair through createPistol');
+assert.match(standIn[0], /DUAL_PISTOL_SPREAD - WEAPON_REST_POS\.x/, 'the stand-in reads the same spread and recentring');
+assert.equal((client.match(/\[-0\.34, 0\.34\]\.forEach/g) || []).length, 0,
+    'the third-person stand-in no longer draws two pistols in a single hand holder');
+console.log('Dual pistols: 24-round mags with 3 spare; flash, viewmodel and stand-in share one spread.');

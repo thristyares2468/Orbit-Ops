@@ -7323,7 +7323,7 @@
             if (!weaponGroup || !wp) return camera?.getWorldPosition(new THREE.Vector3()) || null;
             weaponGroup.updateMatrixWorld(true);
             const local = (wp.muzzleOffset || wp.barrelOffset || new THREE.Vector3()).clone();
-            if (wp.name === 'Dual Berettas') local.set(dualShotSide * 0.78 - WEAPON_REST_POS.x, 0.12, -1.62);
+            if (wp.name === 'Dual Berettas') local.set(dualShotSide * DUAL_PISTOL_SPREAD - WEAPON_REST_POS.x, 0.12, -1.62);
             return local.applyMatrix4(weaponGroup.matrixWorld);
         }
         function soundHitConfirm(context = {}) {
@@ -8189,6 +8189,10 @@
         let bobCurrentX = 0; let bobCurrentY = 0;
 
         const defaultFOV = 70; const zoomFOV = 20; const WEAPON_REST_POS = new THREE.Vector3(1.2, -1.0, -2.0);
+        // How far each of the dual pistols sits from the centre of the view. The
+        // muzzle flash and the model read this same number: they drifted apart
+        // once already, and a flash that starts beside the barrel is obvious.
+        const DUAL_PISTOL_SPREAD = 1.05;
 
         let moveForward = false; let moveBackward = false; let moveLeft = false; let moveRight = false;
         let isCrouching = false; let crouchHeld = false; let jumpHeld = false; let jumpQueued = false; let jumpGraceTimer = 0; let isWalking = false; let sprintHeld = false; let isSprinting = false; let isJumping = false; let isShooting = false; let isAltShooting = false;
@@ -17076,7 +17080,7 @@
                 pair.name = 'dual-pistols';
                 for (const side of [-1, 1]) {
                     const pistol = buildWeaponAssetInstance(dualPistolPart(template, side), weaponName, view, skinItem);
-                    pistol.position.x = side * 0.78 - WEAPON_REST_POS.x;
+                    pistol.position.x = side * DUAL_PISTOL_SPREAD - WEAPON_REST_POS.x;
                     pistol.userData.dualHand = side;
                     pistol.userData.dualRest = pistol.position.clone();
                     pair.add(pistol);
@@ -17374,6 +17378,7 @@
             const matGrey = new THREE.MeshPhongMaterial({ color: 0x3a3a3a });
             const matSilver = new THREE.MeshPhongMaterial({ color: 0xcccccc });
             const matWood = new THREE.MeshPhongMaterial({ color: 0x5c3a21 });
+            const matGripWood = new THREE.MeshPhongMaterial({ color: 0x33241a, shininess: 12 });
             const matOlive = new THREE.MeshPhongMaterial({ color: 0x4a5a3a });
             const matGlass = new THREE.MeshPhongMaterial({ color: 0x3366ff, shininess: 100 });
             const createMesh = (geo, mat, x, y, z, rotX = 0, parent = weaponGroup) => {
@@ -17383,13 +17388,25 @@
                 const len = opts.len || 1.18;
                 const bodyMat = opts.silver ? matSilver : (opts.dark ? matDarkGrey : matBlack);
                 createMesh(new THREE.BoxGeometry(opts.width || 0.18, opts.height || 0.25, len), bodyMat, opts.x || 0, 0, 0);
-                createMesh(new THREE.BoxGeometry(0.16, opts.gripH || 0.58, 0.34), matGrey, opts.x || 0, -0.35, 0.28, 0.14);
+                createMesh(new THREE.BoxGeometry(0.16, opts.gripH || 0.58, 0.34), opts.wood ? matGripWood : matGrey, opts.x || 0, -0.35, 0.28, 0.14);
                 createMesh(new THREE.BoxGeometry(0.04, 0.05, 0.05), matSilver, opts.x || 0, 0.15, -len * 0.44);
                 if (opts.suppressor) createMesh(new THREE.CylinderGeometry(0.055, 0.055, 0.5), matDarkGrey, opts.x || 0, 0.02, -len * 0.63, Math.PI / 2);
                 if (opts.rail) createMesh(new THREE.BoxGeometry(0.16, 0.04, 0.55), matDarkGrey, opts.x || 0, 0.17, -0.12);
                 if (opts.extMag) createMesh(new THREE.BoxGeometry(0.12, 0.54, 0.18), matBlack, opts.x || 0, -0.72, 0.28, 0.08);
                 if (opts.forwardMag) createMesh(new THREE.BoxGeometry(0.12, 0.64, 0.18), matBlack, opts.x || 0, -0.52, -0.18, -0.18);
                 if (opts.cylinder) createMesh(new THREE.CylinderGeometry(0.14, 0.14, 0.18, 12), matGrey, opts.x || 0, -0.04, -0.12, Math.PI / 2);
+                // A Beretta 92 carries its barrel in the open, through a long
+                // cutout in the top of the slide, over wood grips. Without those
+                // the stand-in is a plain silver brick and reads as a different
+                // gun, which is jarring when the GLB finishes loading.
+                if (opts.openSlide) {
+                    const h = opts.height || 0.25;
+                    // The barrel rides ON the slide, not inside it: at the body's
+                    // own half-height it disappears and the gun reads as a brick.
+                    createMesh(new THREE.BoxGeometry(0.1, 0.06, len * 0.5), matDarkGrey, opts.x || 0, h / 2, -len * 0.12);
+                    createMesh(new THREE.CylinderGeometry(0.05, 0.05, len * 0.44), matDarkGrey, opts.x || 0, h / 2 - 0.03, -len * 0.68, Math.PI / 2);
+                    createMesh(new THREE.BoxGeometry(0.13, 0.05, 0.3), matBlack, opts.x || 0, -h / 2 - 0.09, 0.06);
+                }
             };
             switch(wp.name) {
                 case 'Knife': createMesh(new THREE.BoxGeometry(0.03, 0.15, 1.2), matSilver, 0, 0, -0.6); createMesh(new THREE.BoxGeometry(0.12, 0.2, 0.6), matBlack, 0, 0, 0.31); createMesh(new THREE.BoxGeometry(0.15, 0.25, 0.05), matDarkGrey, 0, 0, 0.01); break;
@@ -17401,7 +17418,10 @@
                 case 'Five-SeveN': createPistol({ len: 1.34, width: 0.2, height: 0.28, rail: true, dark: true }); break;
                 case 'Tec-9': createPistol({ len: 1.5, forwardMag: true, dark: true }); break;
                 case 'CZ75-Auto': createPistol({ len: 1.32, extMag: true }); break;
-                case 'Dual Berettas': createPistol({ len: 1.2, x: -0.14, silver: true }); createPistol({ len: 1.2, x: 0.14, silver: true }); break;
+                // The stand-in has to land where the GLB pair lands, or the guns jump
+                // sideways and shrink the moment the download finishes. Same spread,
+                // same recentring off the one-handed rest position, same length.
+                case 'Dual Berettas': [-1, 1].forEach(side => createPistol({ len: 1.16, width: 0.2, height: 0.34, gripH: 0.5, x: side * DUAL_PISTOL_SPREAD - WEAPON_REST_POS.x, silver: true, wood: true, openSlide: true })); break;
                 case 'R8 Revolver': createPistol({ len: 1.52, height: 0.32, silver: true, cylinder: true }); break;
                 case 'MAC10': createMesh(new THREE.BoxGeometry(0.25, 0.45, 1.2), matDarkGrey, 0, 0, 0); createMesh(new THREE.BoxGeometry(0.12, 1.0, 0.25), matBlack, 0, -0.6, 0.11); createMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5), matBlack, 0, 0.05, -0.81, Math.PI/2); createMesh(new THREE.BoxGeometry(0.3, 0.05, 1.0), matSilver, 0, 0.26, 0.5); break;
                 case 'P90': createMesh(new THREE.BoxGeometry(0.3, 0.5, 2.0), matBlack, 0, 0, 0); createMesh(new THREE.BoxGeometry(0.2, 0.1, 1.4), matSilver, 0, 0.31, -0.2); createMesh(new THREE.BoxGeometry(0.18, 0.7, 0.4), matBlack, 0, -0.4, -0.5, -0.3); createMesh(new THREE.BoxGeometry(0.18, 0.7, 0.4), matBlack, 0, -0.4, 0.3, 0.2); createMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.4), matDarkGrey, 0, 0.1, -1.21, Math.PI/2); break;
@@ -19750,12 +19770,14 @@
                 return;
             }
 
+            // One pistol, not two. Each hand gets its own holder and the GLB
+            // path puts a single half in each, so a two-gun stand-in turns into
+            // four guns across the pair and then halves when the model loads.
             if (weaponName === 'Dual Berettas') {
-                [-0.34, 0.34].forEach(x => {
-                    add(new THREE.BoxGeometry(0.34, 0.28, 2.1), matMetal, x, 0, -0.7);
-                    add(new THREE.BoxGeometry(0.26, 0.85, 0.46), matDark, x, -0.55, 0.18, 0.24);
-                    add(new THREE.CylinderGeometry(0.055, 0.055, 0.8), matMetal, x, 0.06, -1.75, Math.PI / 2);
-                });
+                add(new THREE.BoxGeometry(0.34, 0.28, 2.1), matBlade, 0, 0, -0.7);
+                add(new THREE.BoxGeometry(0.26, 0.85, 0.46), matWood, 0, -0.55, 0.18, 0.24);
+                add(new THREE.BoxGeometry(0.2, 0.12, 0.95), matDark, 0, 0.2, -0.55);
+                add(new THREE.CylinderGeometry(0.055, 0.055, 1.3), matDark, 0, 0.1, -1.5, Math.PI / 2);
                 attachWeaponAsset(parent, weaponName, 'thirdPerson', skinItem);
                 return;
             }
