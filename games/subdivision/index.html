@@ -23264,19 +23264,7 @@
             if (!promise) return;
             promise.then((template) => {
                 if (!template || !group.parent) return;
-                // The authored panel is modelled upside down: its blank concrete
-                // kicker occupies the TOP of the source bounds and the graffitied
-                // face sits below it, so every deployed barricade wore a bare grey
-                // band across its top third - the part of it a player actually
-                // looks at. Half a turn about Z drops the kicker back onto the
-                // ground. The flip goes on a wrapper that the fit below then
-                // measures, because rotating after the fit would leave each scale
-                // factor stretching an axis it no longer describes.
-                const flipped = new THREE.Group();
-                flipped.rotation.z = Math.PI;
-                flipped.add(template.clone(true));
-                const model = new THREE.Group();
-                model.add(flipped);
+                const model = template.clone(true);
                 const box = new THREE.Box3().setFromObject(model);
                 const size = box.getSize(new THREE.Vector3());
                 const centre = box.getCenter(new THREE.Vector3());

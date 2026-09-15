@@ -91,12 +91,7 @@
   const BARRICADE = {
     width: 18.2,      // panel span, left-to-right of the placing player
     height: 16.9,     // just under standing eye height: lean out or crouch behind
-    // Panel depth, and the depth of the box that stops bullets. This was 1.82,
-    // a tenth of the width: the authored panel is a folding barrier whose wings
-    // sweep 4.82 source units back against 5.56 of width, and fitting that into
-    // 1.82 crushed the depth to 0.38x while the height stretched 4.47x. The
-    // wings disappeared and what was left read as a painted sheet of paper.
-    thickness: 5.2,
+    thickness: 1.82,
     health: 260,
     deployDistance: 10, // where the panel lands: straight ahead, this far out
     deployRange: 26,  // furthest the anchor point may sit from the player's eye
