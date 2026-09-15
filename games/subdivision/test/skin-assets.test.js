@@ -68,6 +68,17 @@ assert.ok(ITEMS.filter(item => item.weapon !== 'Knife').every(item => item.rarit
 assert.ok(!ITEMS.some(item => item.weapon !== 'Knife' && /\|\s*(Gamma Energy|Fade|Dual Energy)$/i.test(item.displayName)), 'knife-only finishes should not appear on firearms');
 assert.ok(ITEMS.some(item => item.id === 'ak47_case_hardened' && item.overlayTexturePath?.endsWith('ak47_wooden_overlay.png')), 'AK Case Hardened should use the supplied wooden overlay');
 assert.ok(ITEMS.some(item => item.id === 'knife_karambit_case_hardened' && item.overlayTexturePath?.endsWith('karambit_handle_overlay.png')), 'knife patterns should expose their supplied handle overlay');
+for (const [id, type, texture] of [
+  ['knife_karambit_vortex_fang', 'Karambit', 'arsenal_vortex_fang.png'],
+  ['knife_bowie_solar_reaver', 'Bowie', 'arsenal_solar_reaver.png']
+]) {
+  const knife = ITEMS.find(item => item.id === id);
+  assert.ok(knife, `${id} should be selectable by the case editor`);
+  assert.strictEqual(knife.rarity, 'mythic', `${id} should be a case special item`);
+  assert.strictEqual(knife.knifeType, type, `${id} should retain its distinct knife type`);
+  assert.strictEqual(knife.textureType, 'pattern', `${id} should use its generated pattern texture`);
+  assert.ok(knife.texturePath.endsWith(texture), `${id} should load its own generated texture`);
+}
 for (const maskPath of ['/assets/skins/wear/grunge-mask.png', '/assets/skins/wear/cracked-mask.png']) {
   const png = fs.readFileSync(localPath(maskPath));
   assert.strictEqual(png[25], 0, `${maskPath} must be stored as grayscale mask data, never colored artwork`);

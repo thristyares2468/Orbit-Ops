@@ -265,6 +265,45 @@ const KNIFE_VARIANTS = [
   modelPath: `/assets/skins/knife/${relPath}`
 }));
 
+// Arsenal Vault's two Mythic rewards deliberately use different knife silhouettes
+// and their own repeatable texture maps.  They remain normal catalog items, so
+// the admin case editor can add them to any case without client-only special
+// handling.
+const ARSENAL_VAULT_KNIFE_SKINS = Object.freeze([
+  {
+    id: 'knife_karambit_vortex_fang',
+    weapon: 'Knife',
+    kind: 'skin',
+    displayName: 'Karambit | Vortex Fang',
+    rarity: 'mythic',
+    modelPath: '/assets/skins/knife/karambit/karambit.glb',
+    baseModelPath: '/assets/skins/knife/karambit/karambit.glb',
+    texturePath: '/assets/skins/imported/patterns/arsenal_vortex_fang.png',
+    textureApplication: 'pattern',
+    textureMaterialNames: ['weapon_knife_karambit'],
+    patternZoom: 1.2,
+    patternSeed: 0,
+    imported: false
+  },
+  {
+    id: 'knife_bowie_solar_reaver',
+    weapon: 'Knife',
+    kind: 'skin',
+    displayName: 'Bowie | Solar Reaver',
+    rarity: 'mythic',
+    modelPath: '/assets/skins/knife/bowie/bowie.glb',
+    baseModelPath: '/assets/skins/knife/bowie/bowie.glb',
+    texturePath: '/assets/skins/imported/patterns/arsenal_solar_reaver.png',
+    textureApplication: 'pattern',
+    textureMaterialNames: ['weapon_knife_bowie'],
+    patternZoom: 1.08,
+    patternSeed: 0,
+    imported: false
+  }
+]);
+
+const ALL_KNIFE_ITEMS = Object.freeze([...KNIFE_VARIANTS, ...ARSENAL_VAULT_KNIFE_SKINS]);
+
 function uniqueCatalogItems(items) {
   const seen = new Set();
   const out = [];
@@ -362,12 +401,12 @@ const ITEMS = Object.freeze(uniqueCatalogItems([
   SOVEREIGN_FLAME,
   ...FAMAS_VARIANTS,
   ...NEW_EQUIPMENT_SKINS,
-  ...KNIFE_VARIANTS,
+  ...ALL_KNIFE_ITEMS,
   ...IMPORTED_PUBLIC_SKINS
 ]).map(enrichCatalogItem));
 const ITEM_BY_ID = new Map(ITEMS.map((item) => [item.id, item]));
-const KNIFE_ITEM_IDS = Object.freeze(KNIFE_VARIANTS.map((item) => item.id));
-const MYTHIC_KNIFE_ITEM_IDS = Object.freeze(KNIFE_VARIANTS.filter((item) => item.rarity === 'mythic').map((item) => item.id));
+const KNIFE_ITEM_IDS = Object.freeze(ALL_KNIFE_ITEMS.map((item) => item.id));
+const MYTHIC_KNIFE_ITEM_IDS = Object.freeze(ALL_KNIFE_ITEMS.filter((item) => item.rarity === 'mythic').map((item) => item.id));
 const STANDARD_CASE_ITEM_IDS = Object.freeze(ITEMS.filter((item) => item.weapon !== 'Knife').map((item) => item.id));
 const PROTOTYPE_CASE_ID = 'prototype_case';
 const GOLD_ROLL_DENOMINATOR = 30;
