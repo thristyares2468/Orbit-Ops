@@ -5047,6 +5047,7 @@
                     joints.hitLegs.position.y = THREE.MathUtils.lerp(joints.hitLegs.position.y, 5, lerpSpeed);
                 }
                 updateRemoteSpawnProtectionVisual(group, time);
+                poseShieldCover(group);
                 // This is the same weapon-specific aim/idle mixer and grounding
                 // pass used for real remote players. Advancing it removes the
                 // source GLB T-pose and aligns its feet with the hitbox origin.
@@ -16809,6 +16810,53 @@
             return count;
         }
 
+        // Standing, a shield's top sits at the carrier's chin: core.js scores a
+        // headshot at SHIELD.headBlock = 0, so the head is a real target. Crouched,
+        // SHIELD.crouchHeadBlock = 1 and the head cannot be hit at all. The model
+        // used to look identical either way - the plate stayed at chest height
+        // while its carrier was in fact untouchable behind it, so a shooter had no
+        // way to read which of the two states they were aiming at. Full cover now
+        // rides the plate up over the head.
+        const SHIELD_COVER_RAISE = 5.4;   // world units; clears the top of the helmet
+        const SHIELD_COVER_LERP = 0.16;
+        const _shieldCoverQuat = new THREE.Quaternion();
+        const _shieldCoverScale = new THREE.Vector3();
+        const _shieldCoverPos = new THREE.Vector3();
+        const _shieldCoverDelta = new THREE.Vector3();
+
+        // The raise is authored in WORLD up, not in the holder's local up: the
+        // procedural plate hangs off a torso that pitches forward when crouched,
+        // and the agent's plate hangs off an animated hand bone with an arbitrary
+        // orientation. Converting through the parent keeps both plates rising
+        // straight up the screen instead of drifting along whatever their parent
+        // happens to be pointing at.
+        function applyShieldCoverOffset(holder, raise) {
+            if (!holder?.parent) return;
+            if (!holder.userData.shieldCoverRest) holder.userData.shieldCoverRest = holder.position.clone();
+            const rest = holder.userData.shieldCoverRest;
+            if (!raise) { holder.position.copy(rest); return; }
+            holder.parent.updateMatrixWorld();
+            holder.parent.matrixWorld.decompose(_shieldCoverPos, _shieldCoverQuat, _shieldCoverScale);
+            _shieldCoverDelta.set(0, raise, 0).applyQuaternion(_shieldCoverQuat.invert());
+            _shieldCoverDelta.set(
+                _shieldCoverDelta.x / (_shieldCoverScale.x || 1),
+                _shieldCoverDelta.y / (_shieldCoverScale.y || 1),
+                _shieldCoverDelta.z / (_shieldCoverScale.z || 1)
+            );
+            holder.position.copy(rest).add(_shieldCoverDelta);
+        }
+
+        function poseShieldCover(remote) {
+            const data = remote?.userData;
+            if (!data) return;
+            const covered = data.weapon === SHIELD.weapon && data.isCrouching;
+            data.shieldCoverRaise = THREE.MathUtils.lerp(
+                data.shieldCoverRaise || 0, covered ? SHIELD_COVER_RAISE : 0, SHIELD_COVER_LERP);
+            if (data.shieldCoverRaise < 0.01) data.shieldCoverRaise = 0;
+            applyShieldCoverOffset(data.thirdPersonShield, data.shieldCoverRaise);
+            applyShieldCoverOffset(data.characterAsset?.userData?.assetShieldHolder, data.shieldCoverRaise);
+        }
+
         function refreshRemoteThirdPersonWeapon(remote, weaponName = null) {
             if (!remote?.userData) return;
             const name = weaponName || remote.userData.weapon || 'AK47';
@@ -17131,6 +17179,9 @@
             else holder.position.set(handSign * 0.1, 0.1, AGENT_HELD_FIREARM_FORWARD_Z);
             holder.rotation.set(0, Math.PI / 2, 0);
             holder.scale.setScalar(agentHeldWeaponScale(weaponName) / (holder.userData.agentModelScale || 1));
+            // This just re-authored position, so any cover offset measured from
+            // the old rest is stale. poseShieldCover re-captures on its next pass.
+            holder.userData.shieldCoverRest = null;
         }
 
         function applyAgentHeldWeaponTransform(holder, rig, weaponName = 'AK47') {
@@ -19936,6 +19987,7 @@
                 }
 
                 updateRemoteSpawnProtectionVisual(remote, time);
+                poseShieldCover(remote);
                 const joints = data.joints;
                 if (data.shootUntil && time >= data.shootUntil) data.isShooting = false;
                 if (!data.characterAsset?.visible) {

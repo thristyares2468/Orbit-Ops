@@ -305,3 +305,49 @@ test('an agent-held shield skips the rifle grip corrections', () => {
   assert.ok(shieldReturn > 0, 'the shield must have its own branch');
   assert.ok(shieldReturn < gripRoll, 'and it must return before the rifle grip roll');
 });
+
+test('full cover looks different from head exposed', () => {
+  // core.js already says these are different states: standing, a headshot is
+  // unblocked; crouched, it is absorbed outright. The model has to say so too,
+  // or a shooter cannot tell whether the head in front of them is a target.
+  assert.equal(core.SHIELD.headBlock, 0, 'standing, the head is exposed');
+  assert.equal(core.SHIELD.crouchHeadBlock, 1, 'crouched, the head is covered');
+
+  const raise = client.match(/const SHIELD_COVER_RAISE = ([\d.]+);/u);
+  assert.ok(raise, 'index.html must declare the full-cover raise');
+  // Measured against the procedural body: the plate rests at torso-local
+  // y -3.9..7.2 and the helmet tops out at 12.3, so anything less than ~5.1
+  // leaves the head sticking out of a pose the server treats as full cover.
+  assert.ok(Number(raise[1]) > 5.1, 'the raised plate must clear the top of the helmet');
+
+  const fn = client.slice(client.indexOf('function poseShieldCover'));
+  const body = fn.slice(0, fn.indexOf('\n        function ', 1));
+  assert.ok(body, 'index.html must pose the shield for cover');
+  assert.match(body, /data\.weapon === SHIELD\.weapon && data\.isCrouching/u,
+    'the raise is gated on holding a shield AND being crouched');
+  // Both bodies a carrier can be drawn as: the procedural fallback plate and
+  // the imported agent's hand holder. Raising only one means the cue vanishes
+  // the moment the character GLB finishes streaming in.
+  assert.match(body, /applyShieldCoverOffset\(data\.thirdPersonShield/u);
+  assert.match(body, /applyShieldCoverOffset\(data\.characterAsset\?\.userData\?\.assetShieldHolder/u);
+
+  // Both parents are rotated - the torso pitches forward when crouched, the
+  // hand bone points wherever the animation put it - so a raise applied in
+  // local space would tip the plate away instead of lifting it.
+  const offset = client.slice(client.indexOf('function applyShieldCoverOffset'));
+  const offsetBody = offset.slice(0, offset.indexOf('\n        function ', 1));
+  assert.match(offsetBody, /\.matrixWorld\.decompose\(/u,
+    'the raise must be converted out of the parent world transform');
+  assert.match(offsetBody, /_shieldCoverQuat\.invert\(\)/u);
+
+  // prepareAgentWeaponHolder re-authors holder.position, so a rest captured
+  // before it ran would leave the plate permanently displaced.
+  const prep = client.slice(client.indexOf('function prepareAgentWeaponHolder'));
+  assert.match(prep.slice(0, prep.indexOf('\n        function ', 1)),
+    /holder\.userData\.shieldCoverRest = null;/u,
+    're-authoring the holder must invalidate the cached rest position');
+
+  // Called for real players and for admin dummies, on every frame either is posed.
+  assert.equal((client.match(/poseShieldCover\(/gu) || []).length, 3,
+    'one declaration plus the remote-player and admin-dummy pose loops');
+});
