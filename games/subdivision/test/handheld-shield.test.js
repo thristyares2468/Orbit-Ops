@@ -351,3 +351,40 @@ test('full cover looks different from head exposed', () => {
   assert.equal((client.match(/poseShieldCover\(/gu) || []).length, 3,
     'one declaration plus the remote-player and admin-dummy pose loops');
 });
+
+// The cue that was missing. The previous pass moved every carrier EXCEPT the
+// one whose decision it informs: the HUD told the local player "FULL COVER" /
+// "HEAD EXPOSED" while their own plate never moved, so the whole feature was
+// invisible to the person choosing whether to crouch.
+test('the carrier sees their own plate rise into cover', () => {
+  const raise = client.match(/const SHIELD_FP_COVER_RAISE = ([\d.]+);/u);
+  assert.ok(raise, 'index.html must declare a first-person cover raise');
+  // The procedural plate is 1.5 tall and rests centred just below the eye line,
+  // so a lift under about a third of its height never crosses the crosshair and
+  // reads as nothing happening at all.
+  assert.ok(Number(raise[1]) > 0.5, 'the raise must clear the eye line, not jitter');
+
+  const fn = client.slice(client.indexOf('function updateShieldCoverPose'));
+  const body = fn.slice(0, fn.indexOf('\n        function ', 1));
+  assert.ok(body, 'index.html must pose the first-person shield');
+  assert.match(body, /isCrouching/u, 'the raise is gated on crouching');
+  // A fixed per-frame lerp raises the plate twice as fast at 120fps as at 60.
+  assert.match(body, /Math\.exp\(-SHIELD_FP_COVER_RATE \* Math\.max\(0, delta\)\)/u,
+    'the approach must be frame-rate independent');
+  // It moves the shield's own holder. Moving weaponGroup would drag the sidearm
+  // in the other hand up with it, which is not what crouching does.
+  assert.match(body, /firstPersonShieldHolder/u);
+  assert.doesNotMatch(body, /weaponGroup\.position/u,
+    'the sidearm must not ride up with the plate');
+
+  // clearObjectChildren(weaponGroup) orphans the previous plate on every
+  // rebuild, so a stale handle would pose a detached group forever.
+  const build = client.slice(client.indexOf('clearObjectChildren(weaponGroup);'));
+  const reset = build.indexOf('firstPersonShieldHolder = null;');
+  const capture = build.indexOf('firstPersonShieldHolder = shieldAssetHolder;');
+  assert.ok(reset > 0, 'the handle is cleared when the viewmodel is rebuilt');
+  assert.ok(capture > reset, 'and re-captured only when a shield is actually built');
+
+  // And it has to be driven every frame, not just on the crouch keypress.
+  assert.match(client, /updateShieldCoverPose\(delta\);/u, 'the frame loop drives it');
+});

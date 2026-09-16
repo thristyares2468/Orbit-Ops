@@ -8193,6 +8193,16 @@
         // muzzle flash and the model read this same number: they drifted apart
         // once already, and a flash that starts beside the barrel is obvious.
         const DUAL_PISTOL_SPREAD = 1.05;
+        // Crouching behind the shield is the difference between headBlock 0 and
+        // crouchHeadBlock 1 - the head goes from fully exposed to fully covered.
+        // The HUD has always said so in words; without the plate actually moving,
+        // the only cue for the most important decision the shield offers was text.
+        const SHIELD_FP_COVER_RAISE = 0.62;   // viewmodel units, plate is 1.5 tall
+        const SHIELD_FP_COVER_TUCK = 0.16;    // drawn in toward the body as it lifts
+        const SHIELD_FP_COVER_TILT = 0.13;    // radians; braced, not held flat
+        const SHIELD_FP_COVER_RATE = 9;       // approach per second
+        let firstPersonShieldHolder = null;
+        let firstPersonShieldCover = 0;
 
         let moveForward = false; let moveBackward = false; let moveLeft = false; let moveRight = false;
         let isCrouching = false; let crouchHeld = false; let jumpHeld = false; let jumpQueued = false; let jumpGraceTimer = 0; let isWalking = false; let sprintHeld = false; let isSprinting = false; let isJumping = false; let isShooting = false; let isAltShooting = false;
@@ -17058,6 +17068,29 @@
             return parts[side < 0 ? 0 : 1];
         }
 
+        // Raises the first-person plate as the carrier crouches. It moves the
+        // shield's own holder, not weaponGroup, so the sidearm in the other hand
+        // stays where it is - the plate lifting past it is the whole cue.
+        function updateShieldCoverPose(delta) {
+            const holder = firstPersonShieldHolder;
+            if (!holder) { firstPersonShieldCover = 0; return; }
+            if (!holder.userData.coverRest) holder.userData.coverRest = holder.position.clone();
+            const rest = holder.userData.coverRest;
+            const target = isCrouching ? 1 : 0;
+            // Frame-rate independent approach: a fixed per-frame lerp would raise
+            // the plate twice as fast at 120fps as at 60.
+            const step = 1 - Math.exp(-SHIELD_FP_COVER_RATE * Math.max(0, delta));
+            firstPersonShieldCover += (target - firstPersonShieldCover) * step;
+            if (firstPersonShieldCover < 0.001) firstPersonShieldCover = 0;
+            const cover = firstPersonShieldCover;
+            holder.position.set(
+                rest.x + SHIELD_FP_COVER_TUCK * cover,
+                rest.y + SHIELD_FP_COVER_RAISE * cover,
+                rest.z
+            );
+            holder.rotation.x = -SHIELD_FP_COVER_TILT * cover;
+        }
+
         function updateDualPistolPose(time) {
             weaponGroup.traverse(pistol => {
                 const side = pistol.userData.dualHand;
@@ -17373,6 +17406,8 @@
             let wp = weapons[currentWeaponIndex];
             let weaponAssetParent = weaponGroup;
             let shieldSidearmAssetParent = null;
+            // clearObjectChildren above just orphaned any previous plate.
+            firstPersonShieldHolder = null;
             const matBlack = new THREE.MeshPhongMaterial({ color: 0x111111 });
             const matDarkGrey = new THREE.MeshPhongMaterial({ color: 0x222222 });
             const matGrey = new THREE.MeshPhongMaterial({ color: 0x3a3a3a });
@@ -17484,6 +17519,7 @@
                     shieldAssetHolder.name = 'first-person-left-hand-shield';
                     weaponGroup.add(shieldAssetHolder);
                     weaponAssetParent = shieldAssetHolder;
+                    firstPersonShieldHolder = shieldAssetHolder;
                     createMesh(new THREE.BoxGeometry(0.95, 1.5, 0.09), matPlate, -2.6, -0.1, -0.75, 0, shieldAssetHolder);
                     createMesh(new THREE.BoxGeometry(0.34, 0.2, 0.12), new THREE.MeshPhongMaterial({ color: 0x11161b }), -2.6, 0.3, -0.8, 0, shieldAssetHolder);
                     const glockAssetHolder = new THREE.Group();
@@ -23266,11 +23302,12 @@
             placeholder.push(stripe);
             group.userData.placeholder = placeholder;
 
-            // Health strip along the top edge, anchored left so it drains sideways.
-            const fillGeometry = new THREE.BoxGeometry(width - 1.2, 0.5, thickness + 0.3);
-            fillGeometry.translate((width - 1.2) / 2, 0, 0);
-            const fill = new THREE.Mesh(fillGeometry, new THREE.MeshBasicMaterial({ color: 0x6fe08a }));
-            fill.position.set(-(width - 1.2) / 2, height - 0.55, 0);
+            // A path, rather than X scaling, preserves the bends as health drains.
+            group.userData.healthPath = [
+                new THREE.Vector3(-width / 2 + 0.6, height + 0.28, 0),
+                new THREE.Vector3(width / 2 - 0.6, height + 0.28, 0)
+            ];
+            const fill = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0x6fe08a, side: THREE.DoubleSide }));
             group.add(fill);
             group.userData.healthFill = fill;
             attachDeployedBarricadeModel(group);
@@ -23319,6 +23356,11 @@
                     -centre.y * model.scale.y + BARRICADE.height / 2,
                     -centre.z * model.scale.z
                 );
+                // The source faces the deployer. Turn only the visual, leaving the
+                // authoritative placement yaw and symmetric collision box unchanged.
+                const facing = new THREE.Group();
+                facing.rotation.y = Math.PI;
+                facing.add(model);
                 model.traverse((child) => {
                     if (!child.isMesh) return;
                     child.castShadow = true;
@@ -23326,8 +23368,39 @@
                 });
                 // Cloned from the shared weapon-asset cache: its geometry and textures
                 // belong to the cache, so removal must not dispose them.
-                model.userData.isSharedAsset = true;
-                group.add(model);
+                facing.userData.isSharedAsset = true;
+                group.add(facing);
+                // Sample the actual panel section, including its angled wings.
+                // Work in panel-local coordinates so every placement yaw agrees.
+                group.updateWorldMatrix(true, true);
+                const inverse = new THREE.Matrix4().copy(group.matrixWorld).invert();
+                const triangles = [];
+                facing.traverse(child => {
+                    if (!child.isMesh) return;
+                    const geometry = child.geometry;
+                    const position = geometry.attributes.position;
+                    const matrix = new THREE.Matrix4().multiplyMatrices(inverse, child.matrixWorld);
+                    const count = geometry.index ? geometry.index.count : position.count;
+                    for (let i = 0; i < count; i += 3) {
+                        triangles.push([0, 1, 2].map(offset => new THREE.Vector3().fromBufferAttribute(position,
+                            geometry.index ? geometry.index.getX(i + offset) : i + offset).applyMatrix4(matrix)));
+                    }
+                });
+                const path = [];
+                const hit = new THREE.Vector3();
+                for (let i = 0; i <= 64; i++) {
+                    const x = (-0.5 + i / 64) * (BARRICADE.width - 1.2);
+                    const ray = new THREE.Ray(new THREE.Vector3(x, BARRICADE.height - 0.55, -BARRICADE.thickness * 2), new THREE.Vector3(0, 0, 1));
+                    let min = Infinity, max = -Infinity;
+                    for (const triangle of triangles) {
+                        if (!ray.intersectTriangle(...triangle, false, hit)) continue;
+                        min = Math.min(min, hit.z);
+                        max = Math.max(max, hit.z);
+                    }
+                    if (Number.isFinite(min)) path.push(new THREE.Vector3(x, BARRICADE.height + 0.28, (min + max) / 2));
+                }
+                if (path.length > 1) group.userData.healthPath = path;
+                applyBarricadeHealthVisual(group, group.userData.health, group.userData.maxHealth);
                 const body = group.userData.body;
                 if (body?.material) {
                     body.material.transparent = true;
@@ -23342,7 +23415,20 @@
             const ratio = Math.max(0, Math.min(1, Number(health) / Math.max(1, Number(maxHealth) || BARRICADE.health)));
             const fill = group.userData.healthFill;
             if (fill) {
-                fill.scale.x = Math.max(0.001, ratio);
+                const path = group.userData.healthPath;
+                const lengths = path.slice(1).map((point, i) => point.distanceTo(path[i]));
+                let remaining = lengths.reduce((sum, length) => sum + length, 0) * ratio;
+                const vertices = [];
+                for (let i = 0; i < lengths.length && remaining > 0; i++) {
+                    const a = path[i], b = a.clone().lerp(path[i + 1], Math.min(1, remaining / lengths[i]));
+                    vertices.push(a.x, a.y - 0.25, a.z, b.x, b.y - 0.25, b.z, b.x, b.y + 0.25, b.z,
+                        a.x, a.y - 0.25, a.z, b.x, b.y + 0.25, b.z, a.x, a.y + 0.25, a.z);
+                    remaining -= lengths[i];
+                }
+                fill.geometry.dispose();
+                fill.geometry = new THREE.BufferGeometry();
+                fill.geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+                fill.visible = ratio > 0;
                 fill.material.color.setHex(ratio > 0.6 ? 0x6fe08a : (ratio > 0.3 ? 0xe3c86f : 0xe3563f));
             }
             const body = group.userData.body;
@@ -25504,6 +25590,7 @@
                 } else if(wp.type !== 'melee') spread += bloom;
                 currentSpread = spread; updateCrosshairGap(currentSpread);
                 if (wp.name === 'Dual Berettas') updateDualPistolPose(time);
+                updateShieldCoverPose(delta);
                 if (localAdminMapTestId) {
                     document.body.dataset.adminMapPlayerPosition = [playerPos.x, playerPos.y, playerPos.z].join(',');
                 }
