@@ -149,7 +149,7 @@
   // Note: some sidearms are intentionally still present for gameplay/Casual even
   // though index.html hides them from inventory because they lack real GLB models.
   const WEAPONS = {
-    'Knife':  { type: 'melee',   firerate: 0.5,   pellets: 1, range: 18,   dmg: { head: 50, body: 50, legs: 50 } },
+    'Knife':  { type: 'melee',   firerate: 0.5,   pellets: 1, range: 25,   dmg: { head: 500, body: 500, legs: 500 } },
     'Glock':  { type: 'pistol',  firerate: 0.15,  pellets: 1, range: 1000, dmg: { head: 56, body: 14, legs: 22 } },
     'Deagle': { type: 'pistol',  firerate: 0.4,   pellets: 1, range: 1000, dmg: { head: 234, body: 58, legs: 47 } },
     'USP-S':  { type: 'pistol',  firerate: 0.17,  pellets: 1, range: 1000, dmg: { head: 140, body: 35, legs: 29 } },
