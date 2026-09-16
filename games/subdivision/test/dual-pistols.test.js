@@ -46,11 +46,14 @@ assert.ok(json.materials.some(m=>m.name==='weapon_pist_elite.001'));
 assert.ok(json.meshes.every(m=>m.primitives.every(p=>p.attributes.TEXCOORD_0!==undefined)));
 console.log('Dual pistols: public/casual/Containment denied, admin enabled, disabled override enforced; supplied GLB UVs intact.');
 
-// The pistol table is a 4:1 head:body ladder, and on every pistol but the two
-// lowest-damage bullet hoses a leg hit is worth less than a chest hit. An entry
-// where legs beat body makes aiming at the floor the optimal play, so pin both.
+// The duals deliberately reward accurate follow-up shots without turning two
+// quick hits into an instant kill: 42 head damage means 84 after two hits and
+// 126 after three against a full-health player. Leg damage must stay below body
+// damage, otherwise aiming at the floor becomes the optimal play.
 const dualDmg = core.WEAPONS['Dual Berettas'].dmg;
-assert.equal(dualDmg.head, dualDmg.body * 4, 'head damage is 4x body like every other pistol');
+assert.equal(dualDmg.head, 42, 'each headshot should deal 42 damage');
+assert.equal(Math.ceil(100 / dualDmg.head), 3, 'a full-health player dies on the third headshot');
+assert.ok(dualDmg.head * 2 < 100, 'two headshots must leave a full-health player alive');
 assert.ok(dualDmg.legs < dualDmg.body, `leg damage (${dualDmg.legs}) must stay under body damage (${dualDmg.body})`);
 
 // Each half is normalised to the viewmodel length on its own, so the split has
