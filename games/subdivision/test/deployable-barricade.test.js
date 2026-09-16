@@ -12,6 +12,71 @@ const test = require('node:test');
 const core = require('../core');
 
 const ROOT = path.resolve(__dirname, '..');
+// Bounds of a GLB two ways: from the real vertices, and the way three's
+// Box3.setFromObject() does it - each geometry's bounding-box corners pushed
+// through matrixWorld, which over-estimates any rotated node.
+function glbBounds(file) {
+  const buf = fs.readFileSync(file);
+  let off = 12, json = null, bin = null;
+  while (off < buf.length) {
+    const len = buf.readUInt32LE(off);
+    const type = buf.toString('utf8', off + 4, off + 8).trim();
+    const body = buf.slice(off + 8, off + 8 + len);
+    if (type === 'JSON') json = JSON.parse(body.toString('utf8'));
+    else bin = body;
+    off += 8 + len;
+  }
+  const multiply = (a, b) => {
+    const out = new Array(16).fill(0);
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) out[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+    return out;
+  };
+  const nodeMatrix = (node) => {
+    if (node.matrix) return node.matrix;
+    const [tx, ty, tz] = node.translation || [0, 0, 0];
+    const [sx, sy, sz] = node.scale || [1, 1, 1];
+    const [qx, qy, qz, qw] = node.rotation || [0, 0, 0, 1];
+    const r = [
+      1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy + qz * qw), 2 * (qx * qz - qy * qw),
+      2 * (qx * qy - qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz + qx * qw),
+      2 * (qx * qz + qy * qw), 2 * (qy * qz - qx * qw), 1 - 2 * (qx * qx + qy * qy)
+    ];
+    return [r[0] * sx, r[1] * sx, r[2] * sx, 0, r[3] * sy, r[4] * sy, r[5] * sy, 0, r[6] * sz, r[7] * sz, r[8] * sz, 0, tx, ty, tz, 1];
+  };
+  const exact = [[Infinity, Infinity, Infinity], [-Infinity, -Infinity, -Infinity]];
+  const corner = [[Infinity, Infinity, Infinity], [-Infinity, -Infinity, -Infinity]];
+  const push = (target, world, point) => {
+    for (let a = 0; a < 3; a++) {
+      const v = world[a] * point[0] + world[4 + a] * point[1] + world[8 + a] * point[2] + world[12 + a];
+      target[0][a] = Math.min(target[0][a], v);
+      target[1][a] = Math.max(target[1][a], v);
+    }
+  };
+  const walk = (index, parent) => {
+    const node = json.nodes[index];
+    const world = multiply(parent, nodeMatrix(node));
+    if (Number.isInteger(node.mesh)) {
+      for (const prim of json.meshes[node.mesh].primitives) {
+        const acc = json.accessors[prim.attributes.POSITION];
+        const view = json.bufferViews[acc.bufferView];
+        const start = (view.byteOffset || 0) + (acc.byteOffset || 0);
+        const stride = view.byteStride || 12;
+        for (let v = 0; v < acc.count; v++) {
+          const o = start + v * stride;
+          push(exact, world, [bin.readFloatLE(o), bin.readFloatLE(o + 4), bin.readFloatLE(o + 8)]);
+        }
+        for (let c = 0; c < 8; c++) {
+          push(corner, world, [c & 1 ? acc.max[0] : acc.min[0], c & 2 ? acc.max[1] : acc.min[1], c & 4 ? acc.max[2] : acc.min[2]]);
+        }
+      }
+    }
+    for (const child of node.children || []) walk(child, world);
+  };
+  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  for (const root of json.scenes[json.scene || 0].nodes) walk(root, identity);
+  const size = (b) => ({ x: b[1][0] - b[0][0], y: b[1][1] - b[0][1], z: b[1][2] - b[0][2] });
+  return { exact: size(exact), corner: size(corner) };
+}
 const client = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
@@ -90,6 +155,39 @@ test('the deployed panel wears the authored model, fitted to its collider', () =
   const guard = build.indexOf("wp.kind === 'barricade'");
   const attach = build.indexOf('attachWeaponAsset(');
   assert.ok(guard > 0 && attach > guard, 'the carried barricade must keep its procedural model');
+});
+
+test('the panel is fitted from real vertices, not a corner estimate', () => {
+  // The panel's wings are rotated nodes, so the corner estimate three's
+  // Box3.setFromObject() produces is four times the real depth. Fitting to that
+  // number shrank the model to a quarter of the collider's thickness, which is
+  // what made the hitbox stand out past the model in game.
+  const bounds = glbBounds(path.join(ROOT, 'assets/weapons/barricade.glb'));
+  assert.ok(bounds.corner.z > bounds.exact.z * 2,
+    'this model is exactly the shape that defeats a corner estimate; if that stops being true the guard below still has to hold');
+  const fitted = {
+    x: bounds.exact.x * (core.BARRICADE.width / bounds.exact.x),
+    y: bounds.exact.y * (core.BARRICADE.height / bounds.exact.y),
+    z: bounds.exact.z * (core.BARRICADE.thickness / bounds.exact.z)
+  };
+  assert.ok(Math.abs(fitted.x - core.BARRICADE.width) < 1e-6);
+  assert.ok(Math.abs(fitted.y - core.BARRICADE.height) < 1e-6);
+  assert.ok(Math.abs(fitted.z - core.BARRICADE.thickness) < 1e-6);
+  // And the client has to measure that way: the same fit against the corner
+  // estimate would leave the panel this much thinner than what stops bullets.
+  const wrongThickness = bounds.exact.z * (core.BARRICADE.thickness / bounds.corner.z);
+  assert.ok(wrongThickness < core.BARRICADE.thickness / 2, 'sanity: the wrong measurement really is badly wrong');
+  assert.match(client, /function preciseModelBounds\(model\)/);
+  // Scoped to the deployables: buildWeaponAssetInstance() measures the loose way
+  // too, but every weapon's fp.length was hand-tuned against that behaviour, so
+  // it is not this change's to alter.
+  for (const fn of ['attachDeployedBarricadeModel', 'attachPlantedC4Model']) {
+    const start = client.indexOf(`function ${fn}`);
+    assert.ok(start > 0, `${fn} must exist`);
+    const body = client.slice(start, client.indexOf('\n        }', start));
+    assert.match(body, /const box = preciseModelBounds\(model\);/, `${fn} must measure the real vertices`);
+    assert.doesNotMatch(body, /Box3\(\)\.setFromObject/, `${fn} must not fit from a corner estimate`);
+  }
 });
 
 test('the client never places a panel on its own authority', () => {

@@ -23061,6 +23061,25 @@
             return group;
         }
 
+        // Box3.setFromObject() expands by each geometry's bounding-box CORNERS pushed
+        // through matrixWorld, which over-estimates any rotated node: the barricade's
+        // angled wings reported four times their real depth, and fitting to that
+        // number left the panel a quarter of the thickness it was supposed to fill.
+        // Measure the vertices themselves instead.
+        function preciseModelBounds(model) {
+            const box = new THREE.Box3();
+            const vertex = new THREE.Vector3();
+            model.updateWorldMatrix(false, true);
+            model.traverse((child) => {
+                const position = child.isMesh ? child.geometry?.attributes?.position : null;
+                if (!position) return;
+                for (let i = 0; i < position.count; i++) {
+                    box.expandByPoint(vertex.fromBufferAttribute(position, i).applyMatrix4(child.matrixWorld));
+                }
+            });
+            return box;
+        }
+
         // The authored panel replaces the placeholder box once it loads. It is fitted
         // to the collider rather than scaled uniformly, so the thing you can see is
         // exactly the thing that stops bullets - the box stays in the scene as that
@@ -23071,7 +23090,7 @@
             promise.then((template) => {
                 if (!template || !group.parent) return;
                 const model = template.clone(true);
-                const box = new THREE.Box3().setFromObject(model);
+                const box = preciseModelBounds(model);
                 const size = box.getSize(new THREE.Vector3());
                 const centre = box.getCenter(new THREE.Vector3());
                 model.scale.set(
@@ -23415,7 +23434,7 @@
             promise.then((template) => {
                 if (!template || !group.parent) return;
                 const model = template.clone(true);
-                const box = new THREE.Box3().setFromObject(model);
+                const box = preciseModelBounds(model);
                 const size = box.getSize(new THREE.Vector3());
                 const centre = box.getCenter(new THREE.Vector3());
                 const scale = C4.height / (Math.max(size.x, size.y, size.z) || 1);
