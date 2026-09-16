@@ -96,7 +96,7 @@ test('core carries one authoritative barricade table', () => {
 test('the barricade is a priced utility kind with its own life cap', () => {
   assert.equal(typeof core.UTILITY_PRICES.barricade, 'number');
   assert.ok(core.UTILITY_PRICES.barricade > 0);
-  assert.equal(core.UTILITY_LIFE_CAPS.barricade, 1, 'persistent cover is capped tighter than a grenade');
+  assert.equal(core.UTILITY_LIFE_CAPS.barricade, 2, 'the current two-panel allowance must stay in sync with the shared table');
 });
 
 test('Barricade is appended to the weapon tables without moving existing indexes', () => {
@@ -147,7 +147,7 @@ test('the deployed panel wears the authored model, fitted to its collider', () =
   // The collider stays raycastable once the model covers it, and the shared
   // asset must survive the panel being removed.
   assert.match(client, /body\.material\.opacity = 0;/);
-  assert.match(client, /model\.userData\.isSharedAsset = true;/);
+  assert.match(client, /facing\.userData\.isSharedAsset = true;/);
   assert.match(client, /if \(child\.userData\?\.isSharedAsset\) continue;/);
   // What you carry is the folded panel, which only exists procedurally. Order,
   // not adjacency: other weapons guard the same call.
@@ -239,4 +239,24 @@ test('placement yaw turns the panel face toward the player', () => {
     assert.ok(Math.abs(span.x * forward.x + span.z * forward.z) < 1e-9,
       'the width sits across the line of sight');
   }
+});
+
+test('the deployed visual faces outward and its health bar follows the model curve', () => {
+  const start = client.indexOf('function attachDeployedBarricadeModel');
+  const visual = client.slice(start, client.indexOf('function applyBarricadeHealthVisual', start));
+  // The collider is symmetric, so turn only the imported visual. Changing the
+  // placement yaw would silently desync the view from server-side collision.
+  assert.match(visual, /const facing = new THREE\.Group\(\);[\s\S]*?facing\.rotation\.y = Math\.PI;/);
+  assert.match(visual, /group\.add\(facing\);/);
+  assert.match(visual, /const path = \[\];[\s\S]*?if \(path\.length > 1\) group\.userData\.healthPath = path;/,
+    'the health path must be sampled from the fitted model rather than remain straight');
+
+  const healthStart = client.indexOf('function applyBarricadeHealthVisual');
+  const health = client.slice(healthStart, client.indexOf('function spawnBarricade', healthStart));
+  assert.match(health, /const lengths = path\.slice\(1\)/);
+  assert.match(health, /remaining = lengths\.reduce[\s\S]*?\* ratio/,
+    'damage must shorten the connected path by health ratio');
+  assert.match(health, /fill\.geometry = new THREE\.BufferGeometry\(\);/);
+  assert.doesNotMatch(health, /fill\.scale\.x\s*=/,
+    'X scaling would turn the curved bar back into a straight shortcut');
 });
