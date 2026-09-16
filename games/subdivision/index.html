@@ -8203,8 +8203,16 @@
         const SHIELD_FP_COVER_TUCK = 0.16;    // drawn in toward the body as it lifts
         const SHIELD_FP_COVER_TILT = 0.13;    // radians; braced, not held flat
         const SHIELD_FP_COVER_RATE = 9;       // approach per second
+        // Sprinting drops the plate and rolls it edge-on to run with it, which
+        // is why SHIELD.sprintBodyBlock only absorbs half a body hit. The pose
+        // and the damage rule have to agree or the shield lies about its cover.
+        const SHIELD_FP_SPRINT_DROP = 0.72;   // dropped out of the firing line
+        const SHIELD_FP_SPRINT_SWING = 0.4;   // swung outboard, away from the chest
+        const SHIELD_FP_SPRINT_ROLL = 0.55;   // radians; turned edge-on, not facing front
         let firstPersonShieldHolder = null;
         let firstPersonShieldCover = 0;
+        let firstPersonShieldSprint = 0;
+        let lastShieldCoverLabel = '';
 
         let moveForward = false; let moveBackward = false; let moveLeft = false; let moveRight = false;
         let isCrouching = false; let crouchHeld = false; let jumpHeld = false; let jumpQueued = false; let jumpGraceTimer = 0; let isWalking = false; let sprintHeld = false; let isSprinting = false; let isJumping = false; let isShooting = false; let isAltShooting = false;
@@ -17078,19 +17086,25 @@
             if (!holder) { firstPersonShieldCover = 0; return; }
             if (!holder.userData.coverRest) holder.userData.coverRest = holder.position.clone();
             const rest = holder.userData.coverRest;
-            const target = isCrouching ? 1 : 0;
-            // Frame-rate independent approach: a fixed per-frame lerp would raise
+            // Frame-rate independent approach: a fixed per-frame lerp would move
             // the plate twice as fast at 120fps as at 60.
             const step = 1 - Math.exp(-SHIELD_FP_COVER_RATE * Math.max(0, delta));
-            firstPersonShieldCover += (target - firstPersonShieldCover) * step;
+            firstPersonShieldCover += ((isCrouching ? 1 : 0) - firstPersonShieldCover) * step;
+            firstPersonShieldSprint += ((isSprinting ? 1 : 0) - firstPersonShieldSprint) * step;
             if (firstPersonShieldCover < 0.001) firstPersonShieldCover = 0;
+            if (firstPersonShieldSprint < 0.001) firstPersonShieldSprint = 0;
             const cover = firstPersonShieldCover;
+            const sprint = firstPersonShieldSprint;
+            // The two terms simply add: sprinting and crouching are mutually
+            // exclusive upstream, so they never pull the plate in both
+            // directions at once - only one is ever winding up at a time.
             holder.position.set(
-                rest.x + SHIELD_FP_COVER_TUCK * cover,
-                rest.y + SHIELD_FP_COVER_RAISE * cover,
+                rest.x + SHIELD_FP_COVER_TUCK * cover - SHIELD_FP_SPRINT_SWING * sprint,
+                rest.y + SHIELD_FP_COVER_RAISE * cover - SHIELD_FP_SPRINT_DROP * sprint,
                 rest.z
             );
             holder.rotation.x = -SHIELD_FP_COVER_TILT * cover;
+            holder.rotation.z = -SHIELD_FP_SPRINT_ROLL * sprint;
         }
 
         function updateDualPistolPose(time) {
@@ -20551,6 +20565,15 @@
             updateUI();
         }
 
+        // Three states, matching what the server will actually absorb: crouched
+        // is SHIELD.crouchHeadBlock, sprinting is SHIELD.sprintBodyBlock, and
+        // standing is full body cover with the head over the top of the plate.
+        function shieldCoverLabel() {
+            if (isCrouching) return 'FULL COVER';
+            if (isSprinting) return 'HALF EXPOSED';
+            return 'HEAD EXPOSED';
+        }
+
         function updateUI() {
             const activeWeapon = weapons[currentWeaponIndex];
             const shieldStaggered = activeWeapon.name === SHIELD.weapon && Date.now() < shieldStaggeredUntil;
@@ -20558,7 +20581,7 @@
             const weaponText = activeWeapon.name === SHOTGUN_ALT.weapon
                 ? `${activeWeapon.name} · ${breacherSlugLoaded ? 'SLUG' : 'BUCK'}`
                 : (activeWeapon.name === SHIELD.weapon
-                    ? `${activeWeapon.name} · ${shieldStaggered ? 'STAGGERED' : `GUARD ${Math.ceil(shieldGuardRemaining)}/${SHIELD.capacity}`} · ${isCrouching ? 'FULL COVER' : 'HEAD EXPOSED'}`
+                    ? `${activeWeapon.name} · ${shieldStaggered ? 'STAGGERED' : `GUARD ${Math.ceil(shieldGuardRemaining)}/${SHIELD.capacity}`} · ${shieldCoverLabel()}`
                     : activeWeapon.name);
             const ammoText = `${currentAmmo} / ${reserveAmmo}`;
             const modeText = isTimedMode() ? formatDeathmatchTimer() : `GUN: ${gunGameLevel + 1} / ${gunGameOrder.length}`;
@@ -25112,6 +25135,18 @@
                     movementSpeedScale *= SHIELD.staggerSpeedMult;
                     isSprinting = false;
                     if (isSliding) stopSlide();
+                }
+                // Neither crouching nor sprinting refreshes the HUD on its own -
+                // setCrouchState never has - so the cover readout only changed when
+                // some unrelated event happened to repaint it. Push it here, after
+                // the stagger has had its say about sprinting, and only when the
+                // text actually differs.
+                if (wp.type === 'shield') {
+                    const coverLabel = shieldCoverLabel();
+                    if (coverLabel !== lastShieldCoverLabel) {
+                        lastShieldCoverLabel = coverLabel;
+                        updateUI();
+                    }
                 }
                 let currentSpeed = Math.sqrt(velocity.x**2 + velocity.z**2); let speedRatio = Math.min(1, currentSpeed / runSpeed);
                 let onGround = !isJumping; let targetBobX = 0; let targetBobY = 0;

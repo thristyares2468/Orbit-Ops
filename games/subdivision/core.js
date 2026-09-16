@@ -205,6 +205,11 @@
     bodyBlock: 1,           // share of a blocked body/leg hit that is absorbed
     headBlock: 0,           // standing, the head sits above the shield
     crouchHeadBlock: 1,     // crouched, the carrier is behind it completely
+    // Sprinting, the plate is dropped and swung out of the way to run with it,
+    // so the body it was covering is half open. Sprint and crouch are mutually
+    // exclusive upstream, so this never competes with crouchHeadBlock; the head
+    // is already fully exposed at headBlock 0 whenever you are not crouched.
+    sprintBodyBlock: 0.5,   // share of a blocked body/leg hit absorbed while sprinting
     capacity: 150,          // absorbed damage before guard breaks
     staggerMs: 1200,        // guard-down window after capacity is exhausted
     staggerSpeedMult: 0.28,
@@ -251,6 +256,7 @@
     const facingDot = forwardX * (dx / distance) + forwardZ * (dz / distance);
     if (facingDot < SHIELD.arcCos) return 0;
     if (headshot) return target.crouching ? SHIELD.crouchHeadBlock : SHIELD.headBlock;
+    if (target.sprinting) return SHIELD.sprintBodyBlock;
     return SHIELD.bodyBlock;
   }
 

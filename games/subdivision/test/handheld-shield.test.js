@@ -151,7 +151,17 @@ test('the client carries it in the primary slot and fires the reduced-stat Glock
   assert.ok(speedOf('Shield') > speedOf('RPG'), 'but lighter than a rocket launcher');
   // The standing/crouched rule is invisible unless the HUD says it.
   assert.match(client, /GUARD \$\{Math\.ceil\(shieldGuardRemaining\)\}\/\$\{SHIELD\.capacity\}/);
-  assert.match(client, /isCrouching \? 'FULL COVER' : 'HEAD EXPOSED'/);
+  // Three states now, so the HUD reads them from one function instead of a
+  // ternary - a sprinting carrier is neither fully covered nor merely head-exposed.
+  assert.match(client, /\$\{shieldCoverLabel\(\)\}/u);
+  const label = client.slice(client.indexOf('function shieldCoverLabel'));
+  const labelBody = label.slice(0, label.indexOf('\n        function ', 1));
+  assert.match(labelBody, /isCrouching\) return 'FULL COVER'/u);
+  assert.match(labelBody, /isSprinting\) return 'HALF EXPOSED'/u);
+  assert.match(labelBody, /return 'HEAD EXPOSED'/u);
+  // Crouching and sprinting are both silent state changes - nothing else
+  // repaints the HUD - so the label would sit stale until an unrelated event.
+  assert.match(client, /if \(coverLabel !== lastShieldCoverLabel\)/u);
   assert.match(client, /SHIELD BROKEN · STAGGERED/);
   assert.match(client, /indicator\.classList\.add\('shield-blocked'\)/);
 });
@@ -387,4 +397,61 @@ test('the carrier sees their own plate rise into cover', () => {
 
   // And it has to be driven every frame, not just on the crouch keypress.
   assert.match(client, /updateShieldCoverPose\(delta\);/u, 'the frame loop drives it');
+});
+
+// Sprinting with a shield: the carrier is running, not covering. The plate is
+// dropped out of the firing line, so the body it was protecting is half open.
+test('sprinting drops the plate and half-exposes the body', () => {
+  const s = core.SHIELD;
+  assert.equal(s.sprintBodyBlock, 0.5, 'sprinting leaves the body half covered');
+  assert.ok(s.sprintBodyBlock > s.headBlock && s.sprintBodyBlock < s.bodyBlock,
+    'half exposed has to sit strictly between no cover and full cover');
+
+  const now = 10_000;
+  const base = {
+    position: { x: 0, y: 0, z: 0 }, rotation: { y: 0 }, weapon: 'Shield',
+    loadout: { main: 'Shield' }, crouching: false, sprinting: false,
+    lastShotAt: 0, shieldDamage: 0, shieldStaggeredUntil: 0
+  };
+  const front = { x: 0, y: 0, z: -10 };
+  const hit = (over, headshot = false, dmg = 40, from = front) =>
+    core.resolveShieldHit({ ...base, ...over }, from, headshot, dmg, now);
+
+  assert.equal(hit({}).damage, 0, 'standing, a front body shot is absorbed outright');
+  assert.equal(hit({ sprinting: true }).damage, 20, 'sprinting, half of it lands');
+  assert.equal(hit({ crouching: true }).damage, 0, 'crouched is unchanged');
+  // The head is already exposed whenever you are not crouched, so sprinting
+  // must not become a way to pick up head cover by accident.
+  assert.equal(hit({ sprinting: true }, true, 80).damage, 80,
+    'sprinting does not change what a headshot does');
+  // Facing still gates everything: a plate dropped to run does not start
+  // covering your back.
+  assert.equal(hit({ sprinting: true }, false, 40, { x: 0, y: 0, z: 10 }).damage, 40,
+    'a shot from behind ignores the shield entirely');
+  // Absorbing half means draining half, which is the tradeoff worth keeping
+  // honest: sprinting costs health but makes the guard last twice as long.
+  assert.equal(hit({ sprinting: true }).absorbed, 20);
+  assert.equal(hit({}).absorbed, 40);
+});
+
+test('the first-person plate visibly leaves the firing line when sprinting', () => {
+  const drop = Number(client.match(/const SHIELD_FP_SPRINT_DROP = ([\d.]+);/u)[1]);
+  const raise = Number(client.match(/const SHIELD_FP_COVER_RAISE = ([\d.]+);/u)[1]);
+  // The plate is 1.5 tall and rests centred just under the eye line. Dropping
+  // it less than a third of its height leaves it still covering the chest,
+  // which contradicts what the server now scores.
+  assert.ok(drop > 0.5, 'the sprint drop must clear the chest, not jitter');
+  assert.ok(drop > raise, 'sprinting must move it further out of the way than crouching moves it in');
+  assert.ok(client.includes('const SHIELD_FP_SPRINT_SWING'), 'and swing it outboard');
+  assert.ok(client.includes('const SHIELD_FP_SPRINT_ROLL'), 'and roll it edge-on');
+
+  const fn = client.slice(client.indexOf('function updateShieldCoverPose'));
+  const body = fn.slice(0, fn.indexOf('\n        function ', 1));
+  assert.match(body, /isSprinting/u, 'the drop is gated on sprinting');
+  // Same smoothing as the cover raise: a hard snap on a state that flickers
+  // every time you release W would strobe the viewmodel.
+  assert.match(body, /firstPersonShieldSprint \+= \(\(isSprinting \? 1 : 0\) - firstPersonShieldSprint\) \* step/u);
+  // Both offsets are applied from the same captured rest position, so the two
+  // states compose instead of each fighting over holder.position.
+  assert.match(body, /SHIELD_FP_COVER_RAISE \* cover - SHIELD_FP_SPRINT_DROP \* sprint/u);
 });
