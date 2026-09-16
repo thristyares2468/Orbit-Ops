@@ -59,7 +59,7 @@
   // Per-life buy caps by utility kind. Anything missing here uses the caller's
   // default (2 on both sides). The barricade is deliberately capped lower: it is
   // persistent cover, not a one-shot effect.
-  const UTILITY_LIFE_CAPS = { barricade: 1, c4: 1 };
+  const UTILITY_LIFE_CAPS = { barricade: 2, c4: 1 };
 
   // CT (0) / T (1) → spawn-point indexes. Must stay identical on both sides.
   const TEAM_SPAWN_IDS = { 0: [0, 1, 2, 3], 1: [4, 5, 6, 7] };
@@ -92,7 +92,7 @@
     width: 18.2,      // panel span, left-to-right of the placing player
     height: 16.9,     // just under standing eye height: lean out or crouch behind
     thickness: 1.82,
-    health: 260,
+    health: 600,
     deployDistance: 10, // where the panel lands: straight ahead, this far out
     deployRange: 26,  // furthest the anchor point may sit from the player's eye
     minRange: 7,      // closest, so a player can never encase themselves
@@ -149,7 +149,7 @@
   // Note: some sidearms are intentionally still present for gameplay/Casual even
   // though index.html hides them from inventory because they lack real GLB models.
   const WEAPONS = {
-    'Knife':  { type: 'melee',   firerate: 0.5,   pellets: 1, range: 18,   dmg: { head: 50, body: 50, legs: 50 } },
+    'Knife':  { type: 'melee',   firerate: 0.5,   pellets: 1, range: 25,   dmg: { head: 500, body: 500, legs: 500 } },
     'Glock':  { type: 'pistol',  firerate: 0.15,  pellets: 1, range: 1000, dmg: { head: 56, body: 14, legs: 22 } },
     'Deagle': { type: 'pistol',  firerate: 0.4,   pellets: 1, range: 1000, dmg: { head: 234, body: 58, legs: 47 } },
     'USP-S':  { type: 'pistol',  firerate: 0.17,  pellets: 1, range: 1000, dmg: { head: 140, body: 35, legs: 29 } },
