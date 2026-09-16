@@ -59,7 +59,7 @@
   // Per-life buy caps by utility kind. Anything missing here uses the caller's
   // default (2 on both sides). The barricade is deliberately capped lower: it is
   // persistent cover, not a one-shot effect.
-  const UTILITY_LIFE_CAPS = { barricade: 1, c4: 1 };
+  const UTILITY_LIFE_CAPS = { barricade: 2, c4: 1 };
 
   // CT (0) / T (1) → spawn-point indexes. Must stay identical on both sides.
   const TEAM_SPAWN_IDS = { 0: [0, 1, 2, 3], 1: [4, 5, 6, 7] };
@@ -92,7 +92,7 @@
     width: 18.2,      // panel span, left-to-right of the placing player
     height: 16.9,     // just under standing eye height: lean out or crouch behind
     thickness: 1.82,
-    health: 260,
+    health: 600,
     deployDistance: 10, // where the panel lands: straight ahead, this far out
     deployRange: 26,  // furthest the anchor point may sit from the player's eye
     minRange: 7,      // closest, so a player can never encase themselves
