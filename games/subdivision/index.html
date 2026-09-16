@@ -8011,7 +8011,9 @@
         const SPAWN_NEAR_PLAYER_VERTICAL_RADIUS = 260;
         const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10, 25, 26, 27, 28];
         let minigunThermal = {}, minigunTriggerAt = null;
-        const baseSidearmIndexes = [1, 2];
+        // 17 is Dual Berettas (id 18). It rode in behind an admin-room gate
+        // while it was being tuned; it is a normal buyable sidearm now.
+        const baseSidearmIndexes = [1, 2, 17];
         const casualSidearmIndexes = baseSidearmIndexes;
         const CASUAL_ONLY_SIDEARMS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'R8 Revolver']);
         const deathmatchLoadout = { main: 8, sidearm: 1, knife: 0 };
@@ -20249,7 +20251,7 @@
         }
 
         function availableSidearmIndexes() {
-            return isAdminRoom ? [...baseSidearmIndexes, 17] : baseSidearmIndexes;
+            return baseSidearmIndexes;
         }
 
         function isTimedMode() {

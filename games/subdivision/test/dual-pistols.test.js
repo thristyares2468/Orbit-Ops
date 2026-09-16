@@ -5,21 +5,35 @@ const core = require('../core');
 const server = fs.readFileSync(require.resolve('../server'), 'utf8');
 const source = server.match(/function isWeaponAvailableInMode\(room, weaponName\) \{[\s\S]*?\n\}/)[0];
 const adminRoom = {};
+// The real set, read out of server.js rather than fabricated here. A stub set
+// once claimed Dual Berettas was casual-only and hid the fact that the server
+// genuinely still listed it - which would have blocked the weapon in
+// deathmatch and TDM while every client-side gate said it was buyable.
+const casualOnlySource = server.match(/const CASUAL_ONLY_WEAPONS = new Set\(\[[^\]]*\]\);/)[0];
 const scope = {
   WEAPONS: core.WEAPONS,
-  CASUAL_ONLY_WEAPONS: new Set(['Dual Berettas']),
   isAdminRoom: room => room === adminRoom,
   isCasualMode: room => !!room?.casual,
   isWeaponDisabledByAdmin: room => !!room?.disabled
 };
 vm.createContext(scope);
+// A lexical declaration in a vm context never lands on the context object.
+vm.runInContext(casualOnlySource.replace('const ', 'var '), scope);
 vm.runInContext(source, scope);
-for (const room of [{}, {casual:true}, {settings:{gamemode:'containment'}}, null]) {
-  assert.equal(scope.isWeaponAvailableInMode(room,'Dual Berettas'),false);
+assert.ok(!scope.CASUAL_ONLY_WEAPONS.has('Dual Berettas'),
+  'the server must not treat the duals as casual-only');
+// Open in every mode now, not just the admin room it was tuned in.
+for (const room of [{}, {casual:true}, {settings:{gamemode:'containment'}}, adminRoom, null]) {
+  assert.equal(scope.isWeaponAvailableInMode(room,'Dual Berettas'),true);
 }
-assert.equal(scope.isWeaponAvailableInMode(adminRoom,'Dual Berettas'),true);
-adminRoom.disabled=true;
-assert.equal(scope.isWeaponAvailableInMode(adminRoom,'Dual Berettas'),false);
+// An admin disabling it must still work everywhere.
+assert.equal(scope.isWeaponAvailableInMode({disabled:true},'Dual Berettas'),false);
+// The generic adminOnly gate stays covered even though no weapon uses it now.
+scope.WEAPONS['__TestAdminOnly'] = { adminOnly: true };
+assert.equal(scope.isWeaponAvailableInMode({},'__TestAdminOnly'),false);
+assert.equal(scope.isWeaponAvailableInMode(adminRoom,'__TestAdminOnly'),true);
+delete scope.WEAPONS['__TestAdminOnly'];
+assert.ok(!core.WEAPONS['Dual Berettas'].adminOnly, 'the duals are no longer admin-only');
 assert.equal(core.WEAPONS['Dual Berettas'].mag,24);
 assert.equal(core.WEAPONS['Dual Berettas'].reserve,72);
 // Three spare magazines, not a loose round count.
@@ -67,3 +81,14 @@ assert.match(standIn[0], /DUAL_PISTOL_SPREAD - WEAPON_REST_POS\.x/, 'the stand-i
 assert.equal((client.match(/\[-0\.34, 0\.34\]\.forEach/g) || []).length, 0,
     'the third-person stand-in no longer draws two pistols in a single hand holder');
 console.log('Dual pistols: 24-round mags with 3 spare; flash, viewmodel and stand-in share one spread.');
+
+// Buyable from the sidearm list in every mode, not appended only in the admin
+// room. 17 is Dual Berettas (weapons[] index is id - 1, and its id is 18).
+const sidearms = client.match(/const baseSidearmIndexes = \[([^\]]*)\];/);
+assert.ok(sidearms, 'the sidearm list still exists');
+assert.ok(sidearms[1].split(',').map(v => v.trim()).includes('17'),
+  'the duals are a normal buyable sidearm');
+const avail = client.slice(client.indexOf('function availableSidearmIndexes'));
+assert.doesNotMatch(avail.slice(0, avail.indexOf('}') + 1), /isAdminRoom/u,
+  'the sidearm list no longer gates on the admin room');
+console.log('Dual pistols: open in every mode and buyable as a normal sidearm.');

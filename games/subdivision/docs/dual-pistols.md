@@ -31,10 +31,23 @@ with greater capacity than Glock and less precision than Deagle.
 
 ## Access and validation
 
-Only the server-owned JIMS-ADMIN room permits the weapon. Public state, purchase,
-shoot and damage packets carrying its name are rejected, and the buy/switch
-client paths hide it outside that room. Leaving the room resets the sidearm.
-No admin authentication bypass was added.
+Open in every mode. It shipped behind a JIMS-ADMIN gate while it was being
+tuned; that gate is gone and it is now a normal buyable sidearm alongside Glock
+and Deagle, at the existing price of 400.
+
+Two lists had to agree for that to be true, and they did not. Dropping
+`adminOnly` alone would have left the server's own CASUAL_ONLY_WEAPONS still
+naming the weapon, so it would have been buyable in the client and rejected by
+the server in deathmatch and TDM - allowed only in casual. Both lists are now
+consistent, and the test reads the real set out of server.js rather than a stub,
+which is what let the mismatch hide in the first place.
+
+The generic `adminOnly` mechanism stays in place, unused, with test coverage
+against a synthetic weapon, so a future weapon can be gated the same way.
+
+Not wired in: the gun-game progression (`gunGameOrder`) is a fixed ladder of
+weapon indexes and does not include the duals. Add them there deliberately if
+they should appear in that rotation.
 
 Local account authentication requires DATABASE_URL, and this machine has no
 Postgres, so no admin account can exist and the server closes unauthenticated
@@ -53,4 +66,4 @@ sockets with not_authed. What was verified locally:
 Not verified: firing, recoil alternation, the staggered reload dip and the
 third-person per-hand holders in a live match. Pointer lock does not engage in
 the automated browser, so the client could not be un-paused. Those need a human
-playtest in the real admin room.
+playtest - and now that the weapon is open, any mode will do.

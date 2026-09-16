@@ -232,7 +232,7 @@ function utilityLifeCap(kind) {
 }
 const UTILITY_PRICES = core.UTILITY_PRICES; // shared with client (core.js)
 const WEAPON_PRICES = core.WEAPON_PRICES;   // shared with client (core.js)
-const CASUAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver']);
+const CASUAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'R8 Revolver']);
 const CASUAL_BOMB_SITES = [
   { id: 'A', label: 'A', x: 304.80, z: 23985.76, xMin: 296.27, xMax: 313.32, zMin: 23975.81, zMax: 23995.71, radius: 18 },
   { id: 'B', label: 'B', x: -413.62, z: 23945.79, xMin: -443.73, xMax: -383.50, zMin: 23925.89, zMax: 23965.69, radius: 37 }
