@@ -47,7 +47,7 @@ test('an entry with no rarity inherits the catalog tier, not Common', () => {
     'an unset entry used to silently become Common; it must now inherit');
 });
 
-// Mythic used to mean "knife", and the M4A1 Vanguard is the deliberate exception
+// Mythic used to mean "knife", and the M4A1 Nerf or Nothing is the deliberate exception
 // that ended that. What replaced it is a stricter rule than the one it relaxed:
 // Mythic is now an authored per-item allowlist, so a case entry can confirm the
 // tier but can never promote an ordinary skin into it. This pins the allowlist
