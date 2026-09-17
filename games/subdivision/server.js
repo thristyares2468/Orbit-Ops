@@ -683,6 +683,7 @@ wss.on('connection', (ws, req) => {
     accountRole: 'user',
     guest: false,
     skinLoadout: {},
+    adminSkinOverrides: {},
     deviceId: null,
     token: null,
     authAttempts: 0,
@@ -2107,6 +2108,44 @@ function handleMessage(client, raw) {
     return;
   }
 
+  if (type === 'adminTestSkin') {
+    if (client.roomCode !== ADMIN_ROOM_CODE || !isAdminUser(client)) return;
+    const weapon = String(data.weapon || '').trim();
+    const itemId = String(data.itemId || '').trim();
+    const useDefault = itemId === '__default__';
+    if (!WEAPONS[weapon]) {
+      send(client, 'adminTestSkinResult', { ok: false, message: 'Unknown weapon.' });
+      return;
+    }
+    const item = itemId && !useDefault ? skins.getItem(itemId) : null;
+    if (itemId && !useDefault && (!item || item.weapon !== weapon)) {
+      send(client, 'adminTestSkinResult', { ok: false, message: 'That skin does not fit this weapon.' });
+      return;
+    }
+    const skinRef = item ? {
+      itemId: item.id,
+      patternSeed: Number(item.patternSeed || 0),
+      rarityTier: item.rarity || null,
+      wearValue: 0,
+      wearSeed: 0
+    } : null;
+    client.adminSkinOverrides = { ...(client.adminSkinOverrides || {}) };
+    if (!itemId) delete client.adminSkinOverrides[weapon];
+    else client.adminSkinOverrides[weapon] = skinRef;
+    player.skinLoadout = effectiveClientSkinLoadout(client);
+    player.dirty = true;
+    broadcastToRoom(client.roomCode, client.id, 'playerSkinLoadout', { id: client.id, skinLoadout: player.skinLoadout });
+    send(client, 'adminTestSkinResult', {
+      ok: true,
+      weapon,
+      itemId: item?.id || '',
+      skinRef,
+      restored: !itemId,
+      message: !itemId ? `${weapon} restored to saved loadout.` : (item ? `Testing ${item.displayName}.` : `Testing default ${weapon}.`)
+    });
+    return;
+  }
+
   if (type === 'adminClearDummies') {
     if (client.roomCode !== ADMIN_ROOM_CODE || !isAdminUser(client)) return;
     if (room.adminDummies) room.adminDummies.clear();
@@ -2585,7 +2624,7 @@ function sendSkinInventory(client, options = {}) {
       const room = rooms.get(client.roomCode);
       const player = room?.players.get(client.id);
       if (player) {
-        player.skinLoadout = { ...client.skinLoadout };
+        player.skinLoadout = effectiveClientSkinLoadout(client);
         player.dirty = true;
         broadcastToRoom(client.roomCode, client.id, 'playerSkinLoadout', { id: client.id, skinLoadout: player.skinLoadout });
       }
@@ -2748,12 +2787,21 @@ function publishPlayerSkinLoadout(client) {
   const room = rooms.get(client.roomCode);
   const player = room?.players.get(client.id);
   if (!player) return;
-  player.skinLoadout = { ...(client.skinLoadout || {}) };
+  player.skinLoadout = effectiveClientSkinLoadout(client);
   player.dirty = true;
   broadcastToRoom(client.roomCode, client.id, 'playerSkinLoadout', {
     id: client.id,
     skinLoadout: player.skinLoadout
   });
+}
+
+function effectiveClientSkinLoadout(client) {
+  const result = { ...(client?.skinLoadout || {}) };
+  for (const [weapon, skinRef] of Object.entries(client?.adminSkinOverrides || {})) {
+    if (skinRef) result[weapon] = { ...skinRef };
+    else delete result[weapon];
+  }
+  return result;
 }
 
 async function sendCaseEditorData(client, { force = false, notice = null } = {}) {
@@ -5968,6 +6016,9 @@ function joinRoom(client, roomCode, options = {}) {
     return;
   }
 
+  // Admin skin tests are room-scoped and never follow a player into another
+  // match or replace their saved inventory loadout.
+  client.adminSkinOverrides = {};
   const player = makePlayer(client.id, client.name);
   player.accountId = client.accountId;
   player.skinLoadout = { ...(client.skinLoadout || {}) };

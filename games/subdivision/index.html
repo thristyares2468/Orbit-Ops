@@ -292,9 +292,14 @@
         .host-mini-btn { padding: 7px 8px; background: #222; border: 1px solid #666; color: white; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .host-mini-btn:hover { background: #ffaa00; color: #000; border-color: #ffaa00; }
         .host-mode-row { display: grid; grid-template-columns: 1fr 130px; gap: 8px; margin-bottom: 15px; }
+        .admin-skin-test-row { grid-template-columns: minmax(120px, .45fr) minmax(190px, 1fr); }
+        .admin-skin-test-row .menu-btn { grid-column: 1 / -1; }
         .host-mode-select { width: 100%; padding: 13px 12px; background: #222; border: 1px solid #555; color: white; border-radius: 4px; font: bold 15px 'Courier New', monospace; }
         .host-mode-select:focus { outline: none; border-color: #ffaa00; box-shadow: 0 0 0 2px rgba(255,170,0,0.2); }
         .host-mode-row .menu-btn { margin-bottom: 0; font-size: 15px; padding: 13px 10px; }
+        @media (max-width: 760px) {
+            .admin-skin-test-row { grid-template-columns: 1fr; }
+        }
         #server-browser { display: none; background:
             linear-gradient(90deg, rgba(20,27,25,0.76), rgba(20,27,25,0.54)),
             url('/assets/ui/bg-servers-arena.jpg?v=orbit-aurora-20260823') center / cover no-repeat,
@@ -2311,6 +2316,12 @@
                 <button class="menu-btn" id="btn-admin-infinite-round">Infinite Round: Off</button>
             </div>
             <button class="menu-btn" id="btn-admin-zombie-spawns">Zombie Spawns: Active</button>
+            <div class="host-menu-note">Skin tester — temporarily equip any catalogue skin without changing your inventory.</div>
+            <div class="host-mode-row admin-skin-test-row">
+                <select class="host-mode-select" id="admin-skin-weapon" aria-label="Skin test weapon"></select>
+                <select class="host-mode-select" id="admin-skin-item" aria-label="Skin to test"></select>
+                <button class="menu-btn" id="btn-admin-test-skin" type="button">Apply Skin</button>
+            </div>
             <div class="host-menu-note">Testing shortcuts:</div>
             <div class="admin-tool-grid">
                 <button class="menu-btn danger" data-admin-tool="endGame">End Game Now</button>
@@ -3313,6 +3324,8 @@
         const adminModeSelect = document.getElementById('admin-mode-select');
         const adminMapSelect = document.getElementById('admin-map-select');
         const adminMapToggle = document.getElementById('btn-admin-map-toggle');
+        const adminSkinWeaponSelect = document.getElementById('admin-skin-weapon');
+        const adminSkinItemSelect = document.getElementById('admin-skin-item');
         const adminWeaponList = document.getElementById('admin-weapon-list');
         const adminGrenadeList = document.getElementById('admin-grenade-list');
         const joinAdminRoomButton = document.getElementById('btn-join-admin-room');
@@ -4585,6 +4598,8 @@
         document.getElementById('btn-admin-insta-reload').addEventListener('click', () => sendAdminConfig({ instaReload: !adminInstaReloadEnabled() }));
         document.getElementById('btn-admin-infinite-round').addEventListener('click', () => sendAdminConfig({ infiniteRound: !adminInfiniteRoundEnabled() }));
         document.getElementById('btn-admin-zombie-spawns').addEventListener('click', () => sendAdminConfig({ zombieSpawnsPaused: !adminZombieSpawnsPaused() }));
+        adminSkinWeaponSelect.addEventListener('change', renderAdminSkinPicker);
+        document.getElementById('btn-admin-test-skin').addEventListener('click', applyAdminTestSkin);
         document.getElementById('btn-admin-summon-dummy').addEventListener('click', summonAdminDummy);
         document.getElementById('btn-admin-arm-dummies').addEventListener('click', armAdminDummies);
         document.getElementById('btn-admin-clear-dummies').addEventListener('click', () => sendPacket('adminClearDummies', {}));
@@ -5010,9 +5025,14 @@
 
         // ---- Admin testing room ------------------------------------------------
         function applyAdminRoom(isAdmin, cfg) {
+            const hadTestSkins = adminTestSkinOverrides.size > 0;
             isAdminRoom = !!isAdmin;
             adminConfig = cfg || (isAdminRoom ? { weaponPrices: {}, grenadePrices: {}, weaponDisabled: [], grenadeDisabled: [] } : null);
-            if (!isAdminRoom) clearAdminDummies();
+            if (!isAdminRoom) {
+                clearAdminDummies();
+                adminTestSkinOverrides.clear();
+                if (hadTestSkins && weaponGroup && weapons[currentWeaponIndex]) buildGunModel();
+            }
             if (adminControlsButton) adminControlsButton.style.display = 'none';
             renderBuyMenu();
             renderAdminPanel();
@@ -5021,6 +5041,63 @@
         function sendAdminConfig(patch) {
             if (!isAdminRoom || !socket || socket.readyState !== WebSocket.OPEN) return;
             sendPacket('adminConfig', { settings: patch });
+        }
+
+        function adminSkinItemsForWeapon(weapon) {
+            return (skinInventoryState.catalog?.items || [])
+                .filter(item => item?.weapon === weapon)
+                .sort((a, b) => String(a.displayName || a.id).localeCompare(String(b.displayName || b.id)));
+        }
+
+        function renderAdminSkinPicker() {
+            if (!adminSkinWeaponSelect || !adminSkinItemSelect) return;
+            const previousWeapon = adminSkinWeaponSelect.value;
+            const weaponsWithSkins = [...new Set((skinInventoryState.catalog?.items || [])
+                .filter(item => item?.weapon && item?.id)
+                .map(item => item.weapon))].sort((a, b) => a.localeCompare(b));
+            adminSkinWeaponSelect.innerHTML = weaponsWithSkins
+                .map(weapon => `<option value="${escapeHtml(weapon)}">${escapeHtml(weapon)}</option>`).join('');
+            const heldWeapon = weapons[currentWeaponIndex]?.name || '';
+            adminSkinWeaponSelect.value = weaponsWithSkins.includes(previousWeapon)
+                ? previousWeapon
+                : (weaponsWithSkins.includes(heldWeapon) ? heldWeapon : (weaponsWithSkins[0] || ''));
+            const weapon = adminSkinWeaponSelect.value;
+            const activeOverride = adminTestSkinOverrides.get(weapon);
+            adminSkinItemSelect.innerHTML = [
+                '<option value="">Saved loadout</option>',
+                '<option value="__default__">Default weapon</option>',
+                ...adminSkinItemsForWeapon(weapon).map(item =>
+                    `<option value="${escapeHtml(item.id)}">${escapeHtml(item.displayName)} (${escapeHtml(rarityDisplayName(item.rarity))})</option>`)
+            ].join('');
+            adminSkinItemSelect.value = adminTestSkinOverrides.has(weapon) ? (activeOverride?.id || '__default__') : '';
+        }
+
+        function applyAdminTestSkin() {
+            if (!isAdminRoom) return;
+            const weapon = adminSkinWeaponSelect?.value || '';
+            const itemId = adminSkinItemSelect?.value || '';
+            if (!weapon) return;
+            if (localAdminSkinTest) {
+                const item = itemId && itemId !== '__default__' ? skinCatalogItem(itemId) : null;
+                applyAdminTestSkinResult({ ok: true, weapon, itemId: item?.id || '', skinRef: item || null, restored: !itemId });
+                return;
+            }
+            sendPacket('adminTestSkin', { weapon, itemId });
+        }
+
+        function applyAdminTestSkinResult(data) {
+            if (!data?.ok || !isAdminRoom) {
+                flashToast(data?.message || 'Could not apply test skin.');
+                return;
+            }
+            const weapon = String(data.weapon || '');
+            const item = data.itemId ? skinCatalogItem(data.itemId) : null;
+            if (data.restored) adminTestSkinOverrides.delete(weapon);
+            else if (item) adminTestSkinOverrides.set(weapon, skinItemWithInstance(item, data.skinRef));
+            else adminTestSkinOverrides.set(weapon, null);
+            if (weapons[currentWeaponIndex]?.name === weapon) buildGunModel();
+            renderAdminSkinPicker();
+            flashToast(data.restored ? `${weapon} restored to saved loadout` : (item ? `Testing ${item.displayName}` : `Testing default ${weapon}`));
         }
 
         // The dummy's weapon list is the shared snapshot order from core.js, the
@@ -5295,6 +5372,7 @@
             if (!isAdminRoom || !adminControls || adminControls.style.display !== 'block') return;
             renderFpTunePanel();
             renderAdminDummyWeaponPicker();
+            renderAdminSkinPicker();
             requestCaseEditorData();
             if (adminMapToggle) {
                 const fullOnly = FULL_MAP_ONLY_IDS.has(currentRoomSettings.mapId);
@@ -7813,6 +7891,7 @@
         let reloadingForServerVersion = false;
         let lastSession = null;           // { wasGuest, username } captured on authOk
         let skinInventoryState = { catalog: { items: [], cases: [], collections: [] }, inventory: [], loadouts: [], cases: [], collectionUnlocks: [] };
+        const adminTestSkinOverrides = new Map();
         let caseEditorState = { catalog: { items: [], cases: [], rarities: [] }, cases: [], rarities: [], designs: [] };
         let dailyChallengeEditorState = { templates: [], metrics: [], weapons: [], maps: [] };
         let challengeEditorPeriod = 'daily';
@@ -7832,6 +7911,7 @@
         const localTradeUpRewardTest = localTestHost && localTestParams.get('tradeUpRewardTest') === '1';
         const localMarketTest = localTestHost && localTestParams.get('marketTest') === '1';
         const localSkinWearTest = localTestHost && localTestParams.get('skinWearTest') === '1';
+        const localAdminSkinTest = localTestHost && localTestParams.get('adminSkinTest') === '1';
         const localAdminMapTestId = localTestHost && ADMIN_MAP_IDS.includes(localTestParams.get('adminMapTest'))
             ? localTestParams.get('adminMapTest') : '';
         const localMvpTestPlayers = localTestHost
@@ -7845,7 +7925,7 @@
         const localAdminHalfMapTest = !!localAdminMapTestId
             && localTestParams.get('halfMapTest') === '1'
             && !FULL_MAP_ONLY_IDS.has(localAdminMapTestId);
-        const localSkinLabTest = localTestHost && (localTestParams.get('skinLabTest') === '1' || localSkinWearTest || localTradeUpTest || localTradeUpRewardTest || localMarketTest || !!localAdminMapTestId);
+        const localSkinLabTest = localTestHost && (localTestParams.get('skinLabTest') === '1' || localSkinWearTest || localTradeUpTest || localTradeUpRewardTest || localMarketTest || localAdminSkinTest || !!localAdminMapTestId);
         const localCaseEditorTest = ['localhost', '127.0.0.1'].includes(location.hostname) && new URLSearchParams(location.search).get('caseEditorTest') === '1';
         const localCasePreviewTestId = localTestHost ? String(localTestParams.get('casePreviewTest') || '').trim().toLowerCase() : '';
         if (localCaseEditorTest) setTimeout(() => showCaseEditor('title'), 600);
@@ -10027,6 +10107,16 @@
             if (localMarketTest && !window.__marketTested) {
                 window.__marketTested = true;
                 setTimeout(showMarketplace, 180);
+            }
+            if (localAdminSkinTest && !window.__adminSkinTested) {
+                window.__adminSkinTested = true;
+                setTimeout(() => {
+                    applyAdminRoom(true, { weaponPrices: {}, grenadePrices: {}, weaponDisabled: [], grenadeDisabled: [] });
+                    hideHomeMenus();
+                    hostControls.style.display = 'block';
+                    adminControls.style.display = 'block';
+                    renderAdminPanel();
+                }, 180);
             }
             if (localAdminMapTestId && !window.__adminMapTested) {
                 window.__adminMapTested = true;
@@ -15375,6 +15465,7 @@
                         : (Array.isArray(data.collectionUnlocks) ? data.collectionUnlocks : [])
                 };
                 renderInventory();
+                if (isAdminRoom && adminControls.style.display === 'block') renderAdminSkinPicker();
                 if (tradeUpMenu.style.display === 'block') renderTradeUp();
                 renderMarketplaceCases();
                 renderFeaturedMarketListing();
@@ -15387,6 +15478,8 @@
                 handleTradeUpResult(data);
             } else if (type === 'skinEquipResult') {
                 setSkinEconomyStatus(data.message || (data.ok ? 'Equipped.' : 'Could not equip item.'));
+            } else if (type === 'adminTestSkinResult') {
+                applyAdminTestSkinResult(data);
             } else if (type === 'marketData') {
                 renderMarketListings(data);
                 if (inventoryMenu.style.display === 'block') renderInventory();
@@ -16217,6 +16310,9 @@
         }
 
         function equippedSkinItem(weaponName) {
+            if (isAdminRoom && adminTestSkinOverrides.has(weaponName)) {
+                return adminTestSkinOverrides.get(weaponName);
+            }
             const loadout = (skinInventoryState.loadouts || []).find(entry => entry.weapon === weaponName);
             const inventoryEntry = (skinInventoryState.inventory || []).find(entry => String(entry.id) === String(loadout?.inventory_id));
             return skinItemWithInstance(skinCatalogItem(loadout?.item_id), inventoryEntry || loadout);
