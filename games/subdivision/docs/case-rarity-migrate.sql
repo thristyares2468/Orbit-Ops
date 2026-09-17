@@ -1,4 +1,16 @@
 -- ===========================================================================
+-- YOU PROBABLY DO NOT NEED TO RUN THIS.
+--
+-- Checked on 17 September 2026: the only case outside the six the original
+-- dev team authored is the Nuke Case, and all 25 of its drops already agree
+-- with the calibrated catalogue. STEP 2 returns nothing and STEP 3 changes
+-- nothing. The Nuke Case's tiers are pinned in test/skin-rarity-ladder.test.js.
+--
+-- This is kept for the next time a case is built or imported without
+-- hand-picking each tier. Run STEP 2 first; if it comes back empty, stop.
+-- ===========================================================================
+
+-- ===========================================================================
 -- Realign stored case drops with the calibrated skin catalogue.
 --
 -- Each statement below is SELF-CONTAINED: it carries its own copy of the

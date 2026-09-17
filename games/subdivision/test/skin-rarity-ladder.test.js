@@ -143,3 +143,26 @@ test('every weapon spans the full four-tier ladder', () => {
     }
   }
 });
+
+// ---------------------------------------------------------------------------
+// The Nuke case is the only case outside the six the original dev team
+// authored. It agrees with the calibrated catalogue on all 25 of its drops,
+// which makes it a second, independent check on the taxonomy - and it is the
+// only external evidence for deagle_kumicho_dragon, which was promoted from
+// epic to legendary on appearance alone before this data existed.
+// ---------------------------------------------------------------------------
+const NUKE_CASE_DROPS = Object.freeze({
+  ak47_arid_camo: 'common', famas_boreal_forest: 'common', glock_safari_mesh: 'common',
+  glock_scales: 'common', mac10_boreal_forest: 'common', ssg08_control_pane: 'common',
+  nova_crimson_web: 'common', xm1014_heaven_guard: 'rare', p90_trigon: 'rare',
+  deagle_kumicho_dragon: 'legendary', ak47_nightwish: 'legendary', awp_dragon_lore: 'legendary'
+});
+
+test('the catalogue matches the Nuke case, the one case outside the six', () => {
+  for (const [itemId, rarity] of Object.entries(NUKE_CASE_DROPS)) {
+    const item = CATALOG.find((candidate) => candidate.id === itemId);
+    assert.ok(item, `${itemId} should exist in the catalogue`);
+    assert.strictEqual(item.rarity, rarity,
+      `${itemId} carries ${item.rarity} but the Nuke case drops it as ${rarity}`);
+  }
+});

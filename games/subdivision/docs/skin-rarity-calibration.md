@@ -100,3 +100,17 @@ Shield - 31 skins) sat entirely on Common, and eight more spanned only two tiers
 The catalogue agrees with the six reference cases on **64 of 66** firearm drops;
 the two exceptions are `graphite_tech` and `royal_camo`, which the reference
 cases disagree about internally.
+
+## Cross-check: the Nuke Case
+
+The Nuke Case is the only case outside the six reference cases. After the
+calibration it agrees with the catalogue on **all 25 of its drops**, so no
+stored case needed rewriting - `docs/case-rarity-migrate.sql` is a no-op
+against the current data and is kept only for future imports.
+
+It is also the one piece of external evidence for a judged call:
+`deagle_kumicho_dragon` was promoted from epic to legendary on appearance
+alone, before this data existed, and the Nuke Case drops it as a legendary.
+The other fifteen appearance calls remain unverified.
+
+Its twelve firearm drops are pinned in `test/skin-rarity-ladder.test.js`.
