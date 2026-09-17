@@ -101,16 +101,47 @@ The catalogue agrees with the six reference cases on **64 of 66** firearm drops;
 the two exceptions are `graphite_tech` and `royal_camo`, which the reference
 cases disagree about internally.
 
-## Cross-check: the Nuke Case
+## Cross-check: every live case
 
-The Nuke Case is the only case outside the six reference cases. After the
-calibration it agrees with the catalogue on **all 25 of its drops**, so no
-stored case needed rewriting - `docs/case-rarity-migrate.sql` is a no-op
+All ten cases in the database were exported on 17 September 2026 - the six the
+original dev team authored plus `operative_case`, `curry_case`, `arsenal_case`
+and `nuke`. **The calibrated catalogue agrees with all 624 stored drops except
+the two the reference cases disagree about among themselves** (`ak47_royal_camo`
+in Lawn Care, `mac10_graphite_tech` in Warehouse, both one adjacent tier).
+
+So no stored case needs rewriting. `docs/case-rarity-migrate.sql` is a no-op
 against the current data and is kept only for future imports.
 
-It is also the one piece of external evidence for a judged call:
-`deagle_kumicho_dragon` was promoted from epic to legendary on appearance
-alone, before this data existed, and the Nuke Case drops it as a legendary.
-The other fifteen appearance calls remain unverified.
+### The sixteen appearance calls are no longer guesses
 
-Its twelve firearm drops are pinned in `test/skin-rarity-ladder.test.js`.
+Every one of the calls made on appearance alone is confirmed by a stored case,
+and **none is contradicted**:
+
+| Call | Tier | Confirmed by |
+| --- | --- | --- |
+| `rpg_fade`, `breacher_fade` | epic | `arsenal_case` |
+| `shield_aurora_aegis` | legendary | `curry_case`, `arsenal_case` |
+| `shield_gamma_energy` | epic | `arsenal_case` |
+| `shield_crimson_bulwark`, `shield_rexton` | rare | `arsenal_case` |
+| `breacher_ember_entry`, `breacher_dual_energy` | rare | `arsenal_case` |
+| `rpg_orbital_energy` | rare | `curry_case`, `arsenal_case` |
+| `xm1014_oxide_blaze` | epic | `operative_case` |
+| `glock_wasteland_rebel`, `glock_bullet_queen` | epic | `operative_case` |
+| `mac10_neon_rider`, `p90_emerald_dragon` | epic | `operative_case` |
+| `deagle_code_red`, `deagle_kumicho_dragon` | legendary | `operative_case` |
+| `ssg08_blood_in_the_water` | legendary | `operative_case` |
+| `xm1014_irezumi` | legendary | `operative_case`, `curry_case` |
+
+The equipment ones are the meaningful part of this. Before the calibration,
+`equipmentPatternSkin` hardcoded `rarity: 'common'`, so there was no value
+anywhere in the repository saying `rpg_fade` was an epic or `shield_aurora_aegis`
+a legendary - those tiers existed only as hand-picked entries in the case
+editor, which had not been exported when the calls were made. The agreement is
+independent.
+
+### Where this is pinned
+
+`test/fixtures/stored-case-rarities.json` holds all 624 drops, and
+`test/skin-rarity-ladder.test.js` asserts the catalogue matches every one. That
+is a stronger guard than the finish taxonomy, because it pins real stored values
+rather than a rule inferred from them.

@@ -1,10 +1,12 @@
 -- ===========================================================================
 -- YOU PROBABLY DO NOT NEED TO RUN THIS.
 --
--- Checked on 17 September 2026: the only case outside the six the original
--- dev team authored is the Nuke Case, and all 25 of its drops already agree
--- with the calibrated catalogue. STEP 2 returns nothing and STEP 3 changes
--- nothing. The Nuke Case's tiers are pinned in test/skin-rarity-ladder.test.js.
+-- Checked on 17 September 2026 against a full export of all ten cases
+-- (wearhouse, tradie, mulch, lawn_care, gardener, diamond_strong,
+-- operative_case, curry_case, arsenal_case, nuke). The calibrated catalogue
+-- already agrees with all 624 stored drops, bar the two the reference cases
+-- disagree about among themselves. STEP 2 returns nothing and STEP 3 changes
+-- nothing. All ten cases are pinned in test/fixtures/stored-case-rarities.json.
 --
 -- This is kept for the next time a case is built or imported without
 -- hand-picking each tier. Run STEP 2 first; if it comes back empty, stop.

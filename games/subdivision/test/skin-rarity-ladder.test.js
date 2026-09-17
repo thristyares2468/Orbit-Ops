@@ -145,24 +145,52 @@ test('every weapon spans the full four-tier ladder', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The Nuke case is the only case outside the six the original dev team
-// authored. It agrees with the calibrated catalogue on all 25 of its drops,
-// which makes it a second, independent check on the taxonomy - and it is the
-// only external evidence for deagle_kumicho_dragon, which was promoted from
-// epic to legendary on appearance alone before this data existed.
+// Every case in the live database, as exported on 17 September 2026: the six
+// the original dev team authored (wearhouse, tradie, mulch, lawn_care,
+// gardener, diamond_strong) plus operative_case, curry_case, arsenal_case and
+// nuke. 624 drops in total.
+//
+// The catalogue agrees with all of them bar two, so this is the real guard on
+// the calibration - far stronger than the taxonomy check above, because it
+// pins actual stored values rather than a rule inferred from them.
 // ---------------------------------------------------------------------------
-const NUKE_CASE_DROPS = Object.freeze({
-  ak47_arid_camo: 'common', famas_boreal_forest: 'common', glock_safari_mesh: 'common',
-  glock_scales: 'common', mac10_boreal_forest: 'common', ssg08_control_pane: 'common',
-  nova_crimson_web: 'common', xm1014_heaven_guard: 'rare', p90_trigon: 'rare',
-  deagle_kumicho_dragon: 'legendary', ak47_nightwish: 'legendary', awp_dragon_lore: 'legendary'
+const STORED_CASES = require('./fixtures/stored-case-rarities.json');
+
+// The only two disagreements, and they are disagreements the reference cases
+// have with themselves: both finishes appear at two adjacent tiers across the
+// six, so the catalogue takes the majority (Common) reading. The stored entries
+// keep their own values, so neither case actually changes.
+const KNOWN_DIVERGENCES = Object.freeze({
+  'lawn_care:ak47_royal_camo': 'rare',
+  'wearhouse:mac10_graphite_tech': 'rare'
 });
 
-test('the catalogue matches the Nuke case, the one case outside the six', () => {
-  for (const [itemId, rarity] of Object.entries(NUKE_CASE_DROPS)) {
-    const item = CATALOG.find((candidate) => candidate.id === itemId);
-    assert.ok(item, `${itemId} should exist in the catalogue`);
-    assert.strictEqual(item.rarity, rarity,
-      `${itemId} carries ${item.rarity} but the Nuke case drops it as ${rarity}`);
+test('the catalogue matches every drop stored in every live case', () => {
+  const byId = new Map(CATALOG.map((item) => [item.id, item]));
+  const mismatches = [];
+  let checked = 0;
+  for (const [caseId, drops] of Object.entries(STORED_CASES)) {
+    for (const [itemId, storedRarity] of Object.entries(drops)) {
+      const item = byId.get(itemId);
+      assert.ok(item, `${caseId} drops ${itemId}, which is not in the catalogue`);
+      if (KNOWN_DIVERGENCES[`${caseId}:${itemId}`] === storedRarity) continue;
+      checked += 1;
+      if (item.rarity !== storedRarity) {
+        mismatches.push(`${caseId} / ${itemId}: stored ${storedRarity}, catalogue ${item.rarity}`);
+      }
+    }
+  }
+  assert.deepStrictEqual(mismatches, [], `catalogue disagrees with stored case drops:\n  ${mismatches.join('\n  ')}`);
+  assert.ok(checked > 600, `expected to check the whole export, only saw ${checked} drops`);
+});
+
+test('the two known divergences are still the only ones tolerated', () => {
+  const byId = new Map(CATALOG.map((item) => [item.id, item]));
+  for (const [key, storedRarity] of Object.entries(KNOWN_DIVERGENCES)) {
+    const [caseId, itemId] = key.split(':');
+    assert.strictEqual(STORED_CASES[caseId]?.[itemId], storedRarity,
+      `${key} is no longer stored as ${storedRarity}; re-check the exemption`);
+    assert.notStrictEqual(byId.get(itemId)?.rarity, storedRarity,
+      `${key} now agrees with the catalogue - delete the exemption`);
   }
 });
