@@ -150,7 +150,7 @@
   // though index.html hides them from inventory because they lack real GLB models.
   const WEAPONS = {
     'Knife':  { type: 'melee',   firerate: 0.5,   pellets: 1, range: 25,   dmg: { head: 500, body: 500, legs: 500 } },
-    'Glock':  { type: 'pistol',  firerate: 0.15,  pellets: 1, range: 1000, dmg: { head: 56, body: 14, legs: 22 } },
+    'Glock':  { type: 'pistol',  firerate: 0.15,  pellets: 1, range: 1000, dmg: { head: 56, body: 30, legs: 22 } },
     'Deagle': { type: 'pistol',  firerate: 0.4,   pellets: 1, range: 1000, dmg: { head: 234, body: 58, legs: 47 } },
     'USP-S':  { type: 'pistol',  firerate: 0.17,  pellets: 1, range: 1000, dmg: { head: 140, body: 35, legs: 29 } },
     'P2000':  { type: 'pistol',  firerate: 0.16,  pellets: 1, range: 1000, dmg: { head: 128, body: 32, legs: 28 } },
@@ -166,7 +166,7 @@
     'XM1014': { type: 'shotgun', firerate: 0.35,  pellets: 6, range: 1000, dmg: { head: 64, body: 16, legs: 15 } },
     'FAMAS':  { type: 'rifle',   firerate: 0.1,   pellets: 1, range: 1000, dmg: { head: 84, body: 21, legs: 22 } },
     'AK47':   { type: 'rifle',   firerate: 0.1,   pellets: 1, range: 1000, dmg: { head: 111, body: 27, legs: 27 } },
-    'SSG 08': { type: 'sniper',  firerate: 1.25,  pellets: 1, range: 1000, dmg: { head: 299, body: 75, legs: 66 } },
+    'SSG 08': { type: 'sniper',  firerate: 0.75,  pellets: 1, range: 1000, dmg: { head: 299, body: 75, legs: 66 } },
     'AWP':    { type: 'sniper',  firerate: 1.5,   pellets: 1, range: 1000, dmg: { head: 448, body: 112, legs: 86 } },
     'Frag':   { type: 'utility', firerate: 0.8,   pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },
     'Smoke':  { type: 'utility', firerate: 0.8,   pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },
