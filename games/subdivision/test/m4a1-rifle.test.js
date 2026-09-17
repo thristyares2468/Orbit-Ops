@@ -150,6 +150,30 @@ test('the M4A1 models stay inside a sane download and draw budget', () => {
     `the dart GLB is ${(fs.statSync(dart).size / 1024).toFixed(0)}KB; it belongs under 512KB`);
 });
 
+test('the inventory showroom fit survives a source authored at millimetre scale', () => {
+  // The mythic GLB is authored hundreds of units long against the base rifle's
+  // three. The showroom fit sizes a model by projecting it through the camera,
+  // which is only meaningful while the model is in front of that camera - at
+  // scale 1 this one starts behind the near plane, project() returns garbage,
+  // and the refinement passes turn it into a wild zoom. It shipped that way:
+  // the inspect view showed one corner of the receiver filling the frame.
+  //
+  // Both halves are pinned because each is invisible on its own. Neither shows
+  // up on any normally scaled weapon, so nothing else in the suite covers them.
+  const fit = client.slice(client.indexOf('function fitInventoryShowroomHolder'));
+  const body = fit.slice(0, fit.indexOf('\n        function ', 1));
+
+  assert.match(body, /scale \*= Math\.min\(1, cameraHeightAtModel \/ Math\.max\(size\.x, size\.y, size\.z/u,
+    'the fit should bring an oversized box into frame before it measures anything');
+  // Capped at 1, so every already-sane model keeps the framing it has today.
+  assert.match(body, /Math\.min\(1, cameraHeightAtModel/u,
+    'the pre-fit must never enlarge, or existing skins reframe');
+
+  const pass = body.slice(body.indexOf('for (let pass'));
+  assert.match(pass.slice(0, pass.indexOf('}')), /holder\.position\.set\(-center\.x \* scale/u,
+    'each pass must recentre by the scaled offset, or it measures the model off-axis');
+});
+
 test('the Nerf or Nothing fires its dart from both the local and remote shot paths', () => {
   // An opponent seeing the default streak while the shooter sees darts is the
   // easy half of this to get wrong, so both spawn sites are pinned. The skin

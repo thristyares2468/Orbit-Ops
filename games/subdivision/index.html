@@ -13784,8 +13784,24 @@
                     new THREE.Vector3(box.max.x, box.max.y, box.max.z)
                 ];
                 let scale = Math.min(options.extraScale || 1, 1);
+                // The passes below measure the model through the camera, so they
+                // only mean anything if the model is actually in front of it. A
+                // source authored in millimetres is hundreds of units long, sits
+                // behind the near plane at scale 1, and project() then returns
+                // garbage that the passes happily refine into a wild zoom - which
+                // is exactly how the M4A1 mythic ended up filling the inspect view
+                // with one corner of its receiver. Bring the box down to roughly a
+                // viewport height first. Capped at 1 so anything already sane is
+                // untouched and every existing skin frames exactly as before.
+                const cameraHeightAtModel = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
+                    * Math.max(0.25, camera.position.z);
+                scale *= Math.min(1, cameraHeightAtModel / Math.max(size.x, size.y, size.z, 1e-6));
                 for (let pass = 0; pass < 3; pass++) {
                     holder.scale.setScalar(scale);
+                    // position is parent space and is not scaled by the holder's own
+                    // scale, so leaving the unscaled offset here measures the model
+                    // while it is flung off-axis, where perspective distorts it.
+                    holder.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
                     holder.updateMatrixWorld(true);
                     camera.updateMatrixWorld(true);
                     camera.updateProjectionMatrix();
