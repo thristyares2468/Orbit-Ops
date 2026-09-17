@@ -473,6 +473,13 @@
         .ch-dot { position: absolute; width: 2px; height: 2px; background-color: #0f0; top: -1px; left: -1px; display: none; margin: 0; padding: 0; }
 
         #sniper-ui { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; background: radial-gradient(circle, transparent 30%, rgba(0,0,0,0.95) 70%, black 100%); }
+        /* Thermal optic. The palette is in the render, not here - this only
+           cools the vignette so the black surround does not read as a hole
+           punched in the image, and labels the sight so a player can tell at a
+           glance which scope they are looking through. */
+        #sniper-ui.thermal { background: radial-gradient(circle, transparent 30%, rgba(3,10,18,0.95) 70%, #03070d 100%); }
+        #sniper-ui .thermal-label { display: none; position: absolute; left: 50%; bottom: 13%; transform: translateX(-50%); color: #cfe6ff; font: 900 12px 'Courier New', monospace; letter-spacing: 3px; text-shadow: 0 0 8px rgba(120,190,255,0.55); }
+        #sniper-ui.thermal .thermal-label { display: block; }
         #sniper-cross-x { position: absolute; top: 50%; left: 0; width: 100%; height: 1px; background: rgba(0,0,0,0.8); transform: translateY(-50%); }
         #sniper-cross-y { position: absolute; top: 0; left: 50%; width: 1px; height: 100%; background: rgba(0,0,0,0.8); transform: translateX(-50%); }
         .sniper-dot { position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; background: rgba(255,0,0,0.8); border-radius: 50%; transform: translate(-50%, -50%); z-index: 5; }
@@ -2904,6 +2911,7 @@
         <div id="sniper-cross-x"></div>
         <div id="sniper-cross-y"></div>
         <div class="sniper-dot"></div>
+        <div class="thermal-label">THERMAL</div>
     </div>
     <div id="hitmarker">
         <div class="hit-line hl-1"></div><div class="hit-line hl-2"></div><div class="hit-line hl-3"></div><div class="hit-line hl-4"></div>
@@ -19728,12 +19736,82 @@
             spawnPlayerTarget(rx, ry, rz);
         }
 
+        // --- SSG 08 thermal optic ------------------------------------------
+        // The SSG's sight is thermal: the world is drawn cold and flat, then
+        // everything that gives off heat is drawn hot over the top of it.
+        //
+        // The hot pass reuses the depth buffer the cold pass wrote, so a body
+        // standing behind a wall is still occluded by that wall. This is a
+        // sight, not a wallhack - it wins you contrast against a noisy map, not
+        // information you could not otherwise have.
+        const THERMAL_SCOPE_WEAPON = 'SSG 08';
+        const THERMAL_LAYER = 3;
+        // Lambert, not Basic: a single flat colour would erase the map. Lighting
+        // is what keeps walls, crates and stairs readable as shapes.
+        const thermalColdMaterial = new THREE.MeshLambertMaterial({ color: 0x2b3f55 });
+        const thermalHotMaterial = new THREE.MeshBasicMaterial({ color: 0xfff1cf, fog: false });
+        const thermalBackground = new THREE.Color(0x060d16);
+        const thermalFog = new THREE.Fog(0x0b1826, 300, 3000);
+
+        function thermalScopeActive() {
+            return isZoomed && weapons[currentWeaponIndex]?.name === THERMAL_SCOPE_WEAPON;
+        }
+
+        // Bodies and fire. Anything else on the map is at ambient temperature,
+        // which is exactly what the cold pass already draws it as.
+        function thermalHeatSources() {
+            const sources = [];
+            remotePlayers.forEach(group => { if (group) sources.push(group); });
+            adminDummies.forEach(group => { if (group) sources.push(group); });
+            for (const fire of molotovFires) if (fire?.group) sources.push(fire.group);
+            return sources;
+        }
+
+        function renderFrame() {
+            if (!thermalScopeActive()) { renderer.render(scene, camera); return; }
+            const sources = thermalHeatSources();
+            // Re-marked every frame rather than at spawn: a character GLB that
+            // finishes streaming in, or a model rebuilt on a skin change, arrives
+            // with only the default layer and would otherwise render cold.
+            for (const group of sources) group.traverse(node => node.layers.enable(THERMAL_LAYER));
+            const prevOverride = scene.overrideMaterial;
+            const prevBackground = scene.background;
+            const prevFog = scene.fog;
+            const prevAutoClear = renderer.autoClear;
+            // Sky and fog ignore overrideMaterial, so without this the cold pass
+            // would sit under a bright blue daytime sky.
+            scene.background = thermalBackground;
+            scene.fog = prevFog ? thermalFog : null;
+            scene.overrideMaterial = thermalColdMaterial;
+            renderer.render(scene, camera);
+            scene.overrideMaterial = thermalHotMaterial;
+            // Keeping the depth buffer is the whole occlusion guarantee - and
+            // autoClear alone does not keep it. A Color background makes three.js
+            // force a clear of its own regardless of autoClear, which wipes the
+            // colour and depth the cold pass just wrote: the map turns black and
+            // bodies draw through walls. Dropping the background for the hot pass
+            // is what actually preserves both.
+            scene.background = null;
+            renderer.autoClear = false;
+            camera.layers.set(THERMAL_LAYER);
+            renderer.render(scene, camera);
+            camera.layers.set(0);
+            renderer.autoClear = prevAutoClear;
+            scene.overrideMaterial = prevOverride;
+            scene.background = prevBackground;
+            scene.fog = prevFog;
+            for (const group of sources) group.traverse(node => node.layers.disable(THERMAL_LAYER));
+        }
+
         function toggleZoom() {
             isZoomed = !isZoomed; camera.fov = isZoomed ? zoomFOV : defaultFOV; weaponGroup.visible = !isZoomed;
             const zoomSounds = weaponZoomSfx[weapons[currentWeaponIndex]?.name];
             if (zoomSounds) playSfxSample(isZoomed ? zoomSounds.in : zoomSounds.out, null, 'effects', { volumeScale: 0.56, cooldownKey: 'weapon:zoom', cooldownMs: 90 });
             document.getElementById('crosshair-container').style.display = (isZoomed || !chSettings.visible) ? 'none' : 'block';
-            document.getElementById('sniper-ui').style.display = isZoomed ? 'block' : 'none'; camera.updateProjectionMatrix();
+            const sniperUi = document.getElementById('sniper-ui');
+            sniperUi.style.display = isZoomed ? 'block' : 'none';
+            sniperUi.classList.toggle('thermal', thermalScopeActive());
+            camera.updateProjectionMatrix();
         }
 
         function buildThirdPersonWeaponModel(parent, weaponName = 'AK47', skinItemRef = null) {
@@ -24979,7 +25057,7 @@
                 prevTime = time;
                 if (time - lastLobbyRenderTime >= LOBBY_RENDER_INTERVAL_MS) {
                     lastLobbyRenderTime = time;
-                    renderer.render(scene, camera);
+                    renderFrame();
                 }
                 return;
             }
@@ -25049,7 +25127,7 @@
                 velocity.set(0, 0, 0);
                 if (weaponGroup) weaponGroup.visible = false;
                 prevTime = time;
-                renderer.render(scene, camera);
+                renderFrame();
                 return;
             }
 
@@ -25065,14 +25143,14 @@
                 stopSlide({ resetInput: true });
                 velocity.set(0, 0, 0);
                 prevTime = time;
-                renderer.render(scene, camera);
+                renderFrame();
                 return;
             }
 
             updateDeathAnimations(time, delta);
             if (isDead) {
                 prevTime = time;
-                renderer.render(scene, camera);
+                renderFrame();
                 return;
             }
 
@@ -25082,7 +25160,7 @@
                 stopSlide({ resetInput: true });
                 velocity.set(0, 0, 0);
                 prevTime = time;
-                renderer.render(scene, camera);
+                renderFrame();
                 return;
             }
 
@@ -25637,7 +25715,7 @@
             } catch (error) {
                 reportFrameFault(error);
             }
-            prevTime = time; renderer.render(scene, camera);
+            prevTime = time; renderFrame();
         }
 
         // A fault inside the frame loop, reported once per distinct message.
