@@ -64,7 +64,23 @@ assert.ok(awpSkins.length >= 25, 'AWP skin catalog should include the supplied p
 assert.ok(awpSkins.some(item => item.id === 'awp_bingle'), 'AWP Bingle should ship as a supplied prim2 skin');
 assert.ok(awpSkins.some(item => item.id === 'awp_jog'), 'AWP Jog should ship as a supplied prim2 skin');
 assert.ok(awpSkins.some(item => item.id === 'awp_sovereign_flame' && item.textureApplication === 'overlay'), 'AWP Sovereign Flame should ship on the supplied prim2 material');
-assert.ok(ITEMS.filter(item => item.weapon !== 'Knife').every(item => item.rarity == null), 'firearm catalog skins should not have rarity before case assignment');
+assert.ok(ITEMS.filter(item => item.weapon !== 'Knife' && item.weapon !== 'Dual Berettas').every(item => item.rarity == null),
+  'older firearm catalog skins should not gain fixed rarity before case assignment');
+const dualBerettasSkins = ITEMS.filter(item => item.weapon === 'Dual Berettas' && item.kind === 'skin');
+assert.strictEqual(dualBerettasSkins.length, 10, 'the dual pistols should ship with ten original finishes');
+assert.deepStrictEqual(
+  Object.fromEntries(['common', 'rare', 'epic', 'legendary'].map(rarity => [rarity, dualBerettasSkins.filter(item => item.rarity === rarity).length])),
+  { common: 2, rare: 3, epic: 3, legendary: 2 },
+  'the dual-pistol collection should span the full non-Mythic rarity ladder'
+);
+for (const item of dualBerettasSkins) {
+  assert.strictEqual(item.modelPath, '/assets/weapons/dual_elite.glb', `${item.id} should reuse the supplied dual-pistol model`);
+  assert.strictEqual(item.fixedRarity, true, `${item.id} should retain its authored rarity in the catalog`);
+  assert.strictEqual(item.textureApplication, 'overlay', `${item.id} should preserve its authored fixed artwork`);
+  assert.deepStrictEqual(item.textureMaterialNames, ['weapon_pist_elite.001'], `${item.id} should target the supplied pistol material`);
+  const png = fs.readFileSync(localPath(item.texturePath));
+  assert.deepStrictEqual([...png.subarray(1, 4)], [0x50, 0x4e, 0x47], `${item.id} texture should be a PNG`);
+}
 assert.ok(!ITEMS.some(item => item.weapon !== 'Knife' && /\|\s*(Gamma Energy|Fade|Dual Energy)$/i.test(item.displayName)), 'knife-only finishes should not appear on firearms');
 assert.ok(ITEMS.some(item => item.id === 'ak47_case_hardened' && item.overlayTexturePath?.endsWith('ak47_wooden_overlay.png')), 'AK Case Hardened should use the supplied wooden overlay');
 assert.ok(ITEMS.some(item => item.id === 'knife_karambit_case_hardened' && item.overlayTexturePath?.endsWith('karambit_handle_overlay.png')), 'knife patterns should expose their supplied handle overlay');

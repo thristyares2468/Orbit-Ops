@@ -47,6 +47,18 @@
 
     const rextonQa = new URLSearchParams(location.search).has('rexton');
     const minigunQa = new URLSearchParams(location.search).has('minigun');
+    const dualQa = new URLSearchParams(location.search).has('dual');
+    if (dualQa) assets.splice(0, assets.length,
+      ['Carbon Service', '/assets/skins/dual_berettas/carbon_service.png'],
+      ['Urban Signal', '/assets/skins/dual_berettas/urban_signal.png'],
+      ['Desert Pulse', '/assets/skins/dual_berettas/desert_pulse.png'],
+      ['Arctic Vector', '/assets/skins/dual_berettas/arctic_vector.png'],
+      ['Oxide Bloom', '/assets/skins/dual_berettas/oxide_bloom.png'],
+      ['Neon Crossfire', '/assets/skins/dual_berettas/neon_crossfire.png'],
+      ['Abyssal Bloom', '/assets/skins/dual_berettas/abyssal_bloom.png'],
+      ['Prism Static', '/assets/skins/dual_berettas/prism_static.png'],
+      ['Helios Fracture', '/assets/skins/dual_berettas/helios_fracture.png'],
+      ['Imperial Voltage', '/assets/skins/dual_berettas/imperial_voltage.png']);
     if (minigunQa) assets.splice(0, assets.length, ['Minigun', '/assets/weapons/minigun.glb']);
     if (rextonQa) assets.splice(0, assets.length, ['Shield Rexton', '/assets/skins/shield/rexton.glb']);
     const statusEl = document.getElementById('status');
@@ -71,6 +83,16 @@
 
     function loadGltf(path) {
       return new Promise((resolve, reject) => loader.load(path, resolve, undefined, reject));
+    }
+
+    function loadTexture(path) {
+      return new Promise((resolve, reject) => new THREE.TextureLoader().load(path, texture => {
+        texture.flipY = false;
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.encoding = THREE.sRGBEncoding;
+        resolve(texture);
+      }, undefined, reject));
     }
 
     function normalize(scene) {
@@ -137,12 +159,24 @@
       ctx.fillRect(0, 0, sheet.width, sheet.height);
       ctx.font = 'bold 18px Arial';
       ctx.fillStyle = '#e8efe3';
-      ctx.fillText('AK/AWP regenerated skin GLB render QA', pad, 30);
+      ctx.fillText(dualQa ? 'Dual Berettas generated texture render QA' : 'AK/AWP regenerated skin GLB render QA', pad, 30);
       let minPixels = Infinity;
       for (let i = 0; i < assets.length; i++) {
         const [name, path] = assets[i];
         statusEl.textContent = `Rendering ${i + 1}/${assets.length}: ${name}`;
-        const gltf = await loadGltf(path);
+        const gltf = await loadGltf(dualQa ? '/assets/weapons/dual_elite.glb' : path);
+        if (dualQa) {
+          const texture = await loadTexture(path);
+          gltf.scene.traverse(obj => {
+            if (!obj.isMesh) return;
+            for (const material of (Array.isArray(obj.material) ? obj.material : [obj.material])) {
+              if (material?.name !== 'weapon_pist_elite.001') continue;
+              material.map = texture;
+              material.color?.setHex(0xffffff);
+              material.needsUpdate = true;
+            }
+          });
+        }
         const model = normalize(gltf.scene);
         const y = 55 + i * cellH;
         ctx.fillStyle = '#202820';

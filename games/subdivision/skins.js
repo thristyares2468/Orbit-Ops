@@ -111,6 +111,41 @@ const AWP_SKINS = [
   ...source
 }));
 
+function dualBerettasSkin(id, title, rarity) {
+  return {
+    id: `dual_berettas_${id}`,
+    weapon: 'Dual Berettas',
+    kind: 'skin',
+    displayName: `Dual Berettas | ${title}`,
+    rarity: normalizeRarity(rarity),
+    fixedRarity: true,
+    texturePath: `/assets/skins/dual_berettas/${id}.png`,
+    modelPath: '/assets/weapons/dual_elite.glb',
+    // Keep the generated artwork fixed in authored UV space. These are named
+    // finishes, not seed-rotated camouflage patterns.
+    textureApplication: 'overlay',
+    textureMaterialNames: ['weapon_pist_elite.001'],
+    patternSeed: 0,
+    imported: false
+  };
+}
+
+// Unlike the older firearm library, these ten finishes have an authored rarity
+// ladder so a case can consume them without an administrator classifying every
+// entry by hand.
+const DUAL_BERETTAS_SKINS = Object.freeze([
+  dualBerettasSkin('carbon_service', 'Carbon Service', 'common'),
+  dualBerettasSkin('urban_signal', 'Urban Signal', 'common'),
+  dualBerettasSkin('desert_pulse', 'Desert Pulse', 'rare'),
+  dualBerettasSkin('arctic_vector', 'Arctic Vector', 'rare'),
+  dualBerettasSkin('oxide_bloom', 'Oxide Bloom', 'rare'),
+  dualBerettasSkin('neon_crossfire', 'Neon Crossfire', 'epic'),
+  dualBerettasSkin('abyssal_bloom', 'Abyssal Bloom', 'epic'),
+  dualBerettasSkin('prism_static', 'Prism Static', 'epic'),
+  dualBerettasSkin('helios_fracture', 'Helios Fracture', 'legendary'),
+  dualBerettasSkin('imperial_voltage', 'Imperial Voltage', 'legendary')
+]);
+
 const SOVEREIGN_FLAME = {
   id: 'awp_sovereign_flame',
   weapon: 'AWP',
@@ -376,7 +411,7 @@ function enrichCatalogItem(item) {
     skinDefinitionId: item?.id,
     // Firearm rarity belongs to a case drop, not to the reusable catalog skin.
     // Knives are the only catalog items with an intrinsic Mythic/Common tier.
-    rarity: item?.weapon === 'Knife' ? normalizeRarity(item.rarity) : null,
+    rarity: item?.weapon === 'Knife' || item?.fixedRarity ? normalizeRarity(item.rarity) : null,
     minimumFloat,
     maximumFloat,
     tradeUpEligible: item?.tradeUpEligible !== false && !DEFAULT_KNIFE_ITEM_IDS.includes(item?.id),
@@ -398,6 +433,7 @@ const IMPORTED_PUBLIC_SKINS = IMPORTED_SKINS.filter((item) => {
 const ITEMS = Object.freeze(uniqueCatalogItems([
   ...AK47_SKINS,
   ...AWP_SKINS,
+  ...DUAL_BERETTAS_SKINS,
   SOVEREIGN_FLAME,
   ...FAMAS_VARIANTS,
   ...NEW_EQUIPMENT_SKINS,
