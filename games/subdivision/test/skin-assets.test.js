@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { ITEMS } = require('../skins');
+const { ITEMS, RARITIES } = require('../skins');
 const IMPORTED_SKINS = require('../skins_imported');
 
 // Asset integrity check for the skin catalog. This catches missing textures/GLBs
@@ -53,6 +53,8 @@ for (const item of ITEMS.filter(candidate => ['pattern', 'overlay'].includes(can
   }
 }
 
+const RARITY_IDS = new Set(RARITIES.map(rarity => rarity.id));
+
 const akSkins = ITEMS.filter(item => item.weapon === 'AK47' && item.kind === 'skin');
 assert.ok(akSkins.length >= 22, 'AK47 skin catalog should include the validated pack minus knife-only finishes');
 assert.ok(!akSkins.some(item => item.id === 'ak47_cartel'), 'legacy Cartel AK skin should not ship in the replacement pack');
@@ -64,8 +66,21 @@ assert.ok(awpSkins.length >= 25, 'AWP skin catalog should include the supplied p
 assert.ok(awpSkins.some(item => item.id === 'awp_bingle'), 'AWP Bingle should ship as a supplied prim2 skin');
 assert.ok(awpSkins.some(item => item.id === 'awp_jog'), 'AWP Jog should ship as a supplied prim2 skin');
 assert.ok(awpSkins.some(item => item.id === 'awp_sovereign_flame' && item.textureApplication === 'overlay'), 'AWP Sovereign Flame should ship on the supplied prim2 material');
-assert.ok(ITEMS.filter(item => item.weapon !== 'Knife' && item.weapon !== 'Dual Berettas').every(item => item.rarity == null),
-  'older firearm catalog skins should not gain fixed rarity before case assignment');
+// This used to assert the opposite - that firearm skins carried NO catalog
+// rarity, so that a case drop was the only thing that could classify one. The
+// rule was well meant but the data never matched it: 262 of the 263 non-knife
+// skins already declared an authored tier, and enrichCatalogItem threw every
+// one away. The cost was silent: normalizeRarity(null) is 'common', so any case
+// entry saved without a hand-picked rarity turned into a Common drop, AWP
+// Dragon Lore included.
+//
+// What that rule was really protecting is kept below: a case entry that sets a
+// rarity still overrides the catalog, so case assignment remains authoritative
+// wherever it is actually used.
+assert.ok(ITEMS.every(item => RARITY_IDS.has(item.rarity)),
+  'every catalog skin should carry a valid rarity');
+assert.ok(ITEMS.filter(item => item.weapon !== 'Knife').every(item => item.rarity !== 'mythic'),
+  'mythic should remain knife-only');
 const dualBerettasSkins = ITEMS.filter(item => item.weapon === 'Dual Berettas' && item.kind === 'skin');
 assert.strictEqual(dualBerettasSkins.length, 10, 'the dual pistols should ship with ten original finishes');
 assert.deepStrictEqual(

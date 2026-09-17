@@ -151,6 +151,10 @@ const SOVEREIGN_FLAME = {
   weapon: 'AWP',
   kind: 'skin',
   displayName: 'AWP | Sovereign Flame',
+  // The only catalogue skin that never declared a tier. Pinned to the value it
+  // already resolved to, so making rarity intrinsic changes nothing for it;
+  // it is a calibration candidate, not a considered placement.
+  rarity: 'common',
   texturePath: '/assets/skins/imported/awp/sovereign_flame.png',
   modelPath: '/assets/weapons/imported/awp_prim2.glb',
   baseModelPath: '/assets/weapons/imported/awp_prim2.glb',
@@ -409,9 +413,14 @@ function enrichCatalogItem(item) {
   return {
     ...item,
     skinDefinitionId: item?.id,
-    // Firearm rarity belongs to a case drop, not to the reusable catalog skin.
-    // Knives are the only catalog items with an intrinsic Mythic/Common tier.
-    rarity: item?.weapon === 'Knife' || item?.fixedRarity ? normalizeRarity(item.rarity) : null,
+    // Every catalogue skin carries its authored tier. This used to be nulled for
+    // firearms, on the principle that rarity belonged to a case drop rather than
+    // to the reusable skin - but the authored values were there all along (262 of
+    // the 263 non-knife skins declare one), and nulling them meant any case entry
+    // that did not set a rarity by hand silently became Common, because
+    // normalizeRarity(null) is 'common'. A case entry still wins where it sets
+    // one, so this only changes what an unset entry inherits.
+    rarity: normalizeRarity(item.rarity),
     minimumFloat,
     maximumFloat,
     tradeUpEligible: item?.tradeUpEligible !== false && !DEFAULT_KNIFE_ITEM_IDS.includes(item?.id),
