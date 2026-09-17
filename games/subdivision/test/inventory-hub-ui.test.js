@@ -33,8 +33,11 @@ assert.match(indexHtml, /function renderProfile\(s, name\)[\s\S]*?accountMowbuck
 assert.match(indexHtml, /function playMarketplacePurchaseSfx\(\)[\s\S]*?linearRampToValueAtTime[\s\S]*?exponentialRampToValueAtTime/, 'confirmed purchases should use a smooth attack and release sound');
 assert.match(indexHtml, /type === 'marketNotice'[\s\S]*?data\.ok && \(data\.purchase \|\| data\.balanceChanged\)[\s\S]*?if \(data\.purchase\) playMarketplacePurchaseSfx\(\)/, 'player listing purchases should only play sound after server confirmation');
 assert.match(indexHtml, /type === 'caseBuyNotice'[\s\S]*?if \(data\.ok\)[\s\S]*?playMarketplacePurchaseSfx\(\)/, 'direct case purchases should only play sound after server confirmation');
-assert.match(serverJs, /marketNotice', \{ ok: true, purchase: true, listing, message: 'Purchase complete\.'/, 'skin purchase confirmations should be explicitly identified for the buyer');
-assert.match(serverJs, /marketNotice', \{ ok: true, purchase: true, listing, message: 'Case purchase complete\.'/, 'case resale purchase confirmations should be explicitly identified for the buyer');
+// The message is now conditional because a gifted purchase names the recipient
+// instead, but the buyer-facing purchase flag and the plain-purchase wording are
+// the things this has always guarded, and both still have to be there.
+assert.match(serverJs, /marketNotice', \{\s*ok: true, purchase: true, listing,\s*message: giftName \? .+ : 'Purchase complete\.'/, 'skin purchase confirmations should be explicitly identified for the buyer');
+assert.match(serverJs, /marketNotice', \{ ok: true, purchase: true, listing, message: gifted \? .+ : 'Case purchase complete\.' \}/, 'case resale purchase confirmations should be explicitly identified for the buyer');
 assert.ok(indexHtml.includes('Showcased Listing'), 'hub should label the featured marketplace deal clearly');
 assert.ok(indexHtml.includes('id="hub-featured-prices"'), 'showcased listing should display historical and current prices');
 assert.match(indexHtml, /function openFeaturedMarketListing\(\)[\s\S]*?marketFocusedItemId = featured\.item_id[\s\S]*?showMarketplace\(\)/, 'showcased item should open its matching marketplace listings');

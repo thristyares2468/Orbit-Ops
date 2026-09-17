@@ -1213,6 +1213,21 @@ function handleMessage(client, raw) {
     return;
   }
 
+  if (type === 'getDirectMessageThreads') {
+    sendDirectMessageThreads(client);
+    return;
+  }
+
+  if (type === 'openDirectMessages') {
+    handleOpenDirectMessages(client, data);
+    return;
+  }
+
+  if (type === 'sendDirectMessage') {
+    handleSendDirectMessage(client, data);
+    return;
+  }
+
   if (type === 'getParty') {
     sendPartyData(client);
     return;
@@ -2330,6 +2345,9 @@ function bindAuthenticatedClient(client, result) {
   sendSkinInventory(client);
   sendChallengeProgress(client);
   sendFriendsData(client);
+  // Pushed on login rather than waiting for the lobby to ask, so the unread
+  // badge is already correct the first time the player looks at it.
+  sendDirectMessageThreads(client);
   sendPartyData(client);
   refreshFriendPresence(client.accountId);
 }
@@ -3176,9 +3194,16 @@ function handleMarketBuyListing(client, data = {}) {
   if (!client.accountId || !db.isEnabled()) { send(client, 'marketNotice', { ok: false, message: 'Marketplace is unavailable.' }); return; }
   const listingId = Number(data.listingId || data.id);
   if (!Number.isSafeInteger(listingId) || listingId <= 0) { send(client, 'marketNotice', { ok: false, message: 'Choose a listing.' }); return; }
-  db.buyMarketListing({ buyerId: client.accountId, listingId })
+  // A gift is the same purchase with a different destination. The friendship is
+  // verified inside db's transaction, not here, so it cannot be raced.
+  const giftToId = normalizeGiftRecipientId(data);
+  db.buyMarketListing({ buyerId: client.accountId, listingId, giftToId })
     .then(listing => {
-      send(client, 'marketNotice', { ok: true, purchase: true, listing, message: 'Purchase complete.' });
+      const giftName = String(listing.gift_recipient_name || '').trim();
+      send(client, 'marketNotice', {
+        ok: true, purchase: true, listing,
+        message: giftName ? `Gift sent to ${giftName}.` : 'Purchase complete.'
+      });
       sendSkinInventory(client);
       handleMarketList(client, {});
       const seller = findClientByAccountId(listing.seller_id);
@@ -3187,13 +3212,14 @@ function handleMarketBuyListing(client, data = {}) {
         send(seller, 'marketNotice', { ok: true, listing, message: buyerName ? `Your listed skin sold to ${buyerName}.` : 'Your listed skin sold.' });
         sendSkinInventory(seller);
       }
+      notifyGiftRecipient(listing, client, giftName ? `${client.accountName || 'A friend'} gifted you a skin.` : '');
     })
     .catch(error => {
       const message = error.message === 'own_listing' ? 'You cannot buy your own listing.'
         : error.message === 'not_enough_coins' ? 'Not enough Mowbucks.'
           : error.message === 'auction_requires_bid' ? 'Place a bid on auction listings.'
           : error.message === 'seller_no_longer_owns_item' ? 'That item is no longer available.'
-            : 'Could not buy that listing.';
+            : giftErrorMessage(error) || 'Could not buy that listing.';
       send(client, 'marketNotice', { ok: false, message });
     });
 }
@@ -3315,9 +3341,11 @@ function handleMarketBuyCaseListing(client, data = {}) {
   if (!client.accountId || !db.isEnabled()) { send(client, 'marketNotice', { ok: false, message: 'Marketplace is unavailable.' }); return; }
   const listingId = Number(data.listingId || data.id);
   if (!Number.isSafeInteger(listingId) || listingId <= 0) { send(client, 'marketNotice', { ok: false, message: 'Choose a case listing.' }); return; }
-  db.buyCaseMarketListing({ buyerId: client.accountId, listingId })
+  const giftToId = normalizeGiftRecipientId(data);
+  db.buyCaseMarketListing({ buyerId: client.accountId, listingId, giftToId })
     .then(listing => {
-      send(client, 'marketNotice', { ok: true, purchase: true, listing, message: 'Case purchase complete.' });
+      const gifted = !!listing.gift_recipient_id;
+      send(client, 'marketNotice', { ok: true, purchase: true, listing, message: gifted ? 'Gift sent.' : 'Case purchase complete.' });
       sendSkinInventory(client);
       handleMarketList(client, {});
       const seller = findClientByAccountId(listing.seller_id);
@@ -3325,11 +3353,12 @@ function handleMarketBuyCaseListing(client, data = {}) {
         send(seller, 'marketNotice', { ok: true, listing, message: 'Your listed case sold.' });
         sendSkinInventory(seller);
       }
+      notifyGiftRecipient(listing, client, `${client.accountName || 'A friend'} gifted you a case.`);
     })
     .catch(error => {
       const message = error.message === 'own_listing' ? 'You cannot buy your own listing.'
         : error.message === 'not_enough_coins' ? 'Not enough Mowbucks.'
-          : 'Could not buy that case listing.';
+          : giftErrorMessage(error) || 'Could not buy that case listing.';
       send(client, 'marketNotice', { ok: false, message });
     });
 }
@@ -3659,6 +3688,147 @@ function refreshFriendPresence(accountId) {
   db.getFriendships(accountId)
     .then(rows => refreshFriendAccounts(accountId, ...rows.map(row => row.other_id)))
     .catch(error => console.error('[friend-presence]', error.message));
+}
+
+// --- Gifting helpers ---------------------------------------------------------
+
+// The packet names a recipient; this only normalizes its shape. Whether that
+// account is a friend, is active, and is not the seller is decided inside the
+// purchase transaction, because those are the checks that must not be racy.
+function normalizeGiftRecipientId(data = {}) {
+  const raw = data.giftToAccountId ?? data.giftTo ?? null;
+  if (raw === null || raw === undefined || raw === '') return null;
+  const id = String(raw).trim();
+  return /^\d+$/.test(id) ? id : null;
+}
+
+function giftErrorMessage(error) {
+  switch (error?.message) {
+    case 'gift_recipient_not_friend': return 'You can only gift to players on your friends list.';
+    case 'gift_recipient_is_seller': return 'That player is the one selling it.';
+    case 'gift_recipient_unavailable': return 'That account is not available.';
+    case 'gift_recipient_invalid': return 'Choose a friend to gift to.';
+    default: return null;
+  }
+}
+
+// Tell the recipient something landed in their inventory, if they are online.
+// A gift is the one way an inventory changes without the owner doing anything,
+// so a silent transfer would read as a bug.
+function notifyGiftRecipient(listing, buyerClient, message) {
+  const recipientId = listing?.gift_recipient_id;
+  if (!recipientId) return;
+  const recipient = findClientByAccountId(recipientId);
+  if (!recipient) return;
+  send(recipient, 'giftReceived', {
+    fromName: buyerClient?.accountName || 'A friend',
+    listing,
+    message: message || `${buyerClient?.accountName || 'A friend'} sent you a gift.`
+  });
+  sendSkinInventory(recipient);
+}
+
+// --- Direct messages ---------------------------------------------------------
+
+function directMessageActionAllowed(client) {
+  if (client.accountId && db.isEnabled()) return true;
+  send(client, 'directMessageNotice', { ok: false, message: 'Log in to use messages.' });
+  return false;
+}
+
+function directMessageRow(row) {
+  return {
+    id: String(row.id),
+    fromAccountId: String(row.sender_id),
+    toAccountId: String(row.recipient_id),
+    body: row.body,
+    sentAt: new Date(row.created_at).getTime(),
+    readAt: row.read_at ? new Date(row.read_at).getTime() : null
+  };
+}
+
+function sendDirectMessageThreads(client) {
+  if (!client.accountId || !db.isEnabled()) {
+    send(client, 'directMessageThreads', { threads: [], unread: 0 });
+    return;
+  }
+  db.getDirectMessageThreads(client.accountId)
+    .then(rows => send(client, 'directMessageThreads', {
+      unread: rows.reduce((sum, row) => sum + Number(row.unread_count || 0), 0),
+      threads: rows.map(row => ({
+        accountId: String(row.other_id),
+        username: row.other_username || 'Player',
+        preview: row.body,
+        sentAt: new Date(row.created_at).getTime(),
+        fromMe: String(row.sender_id) === String(client.accountId),
+        unread: Number(row.unread_count || 0)
+      }))
+    }))
+    .catch(error => {
+      console.error('[dm-threads]', error.message);
+      send(client, 'directMessageThreads', { threads: [], unread: 0 });
+    });
+}
+
+// Opening a conversation is also what marks it read - the client has no other
+// way to say "I saw these", and a separate ack packet would only be a second
+// round trip that can be dropped.
+function handleOpenDirectMessages(client, data = {}) {
+  if (!directMessageActionAllowed(client)) return;
+  const accountId = String(data.accountId || '').trim();
+  if (!/^\d+$/.test(accountId)) {
+    send(client, 'directMessageThread', { ok: false, accountId, messages: [], message: 'Choose a friend to message.' });
+    return;
+  }
+  db.getDirectMessageThread(client.accountId, accountId)
+    .then(async rows => {
+      await db.markDirectMessagesRead(client.accountId, accountId);
+      send(client, 'directMessageThread', { ok: true, accountId, messages: rows.map(directMessageRow) });
+      sendDirectMessageThreads(client);
+    })
+    .catch(error => {
+      const message = error.message === 'not_friends'
+        ? 'You can only message players on your friends list.'
+        : 'Could not open that conversation.';
+      if (error.message !== 'not_friends') console.error('[dm-open]', error.message);
+      send(client, 'directMessageThread', { ok: false, accountId, messages: [], message });
+    });
+}
+
+function handleSendDirectMessage(client, data = {}) {
+  if (!directMessageActionAllowed(client)) return;
+  const accountId = String(data.accountId || '').trim();
+  // Same sanitizer as room chat, so a DM cannot carry anything room chat cannot.
+  const body = sanitizeChatMessage(data.message);
+  if (!/^\d+$/.test(accountId) || !body) {
+    send(client, 'directMessageNotice', { ok: false, accountId, message: 'Write a message first.' });
+    return;
+  }
+  db.sendDirectMessage({ senderId: client.accountId, recipientId: accountId, body })
+    .then(row => {
+      const payload = directMessageRow(row);
+      send(client, 'directMessage', { ok: true, accountId, message: payload });
+      sendDirectMessageThreads(client);
+      const recipient = findClientByAccountId(accountId);
+      if (recipient) {
+        send(recipient, 'directMessage', {
+          ok: true,
+          accountId: String(client.accountId),
+          fromName: client.accountName || client.name || 'Player',
+          incoming: true,
+          message: payload
+        });
+        sendDirectMessageThreads(recipient);
+      }
+    })
+    .catch(error => {
+      const message = error.message === 'not_friends'
+        ? 'You can only message players on your friends list.'
+        : error.message === 'empty_message' ? 'Write a message first.'
+          : 'Could not send that message.';
+      if (!['not_friends', 'empty_message', 'self_message'].includes(error.message)) console.error('[dm-send]', error.message);
+      send(client, 'directMessageNotice', { ok: false, accountId, message });
+    });
 }
 
 function friendActionAllowed(client) {

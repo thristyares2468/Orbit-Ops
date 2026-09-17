@@ -80,6 +80,12 @@ const MSG_LIMITS = {
   getFriendInventory: { ratePerSec: 0.5, burst: 2 },
   getLeaderboards: { ratePerSec: 0.5, burst: 2 },
   chatMessage: { ratePerSec: 2, burst: 5 },
+  // Direct messages are slower than room chat on purpose. Room chat is read by
+  // everyone present and is self-policing; a DM lands in one person's inbox and
+  // persists, so the abuse shape is a spam burst rather than a noisy round.
+  sendDirectMessage: { ratePerSec: 1, burst: 4 },
+  openDirectMessages: { ratePerSec: 1, burst: 4 },
+  getDirectMessageThreads: { ratePerSec: 1, burst: 3 },
   ping: { ratePerSec: 2, burst: 5 },
   listRooms: { ratePerSec: 0.5, burst: 2 },
   createRoom: { ratePerSec: 0.1, burst: 2 },

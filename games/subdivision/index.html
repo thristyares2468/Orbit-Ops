@@ -787,6 +787,31 @@
         .friend-add-form input { min-width: 0; padding: 10px 12px; border: 1px solid rgba(255,255,255,0.18); background: rgba(5,9,6,0.7); color: #fff; font: 12px 'Courier New', monospace; }
         .friend-section-title { margin: 10px 0 5px; color: #8bc34a; font: 900 11px 'Courier New', monospace; text-transform: uppercase; }
         .friend-requests { flex: 0 0 auto; max-height: 180px; overflow: auto; border: 1px solid rgba(255,255,255,0.1); }
+        /* Messages. The thread list and the open conversation share one panel so
+           the whole feature is a single modal rather than a second screen. */
+        #messages-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.72); z-index: 220; }
+        #messages-modal.open { display: flex; }
+        /* .menu-container is 400px, which is not enough for a list beside a
+           conversation. Widened here rather than globally so no other panel moves. */
+        #messages-modal .menu-container { width: min(720px, calc(100vw - 32px)); text-align: left; padding: 28px; }
+        @media (max-width: 620px) { .dm-layout { grid-template-columns: minmax(0,1fr); } .dm-threads { max-height: 150px; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.1); padding-right: 0; } }
+        .dm-layout { display: grid; grid-template-columns: 210px minmax(0,1fr); gap: 14px; min-height: 320px; }
+        .dm-threads { max-height: 360px; overflow-y: auto; border-right: 1px solid rgba(255,255,255,.1); padding-right: 10px; }
+        .dm-thread { width: 100%; text-align: left; background: rgba(255,255,255,.025); border: 1px solid rgba(255,255,255,.08); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; color: #dfe6dc; cursor: pointer; }
+        .dm-thread:hover, .dm-thread.active { background: rgba(139,195,74,.12); border-color: rgba(139,195,74,.4); }
+        .dm-thread strong { display: block; font-size: 13px; }
+        .dm-thread small { display: block; color: #8b968a; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dm-unread { display: inline-block; min-width: 17px; padding: 0 5px; border-radius: 9px; background: #8bc34a; color: #14210b; font-size: 11px; font-weight: 700; text-align: center; }
+        .dm-conversation { display: flex; flex-direction: column; min-height: 320px; }
+        .dm-log { flex: 1; max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 6px; }
+        .dm-bubble { max-width: 78%; padding: 7px 10px; border-radius: 10px; font-size: 13px; line-height: 1.35; word-break: break-word; background: rgba(255,255,255,.055); }
+        .dm-bubble.mine { align-self: flex-end; background: rgba(139,195,74,.18); }
+        .dm-bubble time { display: block; margin-top: 3px; font-size: 10px; color: #8b968a; }
+        .dm-composer { display: flex; gap: 8px; margin-top: 10px; }
+        .dm-composer input { flex: 1; }
+        /* Shown on the Messages entry points whenever anything is unread. */
+        .dm-badge { display: none; margin-left: 6px; }
+        .dm-badge.on { display: inline-block; }
         .friend-row { display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 12px; padding: 11px 10px; border-bottom: 1px solid rgba(255,255,255,0.1); }
         .friend-row.offline .friend-dot { background: #586057; box-shadow: none; }
         .friend-actions { display: flex; gap: 6px; }
@@ -803,7 +828,7 @@
         .party-row:last-child { border-bottom: 0; }
         .party-leader-badge { color: #ffd54a; font: 900 10px 'Courier New', monospace; margin-left: 6px; }
         .party-actions { display: flex; gap: 6px; }
-        #friend-profile-modal, #party-invite-banner { font-family: 'Courier New', Courier, monospace; }
+        #friend-profile-modal, #party-invite-banner, #gift-banner { font-family: 'Courier New', Courier, monospace; }
         #friend-profile-modal { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
         #friend-profile-modal.open { display: flex; }
         #friend-profile-modal .menu-container { width: 360px; max-height: min(88vh, 760px); overflow: auto; }
@@ -822,6 +847,9 @@
         .friend-inventory-card small { margin-top: 4px; color: #aeb8aa; font: 10px/1.3 'Courier New', monospace; }
         #party-invite-banner { position: fixed; right: 18px; bottom: 18px; z-index: 70; display: none; min-width: 260px; padding: 14px 16px; background: rgba(10,16,12,0.96); border: 1px solid #4b963c; box-shadow: 0 12px 30px rgba(0,0,0,0.5); }
         #party-invite-banner.open { display: block; }
+        /* Sits above the party banner so the two never overlap. */
+        #gift-banner { position: fixed; right: 18px; bottom: 132px; z-index: 70; display: none; min-width: 260px; padding: 14px 16px; background: rgba(10,16,12,0.96); border: 1px solid #4b963c; box-shadow: 0 12px 30px rgba(0,0,0,0.5); }
+        #gift-banner.open { display: block; }
         #party-invite-banner .pib-title { color: #fff; font: 900 13px 'Courier New', monospace; margin-bottom: 4px; }
         #party-invite-banner .pib-sub { color: #aeb6ac; font: 11px 'Courier New', monospace; margin-bottom: 10px; }
         #party-invite-banner .pib-actions { display: flex; gap: 8px; }
@@ -2407,6 +2435,7 @@
             <div id="friends-list" class="friends-list"><div class="leader-empty">Loading...</div></div>
             <div class="panel-footer">
                 <button class="panel-back" id="btn-friends-back" type="button" hidden>Back</button>
+                <button class="panel-secondary" id="btn-open-messages" type="button">Messages<span class="dm-badge" id="dm-badge-friends">0</span></button>
                 <button class="panel-primary" id="btn-friends-refresh" type="button">Refresh</button>
             </div>
         </div>
@@ -2435,6 +2464,46 @@
                     <div class="friend-inventory-grid" id="friend-inventory-grid"></div>
                 </section>
             </div>
+        </div>
+
+        <div id="messages-modal">
+            <div class="menu-container">
+                <button class="panel-close" type="button" id="messages-close" aria-label="Close">×</button>
+                <div class="menu-title" style="color: var(--jim-green-lite);">MESSAGES</div>
+                <div class="panel-subtitle">Message players on your friends list.</div>
+                <div class="dm-layout">
+                    <div class="dm-threads" id="dm-threads"><div class="leader-empty">No conversations yet.</div></div>
+                    <div class="dm-conversation">
+                        <div class="friend-section-title" id="dm-with">Select a conversation</div>
+                        <div class="dm-log" id="dm-log"><div class="leader-empty">Pick a friend on the left, or use Message on a friend row.</div></div>
+                        <form class="dm-composer" id="dm-form">
+                            <input id="dm-input" maxlength="140" placeholder="Write a message" autocomplete="off" disabled>
+                            <button class="panel-primary" type="submit" id="dm-send" disabled>Send</button>
+                        </form>
+                        <div id="dm-status" class="panel-status"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gift picker. Deliberately a friend list rather than a name field: a
+             gift is irreversible, and typing a username invites sending a paid
+             item to a stranger who happens to have a similar name. -->
+        <aside class="market-dialog-layer" id="market-gift-dialog" aria-hidden="true">
+            <div class="market-dialog" role="dialog" aria-modal="true" aria-labelledby="market-gift-title">
+                <button class="panel-close" id="btn-close-market-gift" type="button" aria-label="Close">×</button>
+                <h2 id="market-gift-title">Send as Gift</h2>
+                <div class="market-dialog-summary" id="market-gift-summary"></div>
+                <div class="friends-list" id="market-gift-friends" style="max-height:240px;overflow-y:auto;"></div>
+                <div class="market-dialog-note">You pay; the item goes straight to their inventory. This cannot be undone.</div>
+                <div class="market-dialog-actions"><button id="btn-cancel-market-gift" type="button">Cancel</button></div>
+            </div>
+        </aside>
+
+        <div id="gift-banner">
+            <div class="pib-title">Gift received</div>
+            <div class="pib-sub" id="gift-banner-text">A friend sent you a gift.</div>
+            <div class="pib-actions"><button class="friend-join" type="button" id="gift-banner-dismiss">Dismiss</button></div>
         </div>
 
         <div id="party-invite-banner">
@@ -3305,6 +3374,12 @@
         let triedHandoff = false;
         let viewingFriendProfileId = null;
         let friendInventoryState = { accountId: '', inventory: [] };
+        // Direct messages. `openThread` is the correspondent whose conversation is on
+        // screen; an incoming message for anyone else only bumps the badge.
+        let dmState = { threads: [], unread: 0, openThread: '', openName: '', messages: [] };
+        // What a pending gift is for. Cleared as soon as the packet is sent, so a
+        // stale dialog cannot resend against a listing that has since sold.
+        let marketGiftDraft = null;
         let newsData = { messages: [], canPost: false };
         const NEWS_SEEN_STORAGE_KEY = 'webfps_seen_news_key';
         const LEVEL_UP_SEEN_STORAGE_KEY = 'webfps_pending_level_up';
@@ -3832,6 +3907,31 @@
         document.getElementById('hub-news-card').addEventListener('click', showNews);
         document.getElementById('btn-friends-back').addEventListener('click', showTitleMenu);
         document.getElementById('btn-friends-refresh').addEventListener('click', requestFriends);
+        document.getElementById('btn-open-messages').addEventListener('click', () => openMessagesModal());
+        document.getElementById('messages-close').addEventListener('click', () => {
+            document.getElementById('messages-modal').classList.remove('open');
+        });
+        document.getElementById('dm-threads').addEventListener('click', (event) => {
+            const thread = event.target.closest('[data-dm-thread]');
+            if (thread) openDirectMessageThread(thread.dataset.dmThread, thread.dataset.dmName);
+        });
+        document.getElementById('dm-form').addEventListener('submit', (event) => {
+            event.preventDefault();
+            const input = document.getElementById('dm-input');
+            const body = String(input.value || '').trim();
+            if (!body || !dmState.openThread) return;
+            sendPacket('sendDirectMessage', { accountId: String(dmState.openThread), message: body });
+            document.getElementById('dm-status').textContent = '';
+        });
+        document.getElementById('market-gift-friends').addEventListener('click', (event) => {
+            const pick = event.target.closest('[data-gift-to]');
+            if (pick) confirmMarketGift(pick.dataset.giftTo, pick.dataset.giftName);
+        });
+        document.getElementById('btn-close-market-gift').addEventListener('click', closeMarketGiftDialog);
+        document.getElementById('btn-cancel-market-gift').addEventListener('click', closeMarketGiftDialog);
+        document.getElementById('gift-banner-dismiss').addEventListener('click', () => {
+            document.getElementById('gift-banner').classList.remove('open');
+        });
         document.getElementById('friend-add-form').addEventListener('submit', (event) => {
             event.preventDefault();
             const input = document.getElementById('friend-username-input');
@@ -3974,6 +4074,15 @@
                 selectMarketHistoryItem(history.dataset.marketItemHistory || '');
                 return;
             }
+            const gift = event.target.closest('[data-market-gift]');
+            if (gift) {
+                const listing = (marketData.listings || []).find(row => String(row.id) === String(gift.dataset.marketGift));
+                if (listing) {
+                    const item = marketItemForRow(listing);
+                    openMarketGiftDialog('skin', listing.id, `${item.displayName || item.id} · ${Number(listing.price || 0).toLocaleString()} Mowbucks`);
+                }
+                return;
+            }
             const buy = event.target.closest('[data-market-buy]');
             if (buy) {
                 sendPacket('marketBuyListing', { listingId: Number(buy.dataset.marketBuy) });
@@ -4016,6 +4125,11 @@
             }
         });
         document.getElementById('market-case-list').addEventListener('click', (event) => {
+            const caseGift = event.target.closest('[data-market-case-gift]');
+            if (caseGift) {
+                openMarketGiftDialog('case', caseGift.dataset.marketCaseGift, 'Case listing');
+                return;
+            }
             const resaleBuy = event.target.closest('[data-market-case-listing-buy]');
             if (resaleBuy) {
                 sendPacket('marketBuyCaseListing', { listingId: Number(resaleBuy.dataset.marketCaseListingBuy) });
@@ -4195,6 +4309,11 @@
             const profile = event.target.closest('[data-friend-profile]');
             if (profile?.dataset.friendProfile) {
                 openFriendProfile(profile.dataset.friendProfile);
+                return;
+            }
+            const message = event.target.closest('[data-friend-message]');
+            if (message?.dataset.friendMessage) {
+                openMessagesModal(message.dataset.friendMessage, message.dataset.friendName);
                 return;
             }
             const remove = event.target.closest('[data-friend-remove]');
@@ -10789,6 +10908,7 @@
                     <div class="friend-actions">
                         ${player.status !== 'offline' ? `<button class="friend-join" type="button" data-friend-invite="${escapeHtml(player.accountId)}">Invite</button>` : ''}
                         <button class="friend-join" type="button" ${player.joinable ? `data-friend-room="${escapeHtml(player.roomCode)}"` : 'disabled'}>${player.joinable ? 'Join' : (player.status === 'offline' ? 'Offline' : 'Unavailable')}</button>
+                        <button class="friend-join" type="button" data-friend-message="${escapeHtml(player.accountId)}" data-friend-name="${escapeHtml(player.username || 'Player')}">Message</button>
                         <button class="friend-join" type="button" data-friend-remove="${escapeHtml(player.accountId)}" data-friend-name="${escapeHtml(player.username || 'Player')}">Remove</button>
                     </div>
                 </div>
@@ -10945,6 +11065,138 @@
                 </button>`;
             }).join('') : '<div class="leader-empty">No non-default skins in this inventory.</div>';
             hydrateInventoryThumbnails(rows.map(({ entry, item }) => ({ entry, item })));
+        }
+
+        // --- Direct messages -------------------------------------------------
+
+        function updateDirectMessageBadges() {
+            const badge = document.getElementById('dm-badge-friends');
+            if (!badge) return;
+            const unread = Number(dmState.unread || 0);
+            badge.textContent = unread > 99 ? '99+' : String(unread);
+            badge.classList.toggle('on', unread > 0);
+        }
+
+        function renderDirectMessageThreads(data = {}) {
+            dmState.threads = Array.isArray(data.threads) ? data.threads : [];
+            dmState.unread = Number(data.unread || 0);
+            updateDirectMessageBadges();
+            const list = document.getElementById('dm-threads');
+            if (!list) return;
+            list.innerHTML = dmState.threads.length ? dmState.threads.map(thread => `
+                <button class="dm-thread ${String(thread.accountId) === String(dmState.openThread) ? 'active' : ''}" type="button" data-dm-thread="${escapeHtml(String(thread.accountId))}" data-dm-name="${escapeHtml(thread.username || 'Player')}">
+                    <strong>${escapeHtml(thread.username || 'Player')}${thread.unread ? ` <span class="dm-unread">${thread.unread > 99 ? '99+' : thread.unread}</span>` : ''}</strong>
+                    <small>${thread.fromMe ? 'You: ' : ''}${escapeHtml(thread.preview || '')}</small>
+                </button>`).join('') : '<div class="leader-empty">No conversations yet.</div>';
+        }
+
+        function renderDirectMessageThread(data = {}) {
+            // A late reply to a conversation the player already navigated away
+            // from must not overwrite the one they are looking at.
+            if (String(data.accountId || '') !== String(dmState.openThread)) return;
+            const log = document.getElementById('dm-log');
+            if (!log) return;
+            if (!data.ok) {
+                log.innerHTML = `<div class="leader-empty">${escapeHtml(data.message || 'That conversation is unavailable.')}</div>`;
+                setDirectMessageComposerEnabled(false);
+                return;
+            }
+            dmState.messages = Array.isArray(data.messages) ? data.messages : [];
+            paintDirectMessageLog();
+            setDirectMessageComposerEnabled(true);
+        }
+
+        function paintDirectMessageLog() {
+            const log = document.getElementById('dm-log');
+            if (!log) return;
+            log.innerHTML = dmState.messages.length ? dmState.messages.map(message => {
+                const mine = String(message.fromAccountId) === String(myAccountId || '');
+                return `<div class="dm-bubble ${mine ? 'mine' : ''}">${escapeHtml(message.body || '')}<time>${escapeHtml(new Date(message.sentAt).toLocaleString())}</time></div>`;
+            }).join('') : '<div class="leader-empty">No messages yet. Say something.</div>';
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function setDirectMessageComposerEnabled(enabled) {
+            const input = document.getElementById('dm-input');
+            const send = document.getElementById('dm-send');
+            if (input) input.disabled = !enabled;
+            if (send) send.disabled = !enabled;
+        }
+
+        function openDirectMessageThread(accountId, username) {
+            dmState.openThread = String(accountId);
+            dmState.openName = username || 'Player';
+            dmState.messages = [];
+            const withLabel = document.getElementById('dm-with');
+            if (withLabel) withLabel.textContent = dmState.openName;
+            const log = document.getElementById('dm-log');
+            if (log) log.innerHTML = '<div class="leader-empty">Loading...</div>';
+            document.getElementById('dm-status').textContent = '';
+            setDirectMessageComposerEnabled(false);
+            renderDirectMessageThreads({ threads: dmState.threads, unread: dmState.unread });
+            sendPacket('openDirectMessages', { accountId: String(accountId) });
+        }
+
+        function openMessagesModal(accountId, username) {
+            document.getElementById('messages-modal').classList.add('open');
+            sendPacket('getDirectMessageThreads', {});
+            if (accountId) openDirectMessageThread(accountId, username);
+        }
+
+        // A message that arrives for the open conversation is appended in place;
+        // one for any other thread only refreshes the list and the badge, which
+        // the server has already pushed.
+        function receiveDirectMessage(data = {}) {
+            if (String(data.accountId || '') === String(dmState.openThread)) {
+                dmState.messages.push(data.message);
+                paintDirectMessageLog();
+                if (data.incoming) sendPacket('openDirectMessages', { accountId: String(data.accountId) });
+            }
+            const input = document.getElementById('dm-input');
+            if (!data.incoming && input) input.value = '';
+        }
+
+        // --- Gifting ---------------------------------------------------------
+
+        function openMarketGiftDialog(kind, listingId, summary) {
+            const friends = (friendsData.friends || []);
+            marketGiftDraft = { kind, listingId: String(listingId) };
+            document.getElementById('market-gift-summary').textContent = summary || '';
+            document.getElementById('market-gift-friends').innerHTML = friends.length ? friends.map(player => `
+                <div class="friend-row ${player.status === 'offline' ? 'offline' : ''}">
+                    <div class="friend-dot"></div>
+                    <div><div class="friend-name">${escapeHtml(player.username || 'Player')}</div><div class="friend-status">${escapeHtml(player.status === 'offline' ? 'Offline' : (player.modeLabel || 'Online'))}</div></div>
+                    <button class="friend-join" type="button" data-gift-to="${escapeHtml(String(player.accountId))}" data-gift-name="${escapeHtml(player.username || 'Player')}">Gift</button>
+                </div>`).join('') : '<div class="leader-empty">Add a friend before you can send a gift.</div>';
+            const dialog = document.getElementById('market-gift-dialog');
+            dialog.classList.add('open');
+            dialog.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeMarketGiftDialog() {
+            marketGiftDraft = null;
+            const dialog = document.getElementById('market-gift-dialog');
+            dialog.classList.remove('open');
+            dialog.setAttribute('aria-hidden', 'true');
+        }
+
+        function confirmMarketGift(accountId, username) {
+            if (!marketGiftDraft) return;
+            const { kind, listingId } = marketGiftDraft;
+            const packet = kind === 'case' ? 'marketBuyCaseListing' : 'marketBuyListing';
+            sendPacket(packet, { listingId: Number(listingId), giftToAccountId: String(accountId) });
+            document.getElementById('marketplace-status').textContent = `Sending gift to ${username || 'your friend'}...`;
+            closeMarketGiftDialog();
+        }
+
+        let giftBannerTimer = 0;
+        function showGiftBanner(message) {
+            const banner = document.getElementById('gift-banner');
+            if (!banner) return;
+            document.getElementById('gift-banner-text').textContent = message;
+            banner.classList.add('open');
+            clearTimeout(giftBannerTimer);
+            giftBannerTimer = setTimeout(() => banner.classList.remove('open'), 12000);
         }
 
         function showPartyInvite(invite) {
@@ -11759,6 +12011,7 @@
                     <small>Player resale · ${escapeHtml(listing.seller_name || 'Seller')}</small>
                     <div class="market-price">${Number(listing.price || 0).toLocaleString()} Mowbucks</div>
                     <button type="button" ${own ? `data-market-case-listing-cancel="${escapeHtml(String(listing.id))}"` : `data-market-case-listing-buy="${escapeHtml(String(listing.id))}"`}>${own ? 'Cancel Listing' : 'Buy Case'}</button>
+                    ${own ? '' : `<button type="button" data-market-case-gift="${escapeHtml(String(listing.id))}">Gift</button>`}
                     <button type="button" data-market-case-inspect="${escapeHtml(caseDef.id)}">Preview</button>
                 </div>`;
             }).filter(Boolean);
@@ -12061,7 +12314,10 @@
                 const leading = auction && myAccountId != null && String(row.highest_bidder_id) === String(myAccountId);
                 const action = auction
                     ? (own ? `<button type="button" ${bidCount ? 'disabled' : `data-market-cancel="${escapeHtml(String(row.id))}"`}>${bidCount ? 'Auction Active' : 'Cancel Auction'}</button>` : `<button type="button" data-market-bid="${escapeHtml(String(row.id))}">Place Bid</button>`)
-                    : `<button type="button" ${own ? `data-market-cancel="${escapeHtml(String(row.id))}"` : `data-market-buy="${escapeHtml(String(row.id))}"`}>${own ? 'Cancel Listing' : 'Buy Skin'}</button>`;
+                    // Gifting is only offered on fixed-price listings. An auction
+                    // is paid for by a bid placed long before it resolves, so there
+                    // is no single moment at which a recipient could be chosen.
+                    : `<button type="button" ${own ? `data-market-cancel="${escapeHtml(String(row.id))}"` : `data-market-buy="${escapeHtml(String(row.id))}"`}>${own ? 'Cancel Listing' : 'Buy Skin'}</button>${own ? '' : `<button type="button" data-market-gift="${escapeHtml(String(row.id))}">Gift</button>`}`;
                 // Admin tools. Hiding these from a normal player is presentation
                 // only - the server checks the socket's role and ignores the flags
                 // otherwise.
@@ -14456,6 +14712,21 @@
                     if (data.dailyChallengeProgress) applyDailyChallengeProgress(data.dailyChallengeProgress);
                     if (data.weeklyChallengeProgress) applyWeeklyChallengeProgress(data.weeklyChallengeProgress);
                 }
+            } else if (type === 'directMessageThreads') {
+                renderDirectMessageThreads(data);
+            } else if (type === 'directMessageThread') {
+                renderDirectMessageThread(data);
+            } else if (type === 'directMessage') {
+                receiveDirectMessage(data);
+            } else if (type === 'directMessageNotice') {
+                const status = document.getElementById('dm-status');
+                if (status) status.textContent = data?.message || '';
+            } else if (type === 'giftReceived') {
+                // Somebody spent their own coins on this player's inventory. It
+                // gets the same weight as a party invite rather than a status line.
+                showGiftBanner(data?.message || 'You received a gift.');
+                setSkinEconomyStatus(data?.message || 'You received a gift.');
+                sendPacket('getSkinInventory', {});
             } else if (type === 'partyData') {
                 renderParty(data);
             } else if (type === 'partyInvited') {

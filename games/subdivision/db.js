@@ -474,6 +474,31 @@ CREATE TABLE IF NOT EXISTS friendships (
 CREATE INDEX IF NOT EXISTS idx_friendships_requested ON friendships (requested_by, status);
 CREATE INDEX IF NOT EXISTS idx_friendships_high ON friendships (account_high, status);
 
+-- Player-to-player direct messages. Sending is friend-only at both the socket
+-- and the query layer, which is the same policy trades already use and is what
+-- keeps this from becoming an open DM channel to strangers.
+--
+-- read_at is on the row rather than a per-conversation cursor so the unread
+-- badge and the "mark this thread read" write are both a single statement, and
+-- so a message that arrives while the thread is open can be marked read
+-- individually without racing a cursor update.
+CREATE TABLE IF NOT EXISTS direct_messages (
+  id           BIGSERIAL PRIMARY KEY,
+  sender_id    BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  recipient_id BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  body         TEXT NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  read_at      TIMESTAMPTZ,
+  CHECK (sender_id <> recipient_id)
+);
+-- Serves both the inbox (unread per sender) and one open conversation.
+CREATE INDEX IF NOT EXISTS idx_direct_messages_inbox
+  ON direct_messages (recipient_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_direct_messages_thread
+  ON direct_messages (sender_id, recipient_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_direct_messages_unread
+  ON direct_messages (recipient_id, sender_id) WHERE read_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS cross_server_auth_handoffs (
   token_hash           TEXT PRIMARY KEY,
   account_id           BIGINT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -739,6 +764,11 @@ async function initDb() {
   } catch (e) {
     console.warn('[db] pg_trgm unavailable, chat search will use plain ILIKE:', e.message);
   }
+  // Provenance for gifted purchases. buyer_id stays whoever paid; this records
+  // whose inventory the item actually landed in, so a support question about
+  // "where did my skin go" has an answer in the listing row itself.
+  await pool.query(`ALTER TABLE skin_market_listings ADD COLUMN IF NOT EXISTS gift_recipient_id BIGINT REFERENCES accounts(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE case_market_listings ADD COLUMN IF NOT EXISTS gift_recipient_id BIGINT REFERENCES accounts(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE stats ADD COLUMN IF NOT EXISTS mvps BIGINT NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE stats ADD COLUMN IF NOT EXISTS shots_fired BIGINT NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE stats ADD COLUMN IF NOT EXISTS shots_hit BIGINT NOT NULL DEFAULT 0`);
@@ -3382,7 +3412,7 @@ async function cancelCaseMarketListing({ accountId, listingId }) {
   }
 }
 
-async function buyCaseMarketListing({ buyerId, listingId }) {
+async function buyCaseMarketListing({ buyerId, listingId, giftToId = null }) {
   if (!pool) throw new Error('Database not configured (DATABASE_URL missing)');
   const client = await pool.connect();
   try {
@@ -3391,6 +3421,8 @@ async function buyCaseMarketListing({ buyerId, listingId }) {
     const row = listing.rows[0];
     if (!row) throw new Error('listing_not_found');
     if (String(row.seller_id) === String(buyerId)) throw new Error('own_listing');
+    const giftTo = await resolveGiftRecipient(client, { buyerId, sellerId: row.seller_id, giftToId });
+    const receiverId = giftTo || buyerId;
     await client.query(`INSERT INTO stats (account_id, mowbucks) VALUES ($1, 0), ($2, 0) ON CONFLICT (account_id) DO NOTHING`, [buyerId, row.seller_id]);
     const accountIds = [String(buyerId), String(row.seller_id)].sort((a, b) => Number(a) - Number(b));
     await client.query(`SELECT account_id FROM stats WHERE account_id = ANY($1::bigint[]) ORDER BY account_id FOR UPDATE`, [accountIds]);
@@ -3402,12 +3434,12 @@ async function buyCaseMarketListing({ buyerId, listingId }) {
     await client.query(
       `INSERT INTO case_inventory (account_id, case_id, quantity, updated_at) VALUES ($1, $2, 1, now())
        ON CONFLICT (account_id, case_id) DO UPDATE SET quantity = case_inventory.quantity + 1, updated_at = now()`,
-      [buyerId, row.case_id]
+      [receiverId, row.case_id]
     );
     const sold = await client.query(
-      `UPDATE case_market_listings SET status = 'sold', updated_at = now() WHERE id = $1
-       RETURNING id, seller_id, case_id, price, status, created_at, updated_at`,
-      [listingId]
+      `UPDATE case_market_listings SET status = 'sold', gift_recipient_id = $2, updated_at = now() WHERE id = $1
+       RETURNING id, seller_id, case_id, price, status, gift_recipient_id, created_at, updated_at`,
+      [listingId, giftTo]
     );
     await client.query('COMMIT');
     return sold.rows[0] || row;
@@ -3585,7 +3617,35 @@ async function legacyCancelMarketListing({ accountId, listingId }) {
   return rows[0] || null;
 }
 
-async function buyMarketListing({ buyerId, listingId }) {
+// Resolve who a purchase is really for. Returns null for an ordinary purchase
+// and the recipient's id for a gift.
+//
+// The friendship is re-read INSIDE the caller's transaction rather than trusted
+// from the socket layer: a check done before BEGIN can be unfriended out from
+// under the transfer, and gifting is the one market path that moves an item to
+// an account that never consented to the trade.
+async function resolveGiftRecipient(client, { buyerId, sellerId, giftToId }) {
+  if (giftToId === null || giftToId === undefined || giftToId === '') return null;
+  const recipient = String(giftToId);
+  if (!/^\d+$/.test(recipient)) throw new Error('gift_recipient_invalid');
+  // Gifting to yourself is just buying, not an error worth failing the sale for.
+  if (recipient === String(buyerId)) return null;
+  // The seller already owns it. Routing their own item back to them via a paid
+  // purchase is a coin-laundering shape, not a gift.
+  if (recipient === String(sellerId)) throw new Error('gift_recipient_is_seller');
+  const [low, high] = friendPair(buyerId, recipient);
+  const { rows } = await client.query(
+    `SELECT 1 FROM friendships
+       WHERE account_low = $1 AND account_high = $2 AND status = 'accepted' LIMIT 1`,
+    [low, high]
+  );
+  if (!rows.length) throw new Error('gift_recipient_not_friend');
+  const exists = await client.query(`SELECT 1 FROM accounts WHERE id = $1 AND status = 'active'`, [recipient]);
+  if (!exists.rows.length) throw new Error('gift_recipient_unavailable');
+  return recipient;
+}
+
+async function buyMarketListing({ buyerId, listingId, giftToId = null }) {
   if (!pool) throw new Error('Database not configured (DATABASE_URL missing)');
   const client = await pool.connect();
   try {
@@ -3598,6 +3658,8 @@ async function buyMarketListing({ buyerId, listingId }) {
     if (!row) throw new Error('listing_not_found');
     if (row.listing_type === 'auction') throw new Error('auction_requires_bid');
     if (String(row.seller_id) === String(buyerId)) throw new Error('own_listing');
+    const giftTo = await resolveGiftRecipient(client, { buyerId, sellerId: row.seller_id, giftToId });
+    const receiverId = giftTo || buyerId;
     await client.query(`INSERT INTO stats (account_id, mowbucks) VALUES ($1, 0) ON CONFLICT (account_id) DO NOTHING`, [buyerId]);
     const buyer = await client.query(`SELECT mowbucks FROM stats WHERE account_id = $1 FOR UPDATE`, [buyerId]);
     const balance = Number(buyer.rows[0]?.mowbucks || 0);
@@ -3616,21 +3678,24 @@ async function buyMarketListing({ buyerId, listingId }) {
        ON CONFLICT (account_id) DO UPDATE SET mowbucks = stats.mowbucks + EXCLUDED.mowbucks, updated_at = now()`,
       [row.seller_id, price]
     );
-    await client.query(`UPDATE skin_inventory SET account_id = $1 WHERE id = $2`, [buyerId, row.inventory_id]);
+    // The coins always leave the buyer; only the item goes to the receiver.
+    await client.query(`UPDATE skin_inventory SET account_id = $1 WHERE id = $2`, [receiverId, row.inventory_id]);
     await client.query(`DELETE FROM skin_loadouts WHERE inventory_id = $1`, [row.inventory_id]);
     const sold = await client.query(
       `WITH updated AS (
          UPDATE skin_market_listings
             SET status = 'sold', buyer_id = $2,
                 item_id = $3, pattern_seed = $4, rarity_tier = $5,
-                wear_value = $6, wear_seed = $7, updated_at = now()
+                wear_value = $6, wear_seed = $7, gift_recipient_id = $8, updated_at = now()
           WHERE id = $1
-        RETURNING id, seller_id, buyer_id, inventory_id, item_id, pattern_seed, rarity_tier, wear_value, wear_seed, price, status, created_at, updated_at
+        RETURNING id, seller_id, buyer_id, gift_recipient_id, inventory_id, item_id, pattern_seed, rarity_tier, wear_value, wear_seed, price, status, created_at, updated_at
        )
-       SELECT updated.*, seller.username AS seller_name, buyer.username AS buyer_name
+       SELECT updated.*, seller.username AS seller_name, buyer.username AS buyer_name,
+              gift.username AS gift_recipient_name
          FROM updated
          LEFT JOIN accounts seller ON seller.id = updated.seller_id
-         LEFT JOIN accounts buyer ON buyer.id = updated.buyer_id`,
+         LEFT JOIN accounts buyer ON buyer.id = updated.buyer_id
+         LEFT JOIN accounts gift ON gift.id = updated.gift_recipient_id`,
       [
         listingId,
         buyerId,
@@ -3638,7 +3703,8 @@ async function buyMarketListing({ buyerId, listingId }) {
         normalizePatternSeed(inventory.pattern_seed),
         inventory.rarity_tier || null,
         Number(inventory.wear_value || 0),
-        normalizePositiveIntSeed(inventory.wear_seed)
+        normalizePositiveIntSeed(inventory.wear_seed),
+        giftTo
       ]
     );
     await client.query('COMMIT');
@@ -3881,6 +3947,106 @@ async function getFriendships(accountId) {
     [accountId]
   );
   return rows;
+}
+
+// --- Direct messages ---------------------------------------------------------
+// Every one of these re-checks the friendship rather than trusting the caller.
+// The socket layer checks it too; this is the layer that has to hold when a
+// friendship is removed between the check and the write.
+
+const DIRECT_MESSAGE_MAX_LENGTH = 400;
+// How much history one conversation hands back. Deep enough that a chat over a
+// few sessions stays whole, shallow enough to stay one indexed page.
+const DIRECT_MESSAGE_PAGE = 60;
+
+async function sendDirectMessage({ senderId, recipientId, body }) {
+  const text = String(body || '').trim().slice(0, DIRECT_MESSAGE_MAX_LENGTH);
+  if (!text) throw new Error('empty_message');
+  if (String(senderId) === String(recipientId)) throw new Error('self_message');
+  if (!await areFriends(senderId, recipientId)) throw new Error('not_friends');
+  const { rows } = await query(
+    `INSERT INTO direct_messages (sender_id, recipient_id, body)
+     VALUES ($1, $2, $3)
+     RETURNING id, sender_id, recipient_id, body, created_at, read_at`,
+    [senderId, recipientId, text]
+  );
+  return rows[0];
+}
+
+// One conversation, oldest-first so the client can append without re-sorting.
+async function getDirectMessageThread(accountId, otherId, limit = DIRECT_MESSAGE_PAGE) {
+  if (!await areFriends(accountId, otherId)) throw new Error('not_friends');
+  const capped = Math.max(1, Math.min(DIRECT_MESSAGE_PAGE, Number(limit) || DIRECT_MESSAGE_PAGE));
+  const { rows } = await query(
+    `SELECT * FROM (
+       SELECT id, sender_id, recipient_id, body, created_at, read_at
+         FROM direct_messages
+        WHERE (sender_id = $1 AND recipient_id = $2)
+           OR (sender_id = $2 AND recipient_id = $1)
+        ORDER BY created_at DESC, id DESC
+        LIMIT $3
+     ) page ORDER BY created_at ASC, id ASC`,
+    [accountId, otherId, capped]
+  );
+  return rows;
+}
+
+// Inbox summary: one row per correspondent, newest first, with the unread count.
+// Restricted to accepted friends so a thread left behind by an unfriend stops
+// appearing without the history being destroyed.
+async function getDirectMessageThreads(accountId) {
+  const { rows } = await query(
+    `WITH conv AS (
+       SELECT CASE WHEN sender_id = $1 THEN recipient_id ELSE sender_id END AS other_id,
+              body, created_at, sender_id, recipient_id, read_at
+         FROM direct_messages
+        WHERE sender_id = $1 OR recipient_id = $1
+     ),
+     latest AS (
+       SELECT DISTINCT ON (other_id) other_id, body, created_at, sender_id
+         FROM conv ORDER BY other_id, created_at DESC
+     ),
+     unread AS (
+       SELECT other_id, count(*)::int AS unread_count
+         FROM conv WHERE recipient_id = $1 AND read_at IS NULL
+        GROUP BY other_id
+     )
+     SELECT latest.other_id, latest.body, latest.created_at, latest.sender_id,
+            COALESCE(unread.unread_count, 0) AS unread_count,
+            other.username AS other_username
+       FROM latest
+       JOIN accounts other ON other.id = latest.other_id
+       LEFT JOIN unread ON unread.other_id = latest.other_id
+      WHERE other.status = 'active'
+        AND EXISTS (
+          SELECT 1 FROM friendships f
+           WHERE f.status = 'accepted'
+             AND f.account_low = LEAST($1::bigint, latest.other_id)
+             AND f.account_high = GREATEST($1::bigint, latest.other_id)
+        )
+      ORDER BY latest.created_at DESC
+      LIMIT 50`,
+    [accountId]
+  );
+  return rows;
+}
+
+async function markDirectMessagesRead(accountId, otherId) {
+  const { rowCount } = await query(
+    `UPDATE direct_messages SET read_at = now()
+      WHERE recipient_id = $1 AND sender_id = $2 AND read_at IS NULL`,
+    [accountId, otherId]
+  );
+  return rowCount;
+}
+
+async function countUnreadDirectMessages(accountId) {
+  const { rows } = await query(
+    `SELECT count(*)::int AS unread FROM direct_messages
+      WHERE recipient_id = $1 AND read_at IS NULL`,
+    [accountId]
+  );
+  return Number(rows[0]?.unread || 0);
 }
 
 function crossServerTokenHash(token) {
@@ -4252,6 +4418,12 @@ module.exports = {
   createFriendRequest,
   respondFriendRequest,
   areFriends,
+  DIRECT_MESSAGE_MAX_LENGTH,
+  sendDirectMessage,
+  getDirectMessageThread,
+  getDirectMessageThreads,
+  markDirectMessagesRead,
+  countUnreadDirectMessages,
   removeFriend,
   getFriendships,
   recordRecentPlayerEncounters,
