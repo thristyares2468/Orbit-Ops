@@ -98,12 +98,42 @@ test('the M4A1 mythic skin is a real, reachable model', () => {
   assert.strictEqual(skin.kind, 'model', 'it replaces the rifle rather than texturing it');
   assert.ok(fs.existsSync(path.join(root, skin.modelPath.replace(/^\//u, ''))),
     `${skin.modelPath} should exist on disk`);
-  // Its source shares the base model's convention, so the quarter turn in the
-  // M4A1's own asset spec orients it too. A yaw here as well double-rotates it
-  // and lays the rifle sideways across the screen - measured, not assumed.
+  // Its source runs +X toward the stock, the opposite of the base M4A1 GLB, so
+  // it needs a half turn on top of the quarter turn in the weapon's asset spec.
+  // Gameplay and inventory preview normalise assetAxis 'z' separately and so
+  // each need their own. Pinned because the failure is invisible to a bounds
+  // check - a 180deg yaw leaves size and centre identical - and an earlier pass
+  // dropped these on exactly that evidence and shipped the rifle backwards.
   assert.strictEqual(skin.assetAxis, 'z');
-  assert.ok(!Number.isFinite(skin.gameplayYaw), 'a second yaw double-rotates this model');
-  assert.ok(!Number.isFinite(skin.previewYaw), 'a second yaw double-rotates this model');
+  assert.strictEqual(skin.gameplayYaw, Math.PI, 'the model points backwards without this');
+  assert.strictEqual(skin.previewYaw, Math.PI, 'the preview points backwards without this');
+});
+
+test('the M4A1 models stay inside a sane download and draw budget', () => {
+  // The mythic shipped as a 17MB, 415k-triangle CAD export. It is a viewmodel
+  // drawn every frame and a file fetched under a 20s load timeout, so both the
+  // byte size and the triangle count matter. The AK47 is the reference for what
+  // a rifle in this game costs.
+  const glbTris = (file) => {
+    const buf = fs.readFileSync(file);
+    let off = 12, json = null;
+    while (off < buf.length) {
+      const len = buf.readUInt32LE(off), type = buf.readUInt32LE(off + 4);
+      off += 8;
+      if (type === 0x4e4f534a) json = JSON.parse(buf.slice(off, off + len).toString('utf8'));
+      off += len;
+    }
+    return json.meshes.reduce((total, mesh) => total + mesh.primitives.reduce((n, prim) => {
+      const acc = json.accessors[prim.indices ?? prim.attributes.POSITION];
+      return n + acc.count / 3;
+    }, 0), 0);
+  };
+  const mythic = path.join(root, 'assets/skins/m4a1/vanguard.glb');
+  const ak = path.join(root, 'assets/weapons/ak47.glb');
+  assert.ok(fs.statSync(mythic).size < 3 * 1024 * 1024,
+    `the mythic GLB is ${(fs.statSync(mythic).size / 1e6).toFixed(1)}MB; it belongs under 3MB`);
+  assert.ok(glbTris(mythic) < glbTris(ak) * 2,
+    `the mythic is ${glbTris(mythic)} tris against the AK's ${glbTris(ak)}`);
 });
 
 test('the M4A1 has its own sound, recoil and inspect entries', () => {

@@ -355,12 +355,16 @@ for (const [texture, title, patternZoom] of M4A1_FINISHES) {
 // the weapon's own GLB - it is a different rifle entirely, so it declares kind
 // 'model' and its own path, the way the Mythic knives do.
 //
-// It carries assetAxis but deliberately NO gameplayYaw or previewYaw. Its source
-// happens to share the base model's convention exactly - +X is the muzzle, +Y is
-// up - so the quarter turn already in the M4A1's asset spec orients this model
-// too. Adding a yaw here as well turned it a full 180deg and laid the rifle
-// sideways across the screen; that was measured in the browser, not guessed, so
-// do not "restore" one without measuring again.
+// Its source is +X toward the STOCK, the opposite of the base M4A1 GLB, so it
+// needs a half turn on top of the quarter turn the M4A1 asset spec already
+// applies. Both view paths need their own: gameplay and inventory preview
+// normalise assetAxis 'z' separately.
+//
+// Measure, do not reason, if this is ever touched again. A bare Box3 cannot see
+// this bug - a 180deg yaw leaves size and centre identical - and an earlier pass
+// removed the yaw entirely on that evidence and shipped the rifle pointing
+// backwards. Render it with a marker on the -Z end and check the barrel is at
+// that end.
 const M4A1_MYTHIC_SKIN = Object.freeze({
   id: 'm4a1_vanguard',
   weapon: 'M4A1',
@@ -369,6 +373,8 @@ const M4A1_MYTHIC_SKIN = Object.freeze({
   rarity: 'mythic',
   modelPath: '/assets/skins/m4a1/vanguard.glb',
   assetAxis: 'z',
+  gameplayYaw: Math.PI,
+  previewYaw: Math.PI,
   imported: false
 });
 
