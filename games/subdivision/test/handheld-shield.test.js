@@ -91,13 +91,26 @@ test('the pure resolver enforces facing, posture, fire opening, capacity and sta
   assert.equal(core.resolveShieldHit({ ...target, lastShotAt: now - 50 }, { x: 0, y: 0, z: -10 }, false, 14, now).damage, 14,
     'the short Glock firing opening bypasses it');
 
-  // The only damage that ever reaches a facing carrier is the overflow past
-  // the last of the capacity - this is the guard breaking, not a leak rate.
+  // No damage reaches a facing carrier at all. The round that breaks the guard
+  // is still stopped in full - the stagger is the penalty, and the overflow is
+  // not a second one. Previously the last 5 points of guard ate 5 of a 27 and
+  // let 22 through, so a nearly-broken shield was worth almost nothing and the
+  // breaking round hurt about as much as one against bare armour.
   const broken = core.resolveShieldHit({ ...target, shieldDamage: 145 }, { x: 0, y: 0, z: -10 }, false, 27, now);
   assert.deepEqual({ damage: broken.damage, absorbed: broken.absorbed, shieldDamage: broken.shieldDamage },
-    { damage: 22, absorbed: 5, shieldDamage: core.SHIELD.capacity });
+    { damage: 0, absorbed: 27, shieldDamage: core.SHIELD.capacity });
   assert.equal(broken.staggered, true);
   assert.equal(broken.staggeredUntil, now + core.SHIELD.staggerMs);
+  // The hit that lands exactly on the capacity breaks it too - a guard sitting
+  // at zero that has not staggered would block forever.
+  const exact = core.resolveShieldHit({ ...target, shieldDamage: core.SHIELD.capacity - 27 }, { x: 0, y: 0, z: -10 }, false, 27, now);
+  assert.equal(exact.staggered, true, 'spending the last of the guard breaks it');
+  assert.equal(exact.damage, 0);
+  // A hit that leaves the guard intact must not stagger. Absorbing past the cap
+  // is only allowed to happen on the hit that actually exhausts it.
+  const survives = core.resolveShieldHit({ ...target, shieldDamage: 100 }, { x: 0, y: 0, z: -10 }, false, 27, now);
+  assert.equal(survives.staggered, false);
+  assert.equal(survives.shieldDamage, 127);
 
   const duringStagger = core.resolveShieldHit({ ...target, shieldDamage: 150, shieldStaggeredUntil: now + 500 }, { x: 0, y: 0, z: -10 }, false, 27, now);
   assert.equal(duringStagger.damage, 27, 'the broken guard provides no cover');
@@ -454,4 +467,40 @@ test('the first-person plate visibly leaves the firing line when sprinting', () 
   // Both offsets are applied from the same captured rest position, so the two
   // states compose instead of each fighting over holder.position.
   assert.match(body, /SHIELD_FP_COVER_RAISE \* cover - SHIELD_FP_SPRINT_DROP \* sprint/u);
+});
+
+// Breaking the guard used to be worth doing twice over: it staggered the
+// carrier AND leaked whatever the last of the capacity could not cover. The
+// closer a shield was to breaking, the less it was worth - which is backwards,
+// since the carrier has already paid for every point of guard they spent.
+test('a breaking guard does not leak the rest of the round', () => {
+  const now = 10_000;
+  const base = {
+    position: { x: 0, y: 0, z: 0 }, rotation: { y: 0 }, weapon: 'Shield',
+    loadout: { main: 'Shield' }, crouching: false, sprinting: false,
+    lastShotAt: 0, shieldDamage: 0, shieldStaggeredUntil: 0
+  };
+  const front = { x: 0, y: 0, z: -10 };
+  // An AWP body shot into a guard with one point left. The old rule passed 111
+  // of it through; a shield is either up or it is not.
+  const awp = core.resolveShieldHit({ ...base, shieldDamage: core.SHIELD.capacity - 1 }, front, false, 112, now);
+  assert.equal(awp.damage, 0, 'the round that breaks the plate is still stopped');
+  assert.equal(awp.shieldBlocked, true);
+  assert.equal(awp.staggered, true);
+  assert.equal(awp.shieldDamage, core.SHIELD.capacity, 'the guard cannot bank more than its capacity');
+
+  // Once it is actually broken, the next round goes straight through. That is
+  // the stagger doing its job, and it is the only thing that should.
+  const after = core.resolveShieldHit(
+    { ...base, shieldDamage: core.SHIELD.capacity, shieldStaggeredUntil: now + core.SHIELD.staggerMs },
+    front, false, 112, now);
+  assert.equal(after.damage, 112, 'a staggered carrier has no cover at all');
+  assert.equal(after.shieldBlocked, false);
+
+  // Half cover still only ever stops half. Sprinting exposure is not a leak,
+  // so the fix must not quietly promote it to full cover on the breaking hit.
+  const sprinting = core.resolveShieldHit(
+    { ...base, sprinting: true, shieldDamage: core.SHIELD.capacity - 1 }, front, false, 112, now);
+  assert.equal(sprinting.damage, 56, 'the exposed half still lands');
+  assert.equal(sprinting.staggered, true);
 });

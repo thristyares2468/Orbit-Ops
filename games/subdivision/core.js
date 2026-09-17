@@ -282,10 +282,15 @@
       };
     }
 
-    const remaining = Math.max(0, SHIELD.capacity - priorDamage);
-    const absorbed = Math.min(remaining, rawDamage * fraction);
+    // The plate stops the whole of what it was covering, then fails. It does
+    // not pass the overflow through on the way out: a guard with 5 left used to
+    // eat 5 of a 27-damage round and leak 22, so the round that broke the shield
+    // hurt roughly as much as one against no shield at all, and the closer the
+    // guard was to breaking the less it did. The stagger that follows is the
+    // penalty for breaking it - the leak was a second, hidden one.
+    const absorbed = rawDamage * fraction;
     const shieldDamage = Math.min(SHIELD.capacity, priorDamage + absorbed);
-    const staggered = shieldDamage >= SHIELD.capacity;
+    const staggered = priorDamage + absorbed >= SHIELD.capacity;
     return {
       damage: Math.max(0, Math.round(rawDamage - absorbed)),
       absorbed,
