@@ -9,31 +9,6 @@ The original 2D social-deduction Orbit Ops game remains in the root source tree
 as a legacy project. It is not the main contributor target. New game work should
 normally begin in [`games/subdivision`](games/subdivision).
 
-## Open-source release checklist
-
-Before making this repository public:
-
-1. Review the working tree **and Git history** for credentials, private URLs,
-   personal data, unpublished assets, and configuration files. Rotate anything
-   that might have been exposed before publishing.
-2. Confirm redistribution rights for every model, texture, map, sound, font,
-   trademark, and third-party dependency. Review [`LICENSE`](LICENSE),
-   [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), and `third_party/`.
-   Remove or replace anything without clear permission to redistribute.
-3. Add contributor governance before inviting outside work: a contribution guide,
-   code of conduct, security-contact policy, issue templates, and protected
-   branches requiring pull-request review.
-4. Enable GitHub security features such as Dependabot, secret scanning, and
-   code scanning. Keep production credentials and operational configuration out
-   of GitHub entirely.
-5. Run the relevant tests and a browser playtest before publishing. A static
-   check is useful, but it is not proof that multiplayer state works.
-
-To make the GitHub repository public, an administrator opens repository
-**Settings**, scrolls to **Danger Zone**, chooses **Change repository
-visibility**, selects **Make public**, and completes GitHub's confirmation.
-Read GitHub's current [repository-visibility guide](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/setting-repository-visibility)
-first, especially if the repository has forks or a long commit history.
 
 ## Start here
 
