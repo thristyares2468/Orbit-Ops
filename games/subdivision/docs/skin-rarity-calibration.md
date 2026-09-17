@@ -1,94 +1,102 @@
-# Skin rarity: making it intrinsic, and what still needs calibrating
+# Skin rarity: making it intrinsic, then calibrating it
 
-## What changed
+## Part 1 - rarity became intrinsic
 
 `enrichCatalogItem` in `skins.js` used to null out the rarity of every non-knife
-skin:
-
-```js
-rarity: item?.weapon === 'Knife' || item?.fixedRarity ? normalizeRarity(item.rarity) : null,
-```
-
-The stated principle was that a firearm's rarity belongs to the *case drop*, not
-to the reusable skin. In practice that principle had a trap in it. When
-`sanitizeCaseDefinition` builds a stored case entry it resolves:
+skin, on the principle that a firearm's rarity belonged to the *case drop* rather
+than to the reusable skin. That had a trap in it. `sanitizeCaseDefinition`
+resolves a stored entry's tier as:
 
 ```js
 const rarity = normalizeRarity(rawEntry?.rarity || rawEntry?.tier || item.rarity);
 ```
 
-With `item.rarity` nulled, any case entry saved without a hand-picked rarity
-fell through to `normalizeRarity(null)`, which is `'common'`. Not "unset" —
-**Common**. `AWP | Dragon Lore` dropped as a Common unless someone remembered to
-set it by hand in the case editor.
+With `item.rarity` nulled, any case entry saved without a hand-picked rarity fell
+through to `normalizeRarity(null)`, which is `'common'`. Not "unset" - **Common**.
+`AWP | Dragon Lore` dropped as a Common unless someone remembered to set it by
+hand in the case editor.
 
-The authored values were there the whole time: 262 of the 263 non-knife skins
-declare a tier in source (AK/AWP inline in `skins.js`, 211 in
-`skins_imported.js`, 10 Dual Berettas via `fixedRarity`). `enrichCatalogItem`
-was throwing all of them away.
+The authored tiers were there the whole time; `enrichCatalogItem` was discarding
+them. It now reads `rarity: normalizeRarity(item.rarity)`.
 
-It now reads:
+## Part 2 - the taxonomy the original dev team actually used
 
-```js
-rarity: normalizeRarity(item.rarity),
-```
+Exporting the six known-good cases (`wearhouse`, `tradie`, `mulch`, `lawn_care`,
+`gardener`, `diamond_strong`) and grouping their drops by *finish* rather than by
+weapon shows the rule they were built on:
 
-## This cannot disturb the six known-good cases
+> **Rarity is a property of the finish, not of the weapon it is painted on.**
 
-`sanitizeCaseDefinition` writes an *explicit* rarity onto every stored entry, and
-a stored entry always wins over the catalogue. The Warehouse (`wearhouse`),
-Tradie, Mulch, Lawn Care, Gardener and Diamond Strong cases keep exactly the
-tiers they have. Verified by probe and pinned by
-`test/skin-rarity-ladder.test.js`. The change only affects what an *unset* entry
-inherits — previously Common, now the skin's authored tier.
+Across all six cases, **46 of the 48 finishes hold the same tier every single
+time they appear**, on whatever weapon. The tiers group by how much artwork is on
+the gun:
 
-## Distribution after the change (non-knife)
+| Tier | What it looks like | Reference finishes |
+| --- | --- | --- |
+| Common | Plain camouflage, solid metal treatments | safari mesh, forest/urban ddpat, scraped steel, scorched, woodgrain, night stripe, snake camo, olive drab, bright water, blue steel, ultraviolet swirl, scales, woodland leaves, midnight palm, sunrise dunes, urban masked, graffiti nigh |
+| Rare | One stylised motif over a plain body | franklin, afterimage, fever dream, monkeyflage, monster melt, sacrifice, wave breaker, wurst holle |
+| Epic | Full-coverage artwork, anime/mecha/graphic | asiimov, hyper beast, neo-noir, mirror mosaic, ocular, neoqueen, watchdog, conspiracy, rangeen, ice coaled, jog |
+| Legendary | Showpieces | case hardened, printstream, dragonfire, firebreathing, deathgaze, cat fight, stalker, rising sun, bad trip, inheritence, ramese's reach, sovereign flame |
+| Mythic | Knives only | enforced by `mythic_requires_knife` |
 
-`common: 144, rare: 61, epic: 40, legendary: 18`. Mythic stays knife-only, both
-by convention and by `sanitizeCaseDefinition` throwing `mythic_requires_knife`.
+Only `graphite_tech` and `royal_camo` vary, each by exactly one adjacent tier -
+a per-case nudge rather than a disagreement. The catalogue takes the majority
+(Common) reading for both; the stored case entries keep their own values, so
+nothing live moves.
 
-## What still needs calibrating
+This taxonomy is encoded as `FINISH_RARITY` in `skins.js` and pinned as
+`REFERENCE_FINISHES` in `test/skin-rarity-ladder.test.js`.
 
-The authored tiers are not evenly considered. Grouped by how many distinct tiers
-a weapon's skins span:
+## Part 3 - what was corrected
 
-| Tiers | Weapon | Skins | Distribution |
+**33 reference-backed corrections.** These are not judgement calls - the six
+cases assign these tiers directly, and the catalogue disagreed. Notable ones:
+
+- `awp_sovereign_flame` common → **legendary** (Mulch drops it as a legendary; it
+  was the one skin in the whole catalogue that never declared a tier at all)
+- `ak47_case_hardened` rare → **legendary**, `deagle_printstream` epic →
+  **legendary**, `deagle_firebreathing` epic → **legendary**
+- Demotions too: `ak47_asiimov` and `awp_asiimov` legendary → **epic**,
+  `awp_ice_coaled` legendary → **epic**, `famas_afterimage` epic → **rare**,
+  `ssg08_fever_dream` epic → **rare**
+- Every `franklin` variant common → **rare**
+
+**Equipment stopped being blanket-Common.** `equipmentPatternSkin` hardcoded
+`rarity: 'common'`, so all 31 Breacher/RPG/Shield skins sat on one tier. It now
+takes a rarity, and the shared-finish loop derives it from `FINISH_RARITY` - so
+`rpg_case_hardened` and `breacher_case_hardened` are legendary for the same
+reason `ak47_case_hardened` is.
+
+**16 judged by appearance**, for finishes the reference never covers. These are
+the only calls not backed by data, listed here so they can be argued with:
+
+| Skin | From | To | Why |
 | --- | --- | --- | --- |
-| 1 | Shield | 11 | common 11 |
-| 1 | Breacher | 10 | common 10 |
-| 1 | RPG | 10 | common 10 |
-| 2 | Glock | 25 | common 11, rare 14 |
-| 2 | Deagle | 24 | common 13, epic 11 |
-| 2 | FAMAS | 24 | common 13, epic 11 |
-| 2 | MAC10 | 22 | common 10, rare 12 |
-| 2 | Nova | 20 | common 10, rare 10 |
-| 2 | P90 | 20 | common 9, rare 11 |
-| 2 | XM1014 | 20 | common 10, rare 10 |
-| 2 | SSG 08 | 19 | common 9, epic 10 |
-| 3 | AWP | 26 | common 13, epic 2, legendary 11 |
-| 4 | AK47 | 22 | common 13, rare 1, epic 3, legendary 5 |
-| 4 | Dual Berettas | 10 | common 2, rare 3, epic 3, legendary 2 |
+| `rpg_fade`, `breacher_fade` | common | epic | Fade is a vivid full-coverage metallic gradient, not a camo |
+| `shield_aurora_aegis` | common | legendary | Shield's showpiece; it had no top tier at all |
+| `shield_gamma_energy` | common | epic | |
+| `shield_crimson_bulwark`, `shield_rexton` | common | rare | |
+| `breacher_ember_entry`, `breacher_dual_energy`, `rpg_orbital_energy` | common | rare | Bespoke finishes sitting among plain camos |
+| `xm1014_oxide_blaze` | rare | epic | One finish, one tier - it was epic on Deagle and rare here |
+| `glock_wasteland_rebel`, `glock_bullet_queen`, `mac10_neon_rider`, `p90_emerald_dragon` | rare | epic | Full-coverage artwork sitting beside plainer rares |
+| `deagle_code_red`, `deagle_kumicho_dragon`, `ssg08_blood_in_the_water` | epic | legendary | Iconic showpieces, comparable to the reference legendaries |
+| `xm1014_irezumi` | rare | legendary | The most elaborate artwork on the only weapon still missing a top tier |
 
-Only AK47 and Dual Berettas have a real ladder. The single-tier and two-tier
-blocks look like a per-weapon blanket applied at import time rather than a
-judgement about individual skins — Breacher/RPG/Shield are uniformly Common, and
-the two-tier weapons split roughly 50/50 between Common and exactly one other
-tier, which is the signature of a bulk assignment.
+## Result
 
-AWP's 11 legendaries out of 26 is the opposite problem: too top-heavy to sit
-alongside AK47's 5-of-22.
+Distribution went from `common 144, rare 61, epic 40, legendary 18` to
+**`common 126, rare 53, epic 52, legendary 32`**.
 
-Open items:
+Every weapon now spans all four tiers. Before, three weapons (Breacher, RPG,
+Shield - 31 skins) sat entirely on Common, and eight more spanned only two tiers:
 
-1. Retier Breacher, RPG and Shield (31 skins currently sharing one tier).
-2. Retier the seven two-tier weapons into a full ladder.
-3. Reconsider AWP's legendary count against AK47's.
-4. `AWP | Sovereign Flame` was the one skin that never declared a tier. It is now
-   pinned explicitly to `common` — the value it already resolved to — so the
-   intrinsic-rarity change is a no-op for it. That is a placeholder, not a
-   placement.
+| | Before | After |
+| --- | --- | --- |
+| Weapons on 1 tier | 3 | 0 |
+| Weapons on 2 tiers | 8 | 0 |
+| Weapons on 3 tiers | 1 | 0 |
+| Weapons on 4 tiers | 2 | 14 |
 
-None of this should be done by invention. Run `docs/case-rarity-export.sql`
-QUERY A against the live database and calibrate against what the six known-good
-cases actually assign; those came from the original dev team and are the only
-trustworthy reference in the system.
+The catalogue agrees with the six reference cases on **64 of 66** firearm drops;
+the two exceptions are `graphite_tech` and `royal_camo`, which the reference
+cases disagree about internally.

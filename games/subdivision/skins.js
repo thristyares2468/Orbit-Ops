@@ -66,10 +66,10 @@ const AK47_SKINS = [
   // The server serves /assets/*.glb with immutable one-year caching. Ice Coaled
   // already shipped on a fresh URL; the other AK wraps need fresh model URLs so
   // clients do not keep stale pre-fix GLBs.
-  ['ak47_ice_coaled', 'AK-47 | Ice Coaled', 'common', 'ice_coaled', 'ice_coaled', AK47_PRIM1],
+  ['ak47_ice_coaled', 'AK-47 | Ice Coaled', 'epic', 'ice_coaled', 'ice_coaled', AK47_PRIM1],
   ['ak47_nightwish', 'AK-47 | Nightwish', 'legendary', 'nightwish', 'nightwish_akwrap', AK47_PRIM1],
   ['ak47_anubis', 'AK-47 | Anubis', 'epic', 'anubis', 'anubis_akwrap', AK47_PRIM1],
-  ['ak47_asiimov', 'AK-47 | Asiimov', 'legendary', 'asiimov', 'asiimov_akwrap', AK47_PRIM1],
+  ['ak47_asiimov', 'AK-47 | Asiimov', 'epic', 'asiimov', 'asiimov_akwrap', AK47_PRIM1],
   ['ak47_crossfade', 'AK-47 | Crossfade', 'common', 'crossfade', 'crossfade_akwrap', AK47_PRIM2],
   ['ak47_inheritence', 'AK-47 | Inheritence', 'legendary', 'inheritence', 'inheritence_akwrap', AK47_PRIM2],
   ['ak47_phantom_disruptor', 'AK-47 | Phantom Disruptor', 'epic', 'phantom_disruptor', 'phantom_disruptor_akwrap', AK47_PRIM1],
@@ -91,14 +91,14 @@ const AK47_SKINS = [
 // assignments unless the user explicitly says AWP is broken. Bingle/Jog are
 // intentional new additions and match Crakow's awp_prim2 layer.
 const AWP_SKINS = [
-  ['awp_asiimov', 'AWP | Asiimov', 'legendary', 'asiimov', AWP_PRIM1],
+  ['awp_asiimov', 'AWP | Asiimov', 'epic', 'asiimov', AWP_PRIM1],
   ['awp_crakow', 'AWP | Crakow!', 'epic', 'crakow', AWP_PRIM2],
   ['awp_bingle', 'AWP | Bingle', 'legendary', 'bingle', AWP_PRIM2],
   ['awp_desert_hydra', 'AWP | Desert Hydra', 'legendary', 'desert_hydra', AWP_PRIM1],
   ['awp_dragon_lore', 'AWP | Dragon Lore', 'legendary', 'dragon_lore', AWP_PRIM1],
   ['awp_gungnir', 'AWP | Gungnir', 'legendary', 'gungnir', AWP_PRIM1],
   ['awp_jog', 'AWP | Jog', 'epic', 'jog', AWP_PRIM2],
-  ['awp_neo_noir', 'AWP | Neo-Noir', 'legendary', 'neo_noir', AWP_PRIM1],
+  ['awp_neo_noir', 'AWP | Neo-Noir', 'epic', 'neo_noir', AWP_PRIM1],
   ['awp_oni_taiji', 'AWP | Oni Taiji', 'legendary', 'oni_taiji', AWP_PRIM1],
   ['awp_the_prince', 'AWP | The Prince', 'legendary', 'the_prince', AWP_PRIM1],
   ['awp_wildfire', 'AWP | Wildfire', 'legendary', 'wildfire', AWP_PRIM1]
@@ -151,10 +151,9 @@ const SOVEREIGN_FLAME = {
   weapon: 'AWP',
   kind: 'skin',
   displayName: 'AWP | Sovereign Flame',
-  // The only catalogue skin that never declared a tier. Pinned to the value it
-  // already resolved to, so making rarity intrinsic changes nothing for it;
-  // it is a calibration candidate, not a considered placement.
-  rarity: 'common',
+  // The only catalogue skin that never declared a tier in source. The Mulch
+  // case drops it as a legendary, so that is what it is.
+  rarity: 'legendary',
   texturePath: '/assets/skins/imported/awp/sovereign_flame.png',
   modelPath: '/assets/weapons/imported/awp_prim2.glb',
   baseModelPath: '/assets/weapons/imported/awp_prim2.glb',
@@ -180,14 +179,14 @@ const FAMAS_VARIANTS = [
   }
 ];
 
-function equipmentPatternSkin({ id, weapon, displayName, texture, materialNames, patternZoom = 1 }) {
+function equipmentPatternSkin({ id, weapon, displayName, rarity, texture, materialNames, patternZoom = 1 }) {
   const sourceModel = weapon === 'Breacher' ? 'breacher' : weapon.toLowerCase();
   return {
     id,
     weapon,
     kind: 'skin',
     displayName,
-    rarity: 'common',
+    rarity: normalizeRarity(rarity),
     texturePath: `/assets/skins/imported/patterns/${texture}.png`,
     modelPath: `/assets/weapons/${sourceModel}.glb`,
     baseModelPath: `/assets/weapons/${sourceModel}.glb`,
@@ -204,30 +203,55 @@ function equipmentPatternSkin({ id, weapon, displayName, texture, materialNames,
 // instead of flattening the entire multi-material model into one texture.
 const NEW_EQUIPMENT_SKINS = [
   equipmentPatternSkin({
-    id: 'shield_aurora_aegis', weapon: 'Shield', displayName: 'Shield | Aurora Aegis',
+    id: 'shield_aurora_aegis', weapon: 'Shield', rarity: 'legendary', displayName: 'Shield | Aurora Aegis',
     texture: 'bright_water', materialNames: ['Shield'], patternZoom: 1.35
   }),
   equipmentPatternSkin({
-    id: 'shield_crimson_bulwark', weapon: 'Shield', displayName: 'Shield | Crimson Bulwark',
+    id: 'shield_crimson_bulwark', weapon: 'Shield', rarity: 'rare', displayName: 'Shield | Crimson Bulwark',
     texture: 'crimson_web', materialNames: ['Shield'], patternZoom: 1.6
   }),
   equipmentPatternSkin({
-    id: 'breacher_ember_entry', weapon: 'Breacher', displayName: 'Breacher | Ember Entry',
+    id: 'breacher_ember_entry', weapon: 'Breacher', rarity: 'rare', displayName: 'Breacher | Ember Entry',
     texture: 'pyrotechnic', materialNames: ['Material.001'], patternZoom: 1.25
   }),
   equipmentPatternSkin({
-    id: 'breacher_night_entry', weapon: 'Breacher', displayName: 'Breacher | Night Entry',
+    id: 'breacher_night_entry', weapon: 'Breacher', rarity: 'common', displayName: 'Breacher | Night Entry',
     texture: 'urban_ddpat', materialNames: ['Material.001'], patternZoom: 1.45
   }),
   equipmentPatternSkin({
-    id: 'rpg_orbital_energy', weapon: 'RPG', displayName: 'RPG | Orbital Energy',
+    id: 'rpg_orbital_energy', weapon: 'RPG', rarity: 'rare', displayName: 'RPG | Orbital Energy',
     texture: 'gamma_energy', materialNames: ['launcher', 'launcher_wooden_body', 'handles', 'handle_grips'], patternZoom: 1.15
   }),
   equipmentPatternSkin({
-    id: 'rpg_launch_control', weapon: 'RPG', displayName: 'RPG | Launch Control',
+    id: 'rpg_launch_control', weapon: 'RPG', rarity: 'common', displayName: 'RPG | Launch Control',
     texture: 'control_pane', materialNames: ['launcher', 'launcher_wooden_body', 'handles', 'handle_grips'], patternZoom: 1.4
   })
 ];
+
+// Rarity in this catalogue is a property of the FINISH, not of the weapon it is
+// painted on. That is how the six cases authored by the original dev team
+// (wearhouse, tradie, mulch, lawn_care, gardener, diamond_strong) classify their
+// drops: across all six, 46 of the 48 finishes they use hold the same tier every
+// time they appear. Only graphite_tech and royal_camo vary, and only by one
+// adjacent tier, which reads as a per-case nudge rather than disagreement.
+//
+// This table is that taxonomy, used below so the equipment finishes - which
+// reuse shipped firearm textures - inherit the tier the reference cases give
+// them instead of being blanket-Common.
+const FINISH_RARITY = Object.freeze({
+  // Plain camouflage and solid metal treatments.
+  arid_camo: 'common', blue_steel: 'common', boreal_forest: 'common',
+  crimson_web: 'common', forest_ddpat: 'common', graphite_tech: 'common',
+  pyrotechnic: 'common', royal_camo: 'common', scales: 'common',
+  scorched: 'common', snake_camo: 'common', ultraviolet_swirl: 'common',
+  urban_ddpat: 'common', woodgrain: 'common',
+  // A single stylised motif over a plain body.
+  franklin: 'rare', dual_energy: 'rare',
+  // Full-coverage artwork. Fade is a vivid metallic gradient, not a camo.
+  fade: 'epic', gamma_energy: 'epic',
+  // Showpieces.
+  case_hardened: 'legendary'
+});
 
 // Reuse shipped finishes without duplicating textures or changing weapon rules.
 const EQUIPMENT_FINISHES = {
@@ -254,7 +278,8 @@ for (const [weapon, finishes] of Object.entries(EQUIPMENT_FINISHES)) {
   for (const [texture, title] of finishes) {
     NEW_EQUIPMENT_SKINS.push(equipmentPatternSkin({
       id: `${weapon.toLowerCase()}_${texture}`, weapon,
-      displayName: `${weapon} | ${title}`, texture, patternZoom: 1.2,
+      displayName: `${weapon} | ${title}`,
+      rarity: FINISH_RARITY[texture] || 'common', texture, patternZoom: 1.2,
       materialNames: weapon === 'RPG'
         ? ['launcher', 'launcher_wooden_body', 'handles', 'handle_grips']
         : weapon === 'Shield' ? ['Shield'] : ['Material.001']
@@ -263,7 +288,7 @@ for (const [weapon, finishes] of Object.entries(EQUIPMENT_FINISHES)) {
 }
 NEW_EQUIPMENT_SKINS.push({
   id: 'shield_rexton', weapon: 'Shield', kind: 'skin',
-  displayName: 'Shield | Rexton', rarity: 'common',
+  displayName: 'Shield | Rexton', rarity: 'rare',
   texturePath: '/assets/skins/shield/rexton.png',
   modelPath: '/assets/skins/shield/rexton.glb',
   baseModelPath: '/assets/weapons/shield.glb',
