@@ -80,6 +80,17 @@ function glbBounds(file) {
 const client = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 const server = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
 
+function serverFunction(name) {
+  const start = server.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `${name} not found`);
+  let depth = 0;
+  for (let i = server.indexOf('{', start); i < server.length; i++) {
+    if (server[i] === '{') depth++;
+    else if (server[i] === '}' && --depth === 0) return server.slice(start, i + 1);
+  }
+  throw new Error(`${name} is unbalanced`);
+}
+
 test('core carries one authoritative barricade table', () => {
   const barricade = core.BARRICADE;
   assert.ok(barricade, 'core must export BARRICADE');
@@ -215,11 +226,62 @@ test('the server owns placement, health and cleanup', () => {
     'client-reported damage is never trusted');
   assert.match(server, /damageRateOk\(player\.ac, weapon, wdef, now, 'barricadeBucket'\)/, 'panel fire has its own rate bucket');
   assert.match(server, /if \(kind === 'frag' && position\) damageBarricadesFromFrag/);
+  assert.match(server, /recentRpgBursts\.push\(\{[^}]*barricades: blastBarricades/,
+    'an RPG burst must retain the cover that existed when it detonated');
+  assert.match(server, /const struckBarricade = barricadeAtBlastPoint\(room, position\);[\s\S]{0,180}?struckBarricade\.health/,
+    'a direct RPG impact must consume the full remaining panel health');
   assert.match(server, /removeBarricadesOwnedBy\(roomCode, room, id\)/, 'a leaving player takes their panels with them');
   // Every round reset that clears fire and smoke must clear panels too.
   const resets = server.match(/room\.recentBursts = \[\];\n\s*clearRoomBarricades\(room\);/g) || [];
   assert.equal(resets.length, 4, 'all four round resets clear deployed barricades');
   assert.match(server, /barricades: publicBarricades\(room\)/, 'late joiners receive the live panels');
+});
+
+test('barricades occlude Frag and RPG blast rays without blocking exposed targets', () => {
+  const fn = new Function(
+    `${serverFunction('blastBlockedByBarricades')}; return blastBlockedByBarricades;`
+  )();
+  const panel = [{ x: 0, y: 0, z: 0, yaw: 0, width: 20, height: 10, thickness: 1 }];
+  assert.equal(fn({ x: 0, y: 4, z: -8 }, { x: 0, y: 4, z: 8 }, panel), true,
+    'a target behind the panel is protected');
+  assert.equal(fn({ x: 14, y: 4, z: -8 }, { x: 14, y: 4, z: 8 }, panel), false,
+    'a ray around the panel edge remains damaging');
+  assert.equal(fn({ x: 0, y: 12, z: -8 }, { x: 0, y: 12, z: 8 }, panel), false,
+    'a ray above the panel remains damaging');
+  const turned = [{ ...panel[0], yaw: Math.PI / 2 }];
+  assert.equal(fn({ x: -8, y: 4, z: 0 }, { x: 8, y: 4, z: 0 }, turned), true,
+    'orientation is respected rather than treating every panel as axis-aligned');
+});
+
+test('blast damage uses the burst-time barricade snapshot after the live panel is gone', () => {
+  const scope = {
+    GRENADE: core.GRENADE,
+    GRENADE_HIT_WINDOW_MS: 1500,
+    GRENADE_RADIUS_SLACK: 8,
+    distanceBetweenVectors: (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
+  };
+  const source = [
+    serverFunction('blastBlockedByBarricades'),
+    serverFunction('grenadeDamageFor'),
+    serverFunction('rpgDamageFor'),
+    'return { grenadeDamageFor, rpgDamageFor };'
+  ].join('\n');
+  const fns = new Function(...Object.keys(scope), source)(...Object.values(scope));
+  const now = 5000;
+  const position = { x: 0, y: 4, z: -8 };
+  const target = { position: { x: 0, y: 4, z: 8 } };
+  const snapshot = [{ x: 0, y: 0, z: 0, yaw: 0, width: 20, height: 10, thickness: 1 }];
+  const room = {
+    barricades: new Map(),
+    recentBursts: [{ ts: now, ownerId: 'p1', position, barricades: snapshot }],
+    recentRpgBursts: [{ ts: now, ownerId: 'p1', position, barricades: snapshot }]
+  };
+  assert.equal(fns.grenadeDamageFor(room, 'p1', target, now), 0, 'Frag cannot bleed through destroyed cover');
+  assert.equal(fns.rpgDamageFor(room, 'p1', target, now), 0, 'RPG cannot bleed through the panel it destroyed');
+  room.recentBursts[0].barricades = [];
+  room.recentRpgBursts[0].barricades = [];
+  assert.ok(fns.grenadeDamageFor(room, 'p1', target, now) > 0, 'the same exposed target takes Frag damage');
+  assert.ok(fns.rpgDamageFor(room, 'p1', target, now) > 0, 'the same exposed target takes RPG damage');
 });
 
 test('placement yaw turns the panel face toward the player', () => {

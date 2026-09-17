@@ -1555,6 +1555,9 @@ function handleMessage(client, raw) {
     clearSpawnProtection(player, burstAt, client, 'utility');
     const kind = sanitizeGrenadeKind(data.kind);
     const position = sanitizeVector(data.position, null);
+    const blastBarricades = position && (kind === 'frag' || kind === 'rpg')
+      ? barricadeBlastSnapshots(room)
+      : [];
     if (!usesUtility(room) && !(isContainment(room) && kind === 'rpg')) return;
     if (kind === 'rpg') {
       if (player.weapon !== 'RPG' || !position) return;
@@ -1573,19 +1576,23 @@ function handleMessage(client, raw) {
       shot.burst = true;
       if (!room.recentRpgBursts) room.recentRpgBursts = [];
       room.recentRpgBursts = room.recentRpgBursts.filter(burst => burstAt - burst.ts <= GRENADE_HIT_WINDOW_MS);
-      room.recentRpgBursts.push({ ts: burstAt, ownerId: client.id, position });
+      room.recentRpgBursts.push({ ts: burstAt, ownerId: client.id, position, barricades: blastBarricades });
+      const struckBarricade = barricadeAtBlastPoint(room, position);
+      if (struckBarricade) {
+        applyBarricadeDamage(client.roomCode, room, struckBarricade, struckBarricade.health, client.id);
+      }
     }
     // Zombies are server-owned, so no client reports a blast hit on them -
     // applyLocalGrenadeDamage only walks remotePlayers. Resolve the RPG blast
     // against the horde here instead, where the positions are authoritative.
     if (kind === 'rpg' && position && isContainment(room)) {
-      damageContainmentEnemiesFromBlast(client, room, player, position);
+      damageContainmentEnemiesFromBlast(client, room, player, position, blastBarricades);
     }
     // Record damaging utility bursts so damage can be server-validated against them.
     if (kind === 'frag' && position) damageBarricadesFromFrag(client.roomCode, room, position, client.id);
     if ((kind === 'frag' || kind === 'molotov') && position) {
       if (!room.recentBursts) room.recentBursts = [];
-      room.recentBursts.push({ ts: Date.now(), ownerId: client.id, kind, position });
+      room.recentBursts.push({ ts: Date.now(), ownerId: client.id, kind, position, barricades: blastBarricades });
       if (room.recentBursts.length > 24) room.recentBursts.shift();
     }
     if (kind === 'flash' && position) {
@@ -5270,6 +5277,105 @@ function damageBarricadesFromFrag(roomCode, room, position, byId) {
   damageBarricadesFromBlast(roomCode, room, position, byId, GRENADE.frag.radius, GRENADE.frag.maxDamage, BARRICADE.fragScale);
 }
 
+// Preserve the cover that existed when a blast occurred. Player hit reports
+// arrive just after the burst and a panel may already have been destroyed by
+// that same explosion; using a snapshot prevents damage leaking through it.
+function barricadeBlastSnapshots(room) {
+  return Array.from(room?.barricades?.values?.() || [])
+    .filter(barricade => barricade.health > 0)
+    .map(barricade => ({
+      id: barricade.id,
+      x: barricade.x,
+      y: barricade.y,
+      z: barricade.z,
+      yaw: barricade.yaw,
+      width: BARRICADE.width,
+      height: BARRICADE.height,
+      thickness: BARRICADE.thickness
+    }));
+}
+
+function pointInBarricade(point, barricade, padding = 0) {
+  if (!point || !barricade) return false;
+  const cosine = Math.cos(barricade.yaw || 0);
+  const sine = Math.sin(barricade.yaw || 0);
+  const dx = point.x - barricade.x;
+  const dz = point.z - barricade.z;
+  const localX = dx * cosine - dz * sine;
+  const localZ = dx * sine + dz * cosine;
+  return Math.abs(localX) <= barricade.width / 2 + padding
+    && Math.abs(localZ) <= barricade.thickness / 2 + padding
+    && point.y >= barricade.y - padding
+    && point.y <= barricade.y + barricade.height + padding;
+}
+
+function barricadeAtBlastPoint(room, position) {
+  if (!position || !room?.barricades?.size) return null;
+  let closest = null;
+  let closestDistance = Infinity;
+  for (const barricade of room.barricades.values()) {
+    const snapshot = {
+      ...barricade,
+      width: BARRICADE.width,
+      height: BARRICADE.height,
+      thickness: BARRICADE.thickness
+    };
+    if (!pointInBarricade(position, snapshot, 7)) continue;
+    const distance = distanceBetweenVectors(position, {
+      x: barricade.x,
+      y: barricade.y + BARRICADE.height / 2,
+      z: barricade.z
+    });
+    if (distance < closestDistance) {
+      closest = barricade;
+      closestDistance = distance;
+    }
+  }
+  return closest;
+}
+
+// Slab-test a blast ray against each oriented panel. Touching the panel counts:
+// an RPG detonating on its face must be absorbed rather than bleed through.
+function blastBlockedByBarricades(origin, target, barricades) {
+  if (!origin || !target || !barricades?.length) return false;
+  for (const barricade of barricades) {
+    const cosine = Math.cos(barricade.yaw || 0);
+    const sine = Math.sin(barricade.yaw || 0);
+    const local = point => {
+      const dx = point.x - barricade.x;
+      const dz = point.z - barricade.z;
+      return {
+        x: dx * cosine - dz * sine,
+        y: point.y - (barricade.y + barricade.height / 2),
+        z: dx * sine + dz * cosine
+      };
+    };
+    const start = local(origin);
+    const end = local(target);
+    const half = [barricade.width / 2, barricade.height / 2, barricade.thickness / 2];
+    const starts = [start.x, start.y, start.z];
+    const ends = [end.x, end.y, end.z];
+    let enter = 0;
+    let exit = 1;
+    let intersects = true;
+    for (let axis = 0; axis < 3; axis++) {
+      const delta = ends[axis] - starts[axis];
+      if (Math.abs(delta) < 1e-8) {
+        if (starts[axis] < -half[axis] || starts[axis] > half[axis]) intersects = false;
+        continue;
+      }
+      let near = (-half[axis] - starts[axis]) / delta;
+      let far = (half[axis] - starts[axis]) / delta;
+      if (near > far) [near, far] = [far, near];
+      enter = Math.max(enter, near);
+      exit = Math.min(exit, far);
+      if (enter > exit) intersects = false;
+    }
+    if (intersects && exit >= 0 && enter <= 1) return true;
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Remote-detonated C4. Same authority split as the barricade, plus the two rules
 // that make it a charge rather than a grenade: it only arms after a delay, and
@@ -5362,6 +5468,7 @@ function grenadeDamageFor(room, ownerId, target, now) {
     if (b.ownerId !== ownerId) continue;
     const d = distanceBetweenVectors(b.position, target.position);
     if (d > radius + GRENADE_RADIUS_SLACK) continue;
+    if (blastBlockedByBarricades(b.position, target.position, b.barricades)) continue;
     const dmg = Math.round(maxDamage * Math.max(0, 1 - d / radius));
     if (dmg > best) best = dmg;
   }
@@ -5385,6 +5492,7 @@ function rpgDamageFor(room, ownerId, target, now) {
     if (burst.ownerId !== ownerId) continue;
     const distance = distanceBetweenVectors(burst.position, target.position);
     if (distance > radius + GRENADE_RADIUS_SLACK) continue;
+    if (blastBlockedByBarricades(burst.position, target.position, burst.barricades)) continue;
     best = Math.max(best, Math.round(maxDamage * Math.max(0, 1 - distance / radius)));
   }
   return best;
@@ -9000,7 +9108,7 @@ function handleContainmentHit(client, room, player, data = {}) {
 // Explosive splash against the horde. Same falloff the PvP blast uses, and the
 // same kill accounting as a bullet, so a rocket pays out like the shots it
 // replaces. No headshots: an explosion has no aim point.
-function damageContainmentEnemiesFromBlast(client, room, player, position) {
+function damageContainmentEnemiesFromBlast(client, room, player, position, barricades = []) {
   const match = room.containment;
   if (!match || match.phase !== containment.PHASES.ACTIVE) return;
   const { radius, maxDamage } = GRENADE.rpg;
@@ -9008,6 +9116,7 @@ function damageContainmentEnemiesFromBlast(client, room, player, position) {
   for (const enemy of [...match.enemies.values()]) {
     const distance = Math.hypot(enemy.x - position.x, (enemy.y || 0) - position.y, enemy.z - position.z);
     if (distance > radius) continue;
+    if (blastBlockedByBarricades(position, { x: enemy.x, y: enemy.y || 0, z: enemy.z }, barricades)) continue;
     const amount = Math.round(maxDamage * (1 - distance / radius));
     const result = containment.damageEnemy(match, enemy.id, amount);
     if (!result) continue;

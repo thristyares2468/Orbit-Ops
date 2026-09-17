@@ -46,7 +46,7 @@ test('RPG damage is not gated on the admin room', () => {
 test('the blast is resolved against Containment zombies server-side', () => {
   const burst = server.slice(server.indexOf("if (type === 'grenadeBurst')"));
   const block = burst.slice(0, burst.indexOf("if (type === 'flashHit')"));
-  assert.match(block, /damageContainmentEnemiesFromBlast\(client, room, player, position\);/u);
+  assert.match(block, /damageContainmentEnemiesFromBlast\(client, room, player, position, blastBarricades\);/u);
   // Only after the trajectory check has accepted the burst.
   assert.ok(block.indexOf('recentRpgBursts.push') < block.indexOf('damageContainmentEnemiesFromBlast'),
     'the horde must not be damaged by a burst the server has not validated');
@@ -62,7 +62,7 @@ test('the blast falls off with distance and pays out kills', () => {
     send: () => {},
     containmentClientState: () => ({})
   };
-  const fn = new Function(...Object.keys(scope), `${body('damageContainmentEnemiesFromBlast')}; return damageContainmentEnemiesFromBlast;`)(...Object.values(scope));
+  const fn = new Function(...Object.keys(scope), `${body('blastBlockedByBarricades')}; ${body('damageContainmentEnemiesFromBlast')}; return damageContainmentEnemiesFromBlast;`)(...Object.values(scope));
 
   const enemies = new Map();
   const add = (id, x, health) => enemies.set(id, { id, x, y: 0, z: 0, health, maxHealth: health });
@@ -77,7 +77,7 @@ test('the blast falls off with distance and pays out kills', () => {
   match.phase = containment.PHASES.ACTIVE;
   match.enemies = enemies;
   const room = { containment: match };
-  fn({ roomCode: 'AAAA' }, room, { id: 'p1' }, { x: 0, y: 0, z: 0 });
+  fn({ roomCode: 'AAAA' }, room, { id: 'p1' }, { x: 0, y: 0, z: 0 }, []);
 
   const byId = Object.fromEntries(hits.map((h) => [h.id, h]));
   assert.equal(byId.point_blank.health, 500 - maxDamage, 'a direct hit is the full figure');
