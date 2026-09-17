@@ -140,7 +140,7 @@ const REFERENCE_FINISHES = Object.freeze({
 // their own stored values either way, so nothing live moves.
 const REFERENCE_EXCEPTIONS = Object.freeze(['graphite_tech', 'royal_camo']);
 
-const WEAPON_PREFIXES = ['dual_berettas', 'ak47', 'awp', 'deagle', 'famas', 'glock',
+const WEAPON_PREFIXES = ['dual_berettas', 'm4a1', 'ak47', 'awp', 'deagle', 'famas', 'glock',
   'mac10', 'nova', 'p90', 'ssg08', 'xm1014', 'breacher', 'rpg', 'shield'];
 
 function finishOf(id) {
@@ -173,12 +173,9 @@ test('a finish keeps one tier across every weapon it appears on', () => {
   }
 });
 
-// The M4A1 shipped with its Mythic (Vanguard) authored and its common/rare/epic/
-// legendary skins still to be made. Listing it here rather than loosening the
-// rule keeps the gap visible: the moment those four exist, this entry comes out
-// and the M4A1 is held to the same ladder as every other weapon. Nothing else
-// may be added here without the same intent.
-const LADDER_PENDING_WEAPONS = new Set(['M4A1']);
+// No weapon is currently exempt from the complete common/rare/epic/legendary
+// ladder. Future exemptions must be deliberate and temporary.
+const LADDER_PENDING_WEAPONS = new Set();
 
 test('every weapon spans the full four-tier ladder', () => {
   const tiersByWeapon = new Map();

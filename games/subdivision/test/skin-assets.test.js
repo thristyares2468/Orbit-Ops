@@ -103,7 +103,21 @@ for (const item of dualBerettasSkins) {
   const png = fs.readFileSync(localPath(item.texturePath));
   assert.deepStrictEqual([...png.subarray(1, 4)], [0x50, 0x4e, 0x47], `${item.id} texture should be a PNG`);
 }
-assert.ok(!ITEMS.some(item => item.weapon !== 'Knife' && /\|\s*(Gamma Energy|Fade|Dual Energy)$/i.test(item.displayName)), 'knife-only finishes should not appear on firearms');
+const m4a1PatternSkins = ITEMS.filter(item => item.weapon === 'M4A1' && item.kind === 'skin');
+assert.strictEqual(m4a1PatternSkins.length, 10, 'the M4A1 should ship with ten reusable pattern finishes');
+assert.deepStrictEqual(
+  Object.fromEntries(['common', 'rare', 'epic', 'legendary'].map(rarity => [rarity, m4a1PatternSkins.filter(item => item.rarity === rarity).length])),
+  { common: 3, rare: 3, epic: 2, legendary: 2 },
+  'the M4A1 patterns should follow the requested rarity distribution'
+);
+for (const item of m4a1PatternSkins) {
+  assert.strictEqual(item.modelPath, '/assets/weapons/m4a1.glb', `${item.id} should reuse the base M4A1 model`);
+  assert.strictEqual(item.textureApplication, 'pattern', `${item.id} should use the shared pattern pipeline`);
+  assert.deepStrictEqual(item.textureMaterialNames, ['Body1'], `${item.id} should paint only the M4A1 body`);
+  assert.match(item.texturePath, /^\/assets\/skins\/imported\/patterns\/.+\.png$/, `${item.id} should use a shared imported pattern`);
+}
+assert.ok(ITEMS.some(item => item.id === 'm4a1_vanguard' && item.rarity === 'mythic' && item.kind === 'model'), 'the authored M4A1 Vanguard should remain untouched');
+assert.ok(!ITEMS.some(item => item.weapon !== 'Knife' && item.weapon !== 'M4A1' && /\|\s*(Gamma Energy|Fade|Dual Energy)$/i.test(item.displayName)), 'the formerly knife-only finishes should only be shared with the M4A1');
 assert.ok(ITEMS.some(item => item.id === 'ak47_case_hardened' && item.overlayTexturePath?.endsWith('ak47_wooden_overlay.png')), 'AK Case Hardened should use the supplied wooden overlay');
 assert.ok(ITEMS.some(item => item.id === 'knife_karambit_case_hardened' && item.overlayTexturePath?.endsWith('karambit_handle_overlay.png')), 'knife patterns should expose their supplied handle overlay');
 for (const [id, type, texture] of [

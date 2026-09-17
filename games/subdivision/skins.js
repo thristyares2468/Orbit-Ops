@@ -252,11 +252,11 @@ const FINISH_RARITY = Object.freeze({
   scorched: 'common', snake_camo: 'common', ultraviolet_swirl: 'common',
   urban_ddpat: 'common', woodgrain: 'common',
   // A single stylised motif over a plain body.
-  franklin: 'rare', dual_energy: 'rare',
+  afterimage: 'rare', franklin: 'rare', dual_energy: 'rare',
   // Full-coverage artwork. Fade is a vivid metallic gradient, not a camo.
   fade: 'epic', gamma_energy: 'epic',
   // Showpieces.
-  case_hardened: 'legendary'
+  bad_trip: 'legendary', case_hardened: 'legendary'
 });
 
 // Reuse shipped finishes without duplicating textures or changing weapon rules.
@@ -324,6 +324,33 @@ for (const weapon of ['RPG', 'Shield', 'Breacher']) {
     }));
   }
 }
+
+// The M4A1 reuses established finishes at their catalogue-wide tiers. Keep the
+// magazine, stock, and scope authored; only Body1 is paintable on this model.
+const M4A1_FINISHES = Object.freeze([
+  ['arid_camo', 'Arid Camo', 1.3],
+  ['blue_steel', 'Blue Steel', 1.15],
+  ['urban_ddpat', 'Urban DDPAT', 1.35],
+  ['afterimage', 'Afterimage', 1.15],
+  ['franklin', 'Franklin', 1.2],
+  ['dual_energy', 'Dual Energy', 1.18],
+  ['fade', 'Fade', 1.1],
+  ['gamma_energy', 'Gamma Energy', 1.2],
+  ['bad_trip', 'Bad Trip', 1.12],
+  ['case_hardened', 'Case Hardened', 1.3]
+]);
+for (const [texture, title, patternZoom] of M4A1_FINISHES) {
+  NEW_EQUIPMENT_SKINS.push(equipmentPatternSkin({
+    id: `m4a1_${texture}`,
+    weapon: 'M4A1',
+    displayName: `M4A1 | ${title}`,
+    rarity: FINISH_RARITY[texture],
+    texture,
+    materialNames: ['Body1'],
+    patternZoom
+  }));
+}
+
 // The M4A1's Mythic. Unlike every other firearm skin this is not a texture over
 // the weapon's own GLB - it is a different rifle entirely, so it declares kind
 // 'model' and its own path, the way the Mythic knives do.
