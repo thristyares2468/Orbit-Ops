@@ -79,8 +79,13 @@ assert.ok(awpSkins.some(item => item.id === 'awp_sovereign_flame' && item.textur
 // wherever it is actually used.
 assert.ok(ITEMS.every(item => RARITY_IDS.has(item.rarity)),
   'every catalog skin should carry a valid rarity');
-assert.ok(ITEMS.filter(item => item.weapon !== 'Knife').every(item => item.rarity !== 'mythic'),
-  'mythic should remain knife-only');
+// Mythic is no longer "knife", it is "authored as Mythic in the catalogue" -
+// the M4A1 Vanguard is the one firearm on that list. What still has to hold is
+// that the list is short and deliberate rather than open to every firearm.
+assert.deepStrictEqual(
+  ITEMS.filter(item => item.weapon !== 'Knife' && item.rarity === 'mythic').map(item => item.id).sort(),
+  ['m4a1_vanguard'],
+  'mythic should stay an authored allowlist');
 assert.ok(ITEMS.filter(item => item.weapon === 'Knife').every(item => item.rarity === 'mythic'),
   'every knife, including defaults, should be Mythic');
 const dualBerettasSkins = ITEMS.filter(item => item.weapon === 'Dual Berettas' && item.kind === 'skin');

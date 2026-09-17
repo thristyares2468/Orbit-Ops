@@ -6712,6 +6712,7 @@
         const weaponShotSfx = {
             AK47: ['/assets/audio/weapons/ak47/ak47_01.wav', '/assets/audio/weapons/ak47/ak47_02.wav'],
             FAMAS: ['/assets/audio/weapons/famas/famas_01.wav', '/assets/audio/weapons/famas/famas_02.wav'],
+            M4A1: ['/assets/audio/weapons/famas/famas_01.wav', '/assets/audio/weapons/famas/famas_02.wav'],
             AWP: ['/assets/audio/weapons/awp/awp_01.wav', '/assets/audio/weapons/awp/awp_02.wav'],
             'SSG 08': ['/assets/audio/weapons/ssg08/ssg08_01.wav'],
             Deagle: ['/assets/audio/weapons/deagle/deagle_01.wav', '/assets/audio/weapons/deagle/deagle_02.wav'],
@@ -6728,6 +6729,7 @@
             Deagle: ['/assets/audio/weapons/deagle/de_draw.wav'],
             AK47: ['/assets/audio/weapons/ak47/ak47_draw.wav'],
             FAMAS: ['/assets/audio/weapons/famas/famas_draw.wav'],
+            M4A1: ['/assets/audio/weapons/famas/famas_draw.wav'],
             AWP: ['/assets/audio/weapons/awp/awp_draw.wav'],
             'SSG 08': ['/assets/audio/weapons/ssg08/ssg08_draw.mp3'],
             MAC10: ['/assets/audio/weapons/mac10/mac10_draw.wav'],
@@ -6745,6 +6747,7 @@
             Deagle: { out: ['/assets/audio/weapons/deagle/de_clipout.wav'], insert: ['/assets/audio/weapons/deagle/de_clipin.mp3'], action: ['/assets/audio/weapons/deagle/de_slideforward.wav'] },
             AK47: { out: ['/assets/audio/weapons/ak47/ak47_clipout_01.wav'], insert: ['/assets/audio/weapons/ak47/ak47_addammo_02.wav'], action: ['/assets/audio/weapons/ak47/ak47_boltpull.wav'] },
             FAMAS: { out: ['/assets/audio/weapons/famas/famas_clipout.wav'], insert: ['/assets/audio/weapons/famas/famas_clipin.mp3'], action: ['/assets/audio/weapons/famas/famas_boltforward.wav'] },
+            M4A1: { out: ['/assets/audio/weapons/famas/famas_clipout.wav'], insert: ['/assets/audio/weapons/famas/famas_clipin.mp3'], action: ['/assets/audio/weapons/famas/famas_boltforward.wav'] },
             AWP: { out: ['/assets/audio/weapons/awp/awp_clipout.mp3'], insert: ['/assets/audio/weapons/awp/awp_clipin.mp3'], action: ['/assets/audio/weapons/awp/awp_boltforward.wav'] },
             'SSG 08': { out: ['/assets/audio/weapons/ssg08/ssg08_clipout.mp3'], insert: ['/assets/audio/weapons/ssg08/ssg08_clipin.mp3'], action: ['/assets/audio/weapons/ssg08/ssg08_boltforward.mp3'] },
             MAC10: { out: ['/assets/audio/weapons/mac10/mac10_clipout.wav'], insert: ['/assets/audio/weapons/mac10/mac10_clipin.mp3'], action: ['/assets/audio/weapons/mac10/mac10_boltforward.wav'] },
@@ -7284,7 +7287,7 @@
             const samplePool = weaponShotSfx[wpName];
             if (samplePool && playSfxSample(samplePool, pos, 'gunfire', spatial)) return;
             if(wpName==='AWP' || wpName==='SSG 08') { playNoise(0.8, 1.5, 3000, 100, pos, spatial); playNoise(0.2, 1.0, 8000, 1000, pos, spatial); }
-            else if(wpName==='AK47' || wpName==='FAMAS') { playNoise(0.4, 1.0, 5000, 300, pos, spatial); playTone(150, 'sawtooth', 0.2, 0.5, pos, spatial); }
+            else if(wpName==='AK47' || wpName==='FAMAS' || wpName==='M4A1') { playNoise(0.4, 1.0, 5000, 300, pos, spatial); playTone(150, 'sawtooth', 0.2, 0.5, pos, spatial); }
             else if(['Glock', 'Deagle', 'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver'].includes(wpName)) { playNoise(0.2, 0.8, 6000, 400, pos, spatial); playTone(200, 'square', 0.1, 0.4, pos, spatial); }
             else if(wpName==='Nova' || wpName==='XM1014' || wpName==='Breacher') { playNoise(0.6, 1.2, 2000, 100, pos, spatial); playNoise(0.3, 0.8, 7000, 500, pos, spatial); }
             else if(wpName==='Knife') { playNoise(0.1, 0.5, 8000, 2000, pos, spatial); }
@@ -7516,7 +7519,11 @@
             // shield type keeps movement/pose/cover behavior tied to the held item.
             { id: 27, name: 'Shield', type: 'shield', damage: SHIELD_GLOCK_RULES.dmg.body, armorDamage: SHIELD_GLOCK_RULES.dmg, rangeMod: 0.85, firerate: SHIELD_GLOCK_RULES.firerate, spreadBase: 0.01 * SHIELD.sidearmSpreadScale, spreadMove: 0.03 * SHIELD.sidearmSpreadScale, mag: SHIELD.sidearmMagazine, reserve: SHIELD.sidearmReserve, auto: false, speedMult: 0.68, pellets: 1, reloadTime: SHIELD.sidearmReloadTime, barrelOffset: new THREE.Vector3(-0.18, 0.15, -0.6), muzzleOffset: new THREE.Vector3(-0.18, 0.15, -0.65) },
             { id: 28, name: 'RPG', type: 'launcher', kind: 'rpg', damage: 0, rangeMod: 1.0, firerate: 1.1, spreadBase: 0, spreadMove: 0, mag: 1, reserve: 2, auto: false, speedMult: 0.67, pellets: 0, reloadTime: 2.8, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) },
-            { id: 29, name: 'Minigun', type: 'rifle', damage: 10, armorDamage: wdmg('Minigun'), rangeMod: 0.98, firerate: window.GameCore.MINIGUN.fireInterval, spreadBase: 0.025, spreadMove: 0.065, mag: window.GameCore.MINIGUN.ammo, reserve: 0, auto: true, speedMult: window.GameCore.MINIGUN.speedMult, pellets: 1, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) }
+            { id: 29, name: 'Minigun', type: 'rifle', damage: 10, armorDamage: wdmg('Minigun'), rangeMod: 0.98, firerate: window.GameCore.MINIGUN.fireInterval, spreadBase: 0.025, spreadMove: 0.065, mag: window.GameCore.MINIGUN.ammo, reserve: 0, auto: true, speedMult: window.GameCore.MINIGUN.speedMult, pellets: 1, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -2.4), muzzleOffset: new THREE.Vector3(0, 0, -2.5) },
+            // The genre's standard M4: faster and flatter than the AK, weaker per
+            // shot, more expensive. Every number that the server also owns is read
+            // from GameCore rather than restated, so the two can never drift.
+            { id: 30, name: 'M4A1', type: 'rifle', damage: window.GameCore.WEAPONS.M4A1.dmg.body, armorDamage: wdmg('M4A1'), rangeMod: 0.97, firerate: window.GameCore.WEAPONS.M4A1.firerate, spreadBase: 0.012, spreadMove: 0.085, mag: 30, reserve: 90, auto: true, speedMult: 0.85, pellets: 1, reloadTime: 3.1, barrelOffset: new THREE.Vector3(0, 0.06, -2.3), muzzleOffset: new THREE.Vector3(0, 0.1, -2.35) }
         ];
         const SHIELD_GLOCK_PROFILE = Object.freeze({
             ...weapons.find(weapon => weapon.name === SHIELD.weapon),
@@ -7575,6 +7582,7 @@
         const RECOIL_PATTERNS = {
             AK47: [[0.025, -0.006], [0.028, 0.004], [0.032, 0.010], [0.035, 0.015], [0.036, 0.021], [0.034, 0.015], [0.032, 0.005], [0.031, -0.008], [0.030, -0.019], [0.029, -0.024], [0.028, -0.016], [0.026, -0.005]],
             FAMAS: [[0.020, -0.004], [0.023, 0.004], [0.025, 0.010], [0.026, 0.012], [0.025, 0.004], [0.024, -0.006], [0.023, -0.011], [0.022, -0.006]],
+            M4A1: [[0.021, -0.003], [0.024, 0.002], [0.027, 0.006], [0.029, 0.009], [0.030, 0.012], [0.029, 0.008], [0.028, 0.002], [0.027, -0.005], [0.026, -0.011], [0.025, -0.013], [0.024, -0.009], [0.023, -0.003]],
             MAC10: [[0.014, -0.010], [0.017, -0.006], [0.018, 0.002], [0.019, 0.009], [0.020, 0.012], [0.019, 0.004], [0.018, -0.007], [0.017, -0.014]],
             P90: [[0.013, -0.006], [0.015, 0.000], [0.016, 0.006], [0.017, 0.010], [0.017, 0.005], [0.016, -0.005], [0.015, -0.011], [0.014, -0.004]],
             XM1014: [[0.040, -0.010], [0.045, 0.012], [0.048, -0.016], [0.045, 0.018]],
@@ -7695,7 +7703,16 @@
             // muzzle at the floor. A 180deg yaw instead points the warhead back
             // at the player. Both have been tried; neither is right.
             'RPG': { path: '/assets/weapons/rpg.glb', axis: 'z', fp: { length: 4.4, pos: [0.45, -0.38, -1.6] }, tp: { length: 5.2, pos: [0, 0.06, -1.8] } },
-            'Minigun': { path: '/assets/weapons/minigun.glb', axis: 'z', fp: { length: 5, pos: [0.65, -0.65, -1.65], rot: [0, Math.PI, 0] }, tp: { length: 5.2, pos: [0, 0, -1.6], rot: [0, Math.PI, 0] } }
+            'Minigun': { path: '/assets/weapons/minigun.glb', axis: 'z', fp: { length: 5, pos: [0.65, -0.65, -1.65], rot: [0, Math.PI, 0] }, tp: { length: 5.2, pos: [0, 0, -1.6], rot: [0, Math.PI, 0] } },
+            // Measured from the GLB's own world-space bounds rather than guessed:
+            // length runs along X (span 3.35) with the stock at -X and the body
+            // reaching +X, the scope sits at +Y and the magazine hangs at -Y. The
+            // source is therefore already Y-up and needs only a quarter turn to
+            // aim the muzzle down -Z, so this is axis 'z' (which adds no rotation
+            // of its own) plus a Math.PI/2 yaw. axis 'x' would be wrong: it also
+            // pitches -90deg about X to convert a Z-up source, and this is not one.
+            // Shorter than the AK on purpose - it is a carbine.
+            'M4A1': { path: '/assets/weapons/m4a1.glb', axis: 'z', defaultMaterialNames: ['material', 'lambert4', 'lambert15', 'Body1'], fp: { length: 2.9, pos: [-0.24, -0.1, -0.84], rot: [0, Math.PI / 2, 0] }, tp: { length: 4.25, pos: [0, 0.04, -1.66], rot: [0, Math.PI / 2, 0] } }
         };
         const PROCEDURAL_ONLY_WEAPONS = new Set(['USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'R8 Revolver']);
         const PLAYER_STAND_EYE_HEIGHT = 18;
@@ -7757,6 +7774,7 @@
             Nova: { scale: 1.5, x: 0.2, z: 0.15 },
             XM1014: { scale: 1.5 },
             AK47: { scale: 1.5, x: 0.15 },
+            M4A1: { scale: 1.5, x: 0.15 },
             'SSG 08': { scale: 1.5 },
             AWP: { scale: 1.5, x: 0.15, y: 0.25, z: -0.15 }
         };
@@ -7881,6 +7899,7 @@
             XM1014: 1.08,
             FAMAS: 1.08,
             AK47: 1.06,
+            M4A1: 1.07,
             'SSG 08': 1.04,
             AWP: 1.04
         };
@@ -7894,6 +7913,7 @@
             XM1014: 1.22,
             FAMAS: 1.2,
             AK47: 1.18,
+            M4A1: 1.19,
             'SSG 08': 1.18,
             AWP: 1.16
         };
@@ -8139,7 +8159,7 @@
         const REMOTE_STALE_AFTER_MS = 30000;
         const SPAWN_NEAR_PLAYER_RADIUS = 170;
         const SPAWN_NEAR_PLAYER_VERTICAL_RADIUS = 260;
-        const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10, 25, 26, 27, 28];
+        const deathmatchMainWeaponIndexes = [3, 4, 5, 6, 7, 8, 9, 10, 25, 26, 27, 28, 29];
         let minigunThermal = {}, minigunTriggerAt = null;
         // 17 is Dual Berettas (id 18). It rode in behind an admin-room gate
         // while it was being tuned; it is a normal buyable sidearm now.
@@ -10638,7 +10658,7 @@
         function dailyChallengeEditorWeaponOptions(selected = 'AUTO') {
             const weapons = dailyChallengeEditorState.weapons.length
                 ? dailyChallengeEditorState.weapons
-                : ['AUTO', 'AK47', 'AWP', 'FAMAS', 'SSG 08', 'P90', 'XM1014', 'MAC10', 'Nova', 'Deagle', 'Glock'];
+                : ['AUTO', 'AK47', 'M4A1', 'AWP', 'FAMAS', 'SSG 08', 'P90', 'XM1014', 'MAC10', 'Nova', 'Deagle', 'Glock'];
             return weapons.map(weapon => `<option value="${escapeHtml(weapon)}"${weapon === selected ? ' selected' : ''}>${escapeHtml(weapon === 'AUTO' ? 'Adaptive weapon' : weapon)}</option>`).join('');
         }
 
@@ -10712,7 +10732,7 @@
                     { id: 'damage', label: 'Damage dealt' }, { id: 'utilityKills', label: 'Utility kills' },
                     { id: 'wins', label: 'Games won' }, { id: 'mapWins', label: 'Map wins' }, { id: 'weaponKills', label: 'Weapon kills' }
                 ],
-                weapons: ['AUTO', 'AK47', 'AWP', 'FAMAS', 'SSG 08', 'P90', 'XM1014', 'MAC10', 'Nova', 'Deagle', 'Glock'],
+                weapons: ['AUTO', 'AK47', 'M4A1', 'AWP', 'FAMAS', 'SSG 08', 'P90', 'XM1014', 'MAC10', 'Nova', 'Deagle', 'Glock'],
                 maps: PUBLIC_MAP_IDS.map(id => ({ id, label: MAP_DEFS[id]?.label || id })),
                 templates: [
                     { id: 'easy_kills_10', period: 'daily', tier: 'easy', metric: 'kills', label: 'Get {target} kills', target: 10, xp: 100, enabled: true, sortOrder: 10 },
@@ -14329,6 +14349,7 @@
             'XM1014': { duration: 2500, x: -0.20, y: 0.14, z: 0.52, rx: 0.26, ry: 0.70, rz: -0.28, spin: 0.24, roll: 0.16, phase: 2.2 },
             'FAMAS': { duration: 2450, x: -0.18, y: 0.15, z: 0.52, rx: 0.18, ry: 0.82, rz: -0.31, spin: 0.20, roll: 0.10, phase: 2.5 },
             'AK47': { duration: 2700, x: -0.24, y: 0.18, z: 0.58, rx: 0.22, ry: 0.88, rz: -0.40, spin: 0.24, roll: 0.14, phase: 2.8 },
+            'M4A1': { duration: 2500, x: -0.20, y: 0.16, z: 0.54, rx: 0.20, ry: 0.84, rz: -0.34, spin: 0.22, roll: 0.12, phase: 2.65 },
             'SSG 08': { duration: 2850, x: -0.28, y: 0.16, z: 0.62, rx: 0.16, ry: 0.62, rz: -0.26, spin: 0.16, roll: 0.08, phase: 3.1 },
             'AWP': { duration: 3000, x: -0.30, y: 0.18, z: 0.66, rx: 0.14, ry: 0.58, rz: -0.30, spin: 0.14, roll: 0.10, phase: 3.4 },
             'USP-S': { duration: 2200, x: 0.20, y: 0.16, z: 0.38, rx: 0.18, ry: 0.86, rz: 0.38, spin: 0.24, roll: 0.10, phase: 3.7 },
@@ -14346,7 +14367,7 @@
         };
         const WEAPON_INSPECT_MOTIONS = {
             Knife: 'knife', Glock: 'pistolTilt', Deagle: 'pistolRoll', MAC10: 'smgSweep', P90: 'smgRoll',
-            Nova: 'pumpCheck', XM1014: 'shotgunRoll', FAMAS: 'rifleSweep', AK47: 'magCheck',
+            Nova: 'pumpCheck', XM1014: 'shotgunRoll', FAMAS: 'rifleSweep', AK47: 'magCheck', M4A1: 'rifleSweep',
             'SSG 08': 'boltCheck', AWP: 'scopeSweep', 'USP-S': 'suppressorCheck', P2000: 'pistolTilt',
             P250: 'pistolRoll', 'Five-SeveN': 'slideCheck', 'Tec-9': 'magCheck', 'CZ75-Auto': 'slideCheck',
             'Dual Berettas': 'dualCross', 'R8 Revolver': 'cylinderCheck', Frag: 'grenadeTurn', Smoke: 'grenadeTurn',
@@ -17763,6 +17784,26 @@
                 case 'XM1014': createMesh(new THREE.BoxGeometry(0.22, 0.35, 1.5), matGrey, 0, 0, 0.5); createMesh(new THREE.CylinderGeometry(0.07, 0.07, 1.8), matBlack, 0, 0.1, -0.81, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.05, 0.05, 1.6), matDarkGrey, 0, -0.1, -0.81, Math.PI/2); createMesh(new THREE.BoxGeometry(0.18, 0.25, 1.0), matBlack, 0, -0.11, 1.51); break;
                 case 'FAMAS': createMesh(new THREE.BoxGeometry(0.22, 0.35, 2.2), matBlack, 0, 0, 0); createMesh(new THREE.BoxGeometry(0.08, 0.3, 1.5), matBlack, 0, 0.36, -0.1); createMesh(new THREE.BoxGeometry(0.12, 0.5, 0.3), matGrey, 0, -0.3, 0.81, 0.1); createMesh(new THREE.BoxGeometry(0.15, 0.6, 0.3), matBlack, 0, -0.4, -0.2, 0.1); createMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.6), matDarkGrey, 0, 0, -1.41, Math.PI/2); break;
                 case 'AK47': createMesh(new THREE.BoxGeometry(0.22, 0.35, 1.8), matDarkGrey, 0, 0, 0); createMesh(new THREE.CylinderGeometry(0.04, 0.04, 1.8), matGrey, 0, 0.08, -1.5, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.025, 0.025, 0.8), matGrey, 0, 0.16, -1.0, Math.PI/2); createMesh(new THREE.BoxGeometry(0.04, 0.15, 0.05), matDarkGrey, 0, 0.24, -2.3); createMesh(new THREE.BoxGeometry(0.18, 0.3, 1.2), matWood, 0, -0.1, 1.52, -0.05); createMesh(new THREE.BoxGeometry(0.24, 0.24, 1.0), matWood, 0, 0.04, -0.8); createMesh(new THREE.BoxGeometry(0.14, 0.8, 0.35), matBlack, 0, -0.52, -0.21, 0.2); break;
+                // Stand-in for m4a1.glb, which is 11MB and therefore visible as an
+                // empty pair of hands for as long as the download takes. Built to
+                // the same 2.9-unit length the GLB is fitted to and to the same
+                // silhouette cues - flat-top receiver with a carry handle, round
+                // handguard, collapsible stock - so the swap when the model lands
+                // is a change of detail rather than a change of shape or size.
+                case 'M4A1': {
+                    createMesh(new THREE.BoxGeometry(0.2, 0.3, 1.5), matDarkGrey, 0, 0, 0);                       // upper/lower receiver
+                    createMesh(new THREE.BoxGeometry(0.12, 0.1, 1.1), matBlack, 0, 0.2, -0.15);                   // flat-top rail
+                    createMesh(new THREE.BoxGeometry(0.1, 0.16, 0.5), matBlack, 0, 0.29, 0.15);                   // carry handle / rear sight
+                    createMesh(new THREE.CylinderGeometry(0.11, 0.11, 0.9), matDarkGrey, 0, 0.03, -1.15, Math.PI / 2); // handguard
+                    createMesh(new THREE.CylinderGeometry(0.04, 0.04, 1.3), matGrey, 0, 0.03, -1.35, Math.PI / 2);     // barrel
+                    createMesh(new THREE.CylinderGeometry(0.06, 0.06, 0.22), matBlack, 0, 0.03, -2.05, Math.PI / 2);   // flash hider
+                    createMesh(new THREE.BoxGeometry(0.05, 0.18, 0.06), matDarkGrey, 0, 0.19, -1.55);            // front sight post
+                    createMesh(new THREE.BoxGeometry(0.16, 0.55, 0.3), matBlack, 0, -0.36, 0.12, 0.22);          // magazine, curved back
+                    createMesh(new THREE.BoxGeometry(0.14, 0.42, 0.26), matBlack, 0, -0.28, 0.52, 0.28);         // pistol grip
+                    createMesh(new THREE.CylinderGeometry(0.07, 0.07, 0.55), matDarkGrey, 0, 0.02, 1.02, Math.PI / 2); // buffer tube
+                    createMesh(new THREE.BoxGeometry(0.18, 0.26, 0.6), matBlack, 0, -0.02, 1.35);                // collapsible stock
+                    break;
+                }
                 case 'SSG 08': createMesh(new THREE.BoxGeometry(0.22, 0.3, 2.5), matGrey, 0, 0, 0); createMesh(new THREE.CylinderGeometry(0.04, 0.04, 1.5), matBlack, 0, 0.1, -1.5, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2), matBlack, 0, 0.31, -0.2, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.07, 0.07, 0.05), matGlass, 0, 0.31, -0.81, Math.PI/2); createMesh(new THREE.BoxGeometry(0.18, 0.6, 0.3), matBlack, 0, -0.3, 0.51, 0.1); createMesh(new THREE.BoxGeometry(0.1, 0.1, 0.3), matSilver, 0.16, 0.1, 0.2); break;
                 case 'AWP': createMesh(new THREE.BoxGeometry(0.3, 0.4, 3.5), matOlive, 0, 0, 0.5); createMesh(new THREE.CylinderGeometry(0.08, 0.08, 2.5), matBlack, 0, 0.15, -2.01, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.09, 0.09, 0.3), matBlack, 0, 0.15, -3.21, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.12, 0.12, 1.5), matBlack, 0, 0.46, -0.2, Math.PI/2); createMesh(new THREE.CylinderGeometry(0.11, 0.11, 0.05), matGlass, 0, 0.46, -0.96, Math.PI/2); createMesh(new THREE.BoxGeometry(0.2, 0.6, 0.35), matBlack, 0, -0.4, 0.81, 0.1); createMesh(new THREE.BoxGeometry(0.15, 0.5, 0.35), matBlack, 0, -0.3, 0.21); createMesh(new THREE.BoxGeometry(0.15, 0.15, 0.4), matBlack, 0.21, 0.15, 0.21); createMesh(new THREE.CylinderGeometry(0.03, 0.03, 0.6), matBlack, 0.1, -0.3, -1.51, Math.PI/4); createMesh(new THREE.CylinderGeometry(0.03, 0.03, 0.6), matBlack, -0.1, -0.3, -1.51, -Math.PI/4); break;
                 case 'Frag': createMesh(new THREE.SphereGeometry(0.22, 10, 8), matOlive, 0, 0, -0.3); createMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.12), matDarkGrey, 0, 0.2, -0.3); break;

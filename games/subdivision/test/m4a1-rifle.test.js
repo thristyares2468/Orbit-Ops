@@ -1,0 +1,145 @@
+'use strict';
+
+// The M4A1 was added to fill the role the AK vacated when it was slowed from ten
+// rounds per second to 4.25, and to fill it the way the FPS lineage this game
+// borrows from always has: the AK hits harder and one-shots to the head, the M4
+// shoots faster, spreads less and costs more. These tests pin the relationships
+// rather than the raw numbers wherever a relationship is what was actually
+// decided, so retuning one rifle cannot quietly erase the distinction.
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+const core = require('../core.js');
+const skins = require('../skins.js');
+
+const root = path.resolve(__dirname, '..');
+const client = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const m4 = core.WEAPONS.M4A1;
+const ak = core.WEAPONS.AK47;
+
+test('the M4A1 fires at exactly the rate the AK47 used to', () => {
+  // 0.1s between shots - ten rounds per second - is the AK's own value from
+  // before it was slowed. Asserted as a literal because it is a restored
+  // historical number, not a value derived from the AK's current one.
+  assert.strictEqual(m4.firerate, 0.1);
+  assert.ok(m4.firerate < ak.firerate,
+    'the M4 must be the faster of the two rifles');
+  assert.strictEqual(m4.firerate, core.WEAPONS.FAMAS.firerate,
+    'the FAMAS kept that cadence and is the only surviving reference for it');
+});
+
+test('the M4A1 trades per-shot damage for that rate of fire', () => {
+  assert.ok(m4.dmg.body < ak.dmg.body, 'the AK must still hit harder per shot');
+  assert.ok(m4.dmg.body > core.WEAPONS.FAMAS.dmg.body,
+    'the M4 costs more than the FAMAS and must out-damage it per shot');
+  // The single most important line here. A one-shot headshot is the AK's
+  // identity; a rifle that fires twice as fast must not also have it.
+  assert.ok(m4.dmg.head < 100, 'the M4 must not one-shot a full-health head');
+  assert.ok(ak.dmg.head >= 100, 'the AK must keep its one-shot headshot');
+  // Sustained damage still favours the M4 - that is what it is buying - but it
+  // must not exceed the old ten-rounds-per-second AK that was judged too strong.
+  const dps = (w) => w.dmg.body / w.firerate;
+  assert.ok(dps(m4) > dps(ak), 'the M4 should win a sustained body-shot trade');
+  assert.ok(dps(m4) < ak.dmg.body / 0.1,
+    'the M4 must stay below the pre-nerf AK it is replacing, not restore it');
+});
+
+test('the M4A1 costs more than the AK47', () => {
+  assert.ok(core.WEAPON_PRICES.M4A1 > core.WEAPON_PRICES.AK47,
+    'the faster, easier rifle is the more expensive one');
+});
+
+test('the M4A1 is appended to WEAPON_NAMES, not inserted', () => {
+  // WEAPON_NAMES is the snapshot encoder's index order. Slotting the M4 in
+  // beside the other rifles would shift every index above it and silently
+  // re-label weapons already in flight.
+  assert.strictEqual(core.WEAPON_NAMES.at(-1), 'M4A1');
+  assert.strictEqual(core.WEAPON_NAMES.indexOf('AK47'), 8);
+  assert.strictEqual(core.WEAPON_NAMES.indexOf('Knife'), 0);
+  assert.strictEqual(new Set(core.WEAPON_NAMES).size, core.WEAPON_NAMES.length);
+});
+
+test('the client reads the authoritative M4A1 numbers rather than restating them', () => {
+  const entry = client.match(/\{ id: 30, name: 'M4A1'[^\n]+/u)?.[0] || '';
+  assert.ok(entry, 'the client weapons table should define the M4A1');
+  assert.match(entry, /firerate: window\.GameCore\.WEAPONS\.M4A1\.firerate/u);
+  assert.match(entry, /damage: window\.GameCore\.WEAPONS\.M4A1\.dmg\.body/u);
+  assert.match(entry, /auto: true/u, 'an assault rifle is fully automatic');
+  assert.doesNotMatch(entry, /firerate: 0\.1[,\s]/u,
+    'a hard-coded client rate would let presentation and enforcement drift');
+});
+
+test('the M4A1 is buyable as a primary', () => {
+  const indexes = client.match(/const deathmatchMainWeaponIndexes = \[([^\]]+)\]/u)?.[1] || '';
+  const parsed = indexes.split(',').map((value) => Number(value.trim()));
+  // The buy list holds positions in the client weapons[] array, which is built
+  // in the same order as WEAPON_NAMES, so the M4A1 is its last entry.
+  assert.ok(parsed.includes(core.WEAPON_NAMES.length - 1),
+    'the M4A1 should appear in the primary weapon buy list');
+});
+
+test('the M4A1 has both a downloaded model and a procedural stand-in', () => {
+  // m4a1.glb is 11MB. Without a stand-in the player holds nothing at all for as
+  // long as that takes, which is exactly the gap the RPG and Minigun had.
+  assert.ok(fs.existsSync(path.join(root, 'assets', 'weapons', 'm4a1.glb')),
+    'the M4A1 GLB should be installed');
+  assert.match(client, /'M4A1': \{ path: '\/assets\/weapons\/m4a1\.glb'/u);
+  assert.match(client, /case 'M4A1': \{/u,
+    'buildGunModel needs an M4A1 branch or the fallback is an empty pair of hands');
+});
+
+test('the M4A1 mythic skin is a real, reachable model', () => {
+  const skin = skins.getItem('m4a1_vanguard');
+  assert.ok(skin, 'the mythic M4A1 should be in the catalogue');
+  assert.strictEqual(skin.weapon, 'M4A1');
+  assert.strictEqual(skin.rarity, 'mythic');
+  assert.strictEqual(skin.kind, 'model', 'it replaces the rifle rather than texturing it');
+  assert.ok(fs.existsSync(path.join(root, skin.modelPath.replace(/^\//u, ''))),
+    `${skin.modelPath} should exist on disk`);
+  // Its source shares the base model's convention, so the quarter turn in the
+  // M4A1's own asset spec orients it too. A yaw here as well double-rotates it
+  // and lays the rifle sideways across the screen - measured, not assumed.
+  assert.strictEqual(skin.assetAxis, 'z');
+  assert.ok(!Number.isFinite(skin.gameplayYaw), 'a second yaw double-rotates this model');
+  assert.ok(!Number.isFinite(skin.previewYaw), 'a second yaw double-rotates this model');
+});
+
+test('the M4A1 has its own sound, recoil and inspect entries', () => {
+  // A new weapon that falls through every presentation table is playable but
+  // reads as broken: silent, recoil-less and unanimated.
+  for (const table of ['weaponShotSfx', 'weaponDrawSfx', 'weaponReloadSfx']) {
+    const body = client.slice(client.indexOf(`const ${table} = {`));
+    assert.match(body.slice(0, body.indexOf('};')), /M4A1:/u,
+      `${table} should cover the M4A1`);
+  }
+  const patterns = client.slice(client.indexOf('const RECOIL_PATTERNS = {'));
+  assert.match(patterns.slice(0, patterns.indexOf('};')), /M4A1: \[\[/u,
+    'the M4 should have its own recoil pattern, not fall back to none');
+});
+
+test('the M4A1 recoil pattern is the controllable one', () => {
+  // The M4's defining trait in this genre is control, so this is pinned against
+  // the AK's table rather than against absolute numbers: retuning the AK should
+  // force a decision about the M4 rather than silently invert the relationship.
+  const read = (name) => {
+    const body = client.slice(client.indexOf('const RECOIL_PATTERNS = {'));
+    const row = body.slice(0, body.indexOf('};')).match(new RegExp(`${name}: (\\[\\[[^\\n]+?\\]\\]),`, 'u'))?.[1];
+    assert.ok(row, `${name} should have a recoil pattern`);
+    return JSON.parse(row);
+  };
+  const m4Pattern = read('M4A1');
+  const akPattern = read('AK47');
+  assert.strictEqual(m4Pattern.length, akPattern.length,
+    'both rifles should carry a pattern of the same length to compare shot for shot');
+  for (let shot = 0; shot < m4Pattern.length; shot += 1) {
+    assert.ok(m4Pattern[shot][0] < akPattern[shot][0],
+      `shot ${shot + 1} should kick less on the M4 than on the AK`);
+    assert.ok(Math.abs(m4Pattern[shot][1]) <= Math.abs(akPattern[shot][1]),
+      `shot ${shot + 1} should wander sideways no more on the M4 than on the AK`);
+  }
+  const horizontal = (pattern) => pattern.reduce((sum, [, x]) => sum + Math.abs(x), 0);
+  assert.ok(horizontal(m4Pattern) < horizontal(akPattern) * 0.75,
+    'the M4 should be markedly easier to hold on target horizontally, not marginally');
+});

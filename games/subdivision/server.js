@@ -2796,7 +2796,7 @@ async function handleSaveCaseDefinition(client, data = {}) {
       case_discount_outside_availability: 'The discount window must stay inside the case availability period.'
     };
     const message = scheduleMessages[error.message] || (error.message === 'mythic_requires_knife'
-      ? 'Mythic can only be used for knives.'
+      ? 'Mythic can only be set on a skin that is already authored as Mythic.'
       : (error.message === 'case_items_required' ? 'Add at least one skin to the case.' : 'Could not save that case.'));
     send(client, 'caseEditorNotice', { ok: false, message });
   }
@@ -9575,7 +9575,7 @@ function dailyChallengeDateSeed(dateKey) {
 }
 
 async function adaptiveDailyChallengeWeapon(dateKey) {
-  const guns = ['AK47', 'AWP', 'FAMAS', 'SSG 08', 'P90', 'XM1014', 'MAC10', 'Nova', 'Deagle', 'Glock']
+  const guns = ['AK47', 'M4A1', 'AWP', 'FAMAS', 'SSG 08', 'P90', 'XM1014', 'MAC10', 'Nova', 'Deagle', 'Glock']
     .filter(name => WEAPONS[name]);
   let totals = [];
   if (db.isEnabled()) {

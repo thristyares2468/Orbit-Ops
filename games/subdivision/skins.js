@@ -8,7 +8,12 @@ const RARITIES = Object.freeze([
   { id: 'rare', displayName: 'Rare', color: '#8e4de8' },
   { id: 'epic', displayName: 'Epic', color: '#e652a0' },
   { id: 'legendary', displayName: 'Legendary', color: '#d84b4b' },
-  { id: 'mythic', displayName: 'Mythic', color: '#e6b63d', knifeOnly: true }
+  // Mythic is not open to any skin that asks for it. An item is Mythic only if
+  // its own catalogue entry declares that tier, which sanitizeCaseDefinition
+  // enforces - so the tier stays a short, hand-authored list rather than
+  // something a case entry can promote an ordinary skin into. That list was
+  // every knife until the M4A1 Vanguard joined it.
+  { id: 'mythic', displayName: 'Mythic', color: '#e6b63d', authoredOnly: true }
 ]);
 
 const RARITY_BY_ID = new Map(RARITIES.map((rarity) => [rarity.id, rarity]));
@@ -319,6 +324,27 @@ for (const weapon of ['RPG', 'Shield', 'Breacher']) {
     }));
   }
 }
+// The M4A1's Mythic. Unlike every other firearm skin this is not a texture over
+// the weapon's own GLB - it is a different rifle entirely, so it declares kind
+// 'model' and its own path, the way the Mythic knives do.
+//
+// It carries assetAxis but deliberately NO gameplayYaw or previewYaw. Its source
+// happens to share the base model's convention exactly - +X is the muzzle, +Y is
+// up - so the quarter turn already in the M4A1's asset spec orients this model
+// too. Adding a yaw here as well turned it a full 180deg and laid the rifle
+// sideways across the screen; that was measured in the browser, not guessed, so
+// do not "restore" one without measuring again.
+const M4A1_MYTHIC_SKIN = Object.freeze({
+  id: 'm4a1_vanguard',
+  weapon: 'M4A1',
+  kind: 'model',
+  displayName: 'M4A1 | Vanguard',
+  rarity: 'mythic',
+  modelPath: '/assets/skins/m4a1/vanguard.glb',
+  assetAxis: 'z',
+  imported: false
+});
+
 NEW_EQUIPMENT_SKINS.push({
   id: 'shield_rexton', weapon: 'Shield', kind: 'skin',
   displayName: 'Shield | Rexton', rarity: 'rare',
@@ -502,6 +528,7 @@ const ITEMS = Object.freeze(uniqueCatalogItems([
   ...AWP_SKINS,
   ...DUAL_BERETTAS_SKINS,
   SOVEREIGN_FLAME,
+  M4A1_MYTHIC_SKIN,
   ...FAMAS_VARIANTS,
   ...NEW_EQUIPMENT_SKINS,
   ...ALL_KNIFE_ITEMS,
@@ -510,7 +537,9 @@ const ITEMS = Object.freeze(uniqueCatalogItems([
 const ITEM_BY_ID = new Map(ITEMS.map((item) => [item.id, item]));
 const KNIFE_ITEM_IDS = Object.freeze(ALL_KNIFE_ITEMS.map((item) => item.id));
 const MYTHIC_KNIFE_ITEM_IDS = Object.freeze(ALL_KNIFE_ITEMS.filter((item) => item.rarity === 'mythic').map((item) => item.id));
-const STANDARD_CASE_ITEM_IDS = Object.freeze(ITEMS.filter((item) => item.weapon !== 'Knife').map((item) => item.id));
+// Non-gold pull pool. The test here is the tier, not the weapon: excluding only
+// knives would have let a Mythic rifle drop as an ordinary pull.
+const STANDARD_CASE_ITEM_IDS = Object.freeze(ITEMS.filter((item) => item.rarity !== 'mythic').map((item) => item.id));
 const PROTOTYPE_CASE_ID = 'prototype_case';
 const GOLD_ROLL_DENOMINATOR = 30;
 const CASE_DESIGNS = Object.freeze([
@@ -625,7 +654,10 @@ function sanitizeCaseDefinition(input = {}, { requireItems = true } = {}) {
     const item = getItem(rawEntry?.itemId || rawEntry?.item_id || rawEntry?.id);
     if (!item || seen.has(item.id)) continue;
     const rarity = normalizeRarity(rawEntry?.rarity || rawEntry?.tier || item.rarity);
-    if (rarity === 'mythic' && item.weapon !== 'Knife') throw new Error('mythic_requires_knife');
+    // A case entry can set any tier it likes EXCEPT Mythic, which it can only
+    // confirm: the item has to already be authored Mythic in the catalogue.
+    // Error id unchanged so existing callers and messages still match.
+    if (rarity === 'mythic' && item.rarity !== 'mythic') throw new Error('mythic_requires_knife');
     const weight = Math.max(1, Math.min(100000, Math.floor(Number(rawEntry?.weight) || 0)));
     seen.add(item.id);
     items.push({ itemId: item.id, weight, rarity });

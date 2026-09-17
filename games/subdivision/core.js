@@ -42,6 +42,7 @@
     'XM1014': 2000,
     'FAMAS': 2050,
     'AK47': 2700,
+    'M4A1': 2900,
     'SSG 08': 1700,
     'AWP': 4750,
     'Breacher': 2200,
@@ -130,7 +131,8 @@
   const WEAPON_NAMES = [
     'Knife', 'Glock', 'Deagle', 'MAC10', 'P90', 'Nova', 'XM1014', 'FAMAS', 'AK47', 'SSG 08', 'AWP',
     'USP-S', 'P2000', 'P250', 'Five-SeveN', 'Tec-9', 'CZ75-Auto', 'Dual Berettas', 'R8 Revolver',
-    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4', 'Breacher', 'Shield', 'RPG', 'Minigun'
+    'Frag', 'Smoke', 'Flash', 'Molotov', 'Barricade', 'C4', 'Breacher', 'Shield', 'RPG', 'Minigun',
+    'M4A1'
   ];
 
   const SNAPSHOT_FLAGS = {
@@ -168,6 +170,14 @@
     // 4.25 rounds per second: the deliberate, heavy cadence of Fortnite's
     // Heavy Assault Rifle rather than the old 10-round-per-second spray.
     'AK47':   { type: 'rifle',   firerate: 1 / 4.25, pellets: 1, range: 1000, dmg: { head: 111, body: 27, legs: 27 } },
+    // The counterpart to the AK, following the convention every FPS in this
+    // lineage settles on for an M4: the AK hits harder per shot and one-shots
+    // to the head, the M4 shoots far faster, spreads less and costs more.
+    // 0.1 is exactly the AK's own fire rate from before it was slowed to
+    // 1/4.25, so the 10-round-per-second rifle role is filled again rather
+    // than duplicated. Head is deliberately 92, not 100+: a one-shot headshot
+    // is the AK's identity and the M4 must not also have it.
+    'M4A1':   { type: 'rifle',   firerate: 0.1,   pellets: 1, range: 1000, dmg: { head: 92, body: 25, legs: 25 } },
     'SSG 08': { type: 'sniper',  firerate: 0.75,  pellets: 1, range: 1000, dmg: { head: 299, body: 75, legs: 66 } },
     'AWP':    { type: 'sniper',  firerate: 1.5,   pellets: 1, range: 1000, dmg: { head: 448, body: 112, legs: 86 } },
     'Frag':   { type: 'utility', firerate: 0.8,   pellets: 0, range: 0,    dmg: { head: 0, body: 0, legs: 0 } },

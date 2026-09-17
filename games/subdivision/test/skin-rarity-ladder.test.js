@@ -47,17 +47,60 @@ test('an entry with no rarity inherits the catalog tier, not Common', () => {
     'an unset entry used to silently become Common; it must now inherit');
 });
 
-test('mythic stays knife-only', () => {
+// Mythic used to mean "knife", and the M4A1 Vanguard is the deliberate exception
+// that ended that. What replaced it is a stricter rule than the one it relaxed:
+// Mythic is now an authored per-item allowlist, so a case entry can confirm the
+// tier but can never promote an ordinary skin into it. This pins the allowlist
+// itself, so widening it again has to be a decision rather than an accident.
+const MYTHIC_NON_KNIVES = ['m4a1_vanguard'];
+
+test('mythic is an authored allowlist, not a tier a case entry can hand out', () => {
+  const mythicNonKnives = skins.ITEMS
+    .filter((item) => item.rarity === 'mythic' && item.weapon !== 'Knife')
+    .map((item) => item.id)
+    .sort();
+  assert.deepStrictEqual(mythicNonKnives, MYTHIC_NON_KNIVES.slice().sort(),
+    'a firearm became Mythic without being added to the allowlist above');
   for (const item of FIREARMS) {
+    if (MYTHIC_NON_KNIVES.includes(item.id)) continue;
     assert.notStrictEqual(item.rarity, 'mythic', `${item.id} must not be mythic`);
   }
+  const ordinary = FIREARMS.find((item) => !MYTHIC_NON_KNIVES.includes(item.id));
   assert.throws(
     () => skins.sanitizeCaseDefinition({
       id: 'probe3', displayName: 'Probe 3',
-      items: [{ itemId: FIREARMS[0].id, rarity: 'mythic', weight: 1 }]
+      items: [{ itemId: ordinary.id, rarity: 'mythic', weight: 1 }]
     }),
     /mythic_requires_knife/
   );
+  // The allowlisted one is accepted, so the guard is discriminating rather than
+  // simply still rejecting everything.
+  assert.doesNotThrow(() => skins.sanitizeCaseDefinition({
+    id: 'probe4', displayName: 'Probe 4',
+    items: [{ itemId: 'm4a1_vanguard', rarity: 'mythic', weight: 1 }]
+  }));
+});
+
+test('an authored mythic never drops from the ordinary pull pool', () => {
+  // The prototype case's non-gold pool used to be "everything that is not a
+  // knife", so a Mythic rifle would have fallen straight into it as an ordinary
+  // pull. Driven through the real roll rather than the private array: every
+  // non-gold result must still be a non-Mythic item.
+  for (let seed = 1; seed < 400; seed += 1) {
+    let next = seed;
+    const randomInt = (max) => {
+      next = (next * 1103515245 + 12345) % 2147483648;
+      return next % max;
+    };
+    const result = skins.rollPrototypeCase(randomInt);
+    assert.ok(result, 'the prototype case must always roll something');
+    if (result.gold) {
+      assert.strictEqual(result.item.weapon, 'Knife', 'the gold pull stays knife-only');
+      continue;
+    }
+    assert.notStrictEqual(result.tier, 'mythic', `${result.item.id} dropped as an ordinary pull`);
+    assert.notStrictEqual(result.item.id, 'm4a1_vanguard', 'the mythic M4A1 must not be an ordinary pull');
+  }
 });
 
 test('every knife is mythic, including the two defaults', () => {
@@ -130,6 +173,13 @@ test('a finish keeps one tier across every weapon it appears on', () => {
   }
 });
 
+// The M4A1 shipped with its Mythic (Vanguard) authored and its common/rare/epic/
+// legendary skins still to be made. Listing it here rather than loosening the
+// rule keeps the gap visible: the moment those four exist, this entry comes out
+// and the M4A1 is held to the same ladder as every other weapon. Nothing else
+// may be added here without the same intent.
+const LADDER_PENDING_WEAPONS = new Set(['M4A1']);
+
 test('every weapon spans the full four-tier ladder', () => {
   const tiersByWeapon = new Map();
   for (const item of FIREARMS) {
@@ -137,6 +187,12 @@ test('every weapon spans the full four-tier ladder', () => {
     tiersByWeapon.get(item.weapon).add(item.rarity);
   }
   for (const [weapon, tiers] of tiersByWeapon) {
+    if (LADDER_PENDING_WEAPONS.has(weapon)) {
+      // Still assert what it does have, so the exemption cannot hide a
+      // regression in the skins it already ships.
+      assert.ok(tiers.has('mythic'), `${weapon} is exempt only while it has its mythic`);
+      continue;
+    }
     for (const tier of ['common', 'rare', 'epic', 'legendary']) {
       assert.ok(tiers.has(tier), `${weapon} has no ${tier} skin (only ${[...tiers].join('/')})`);
     }
