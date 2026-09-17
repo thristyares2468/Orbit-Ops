@@ -2690,7 +2690,7 @@ function handleEquipSkin(client, data) {
           inventoryId: null,
           itemId: requestedDefault
         });
-        client.skinLoadout.Knife = { itemId: requestedDefault, patternSeed: 0, rarityTier: 'common', wearValue: 0, wearSeed: 0 };
+        client.skinLoadout.Knife = { itemId: requestedDefault, patternSeed: 0, rarityTier: 'mythic', wearValue: 0, wearSeed: 0 };
       } else {
         await db.clearSkinLoadout(client.accountId, weapon);
         delete client.skinLoadout[weapon];

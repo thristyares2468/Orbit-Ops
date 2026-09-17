@@ -39,6 +39,9 @@ the gun:
 | Legendary | Showpieces | case hardened, printstream, dragonfire, firebreathing, deathgaze, cat fight, stalker, rising sun, bad trip, inheritence, ramese's reach, sovereign flame |
 | Mythic | Knives only | enforced by `mythic_requires_knife` |
 
+Every knife, including the default CT and T models, is Mythic. Default status
+controls ownership and Trade Up eligibility; it does not lower knife rarity.
+
 Only `graphite_tech` and `royal_camo` vary, each by exactly one adjacent tier -
 a per-case nudge rather than a disagreement. The catalogue takes the majority
 (Common) reading for both; the stored case entries keep their own values, so

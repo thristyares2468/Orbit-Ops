@@ -29,6 +29,26 @@ test('new equipment has an expanded selectable pattern catalog', () => {
   }
 });
 
+test('the authored heavy collection adds no Common finishes', () => {
+  const finishIds = [
+    'field_issue', 'worksite_grid', 'tidal_circuit', 'ember_mesh', 'verdant_alloy',
+    'arc_flash', 'molten_fault', 'spectral_bloom', 'solar_regalia', 'void_crown'
+  ];
+  const expectedTiers = { rare: 3, epic: 4, legendary: 3 };
+  for (const weapon of ['RPG', 'Shield', 'Breacher']) {
+    const prefix = weapon.toLowerCase();
+    const collection = finishIds.map(finish => skins.getItem(`${prefix}_${finish}`));
+    assert.ok(collection.every(Boolean), `${weapon} should receive all ten authored finishes`);
+    assert.deepEqual(
+      Object.fromEntries(Object.keys(expectedTiers).map(rarity => [rarity, collection.filter(item => item.rarity === rarity).length])),
+      expectedTiers,
+      `${weapon} should span the deliberately assigned Rare-and-up ladder`
+    );
+    assert.ok(collection.every(item => item.fixedRarity === true));
+    assert.ok(collection.every(item => item.texturePath.startsWith('/assets/skins/equipment_collection/')));
+  }
+});
+
 test('RPG skins leave rockets, sights and hardware on their authored materials', () => {
   for (const item of skins.publicCatalog().items.filter(item => item.weapon === 'RPG')) {
     const id = item.id;

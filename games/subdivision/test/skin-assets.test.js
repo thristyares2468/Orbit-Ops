@@ -81,6 +81,8 @@ assert.ok(ITEMS.every(item => RARITY_IDS.has(item.rarity)),
   'every catalog skin should carry a valid rarity');
 assert.ok(ITEMS.filter(item => item.weapon !== 'Knife').every(item => item.rarity !== 'mythic'),
   'mythic should remain knife-only');
+assert.ok(ITEMS.filter(item => item.weapon === 'Knife').every(item => item.rarity === 'mythic'),
+  'every knife, including defaults, should be Mythic');
 const dualBerettasSkins = ITEMS.filter(item => item.weapon === 'Dual Berettas' && item.kind === 'skin');
 assert.strictEqual(dualBerettasSkins.length, 10, 'the dual pistols should ship with ten original finishes');
 assert.deepStrictEqual(
@@ -292,6 +294,6 @@ for (const item of [...validatedAkSkins, ...validatedAwpSkins]) {
 }
 const renderQaAssetPaths = renderQaHtml.match(/\/assets\/skins\/(?:ak47|awp)\/[^']+\.glb/g) || [];
 assert.strictEqual(new Set(renderQaAssetPaths).size, validatedAkSkins.length + validatedAwpSkins.length, 'render QA should list every regenerated AK/AWP skin exactly once');
-assert.match(renderQaHtml, /visiblePixels < 250/, 'render QA should fail low-pixel renders');
+assert.match(renderQaHtml, /const minimumVisiblePixels = equipmentWeapon \? 100 : 250/, 'render QA should retain the strict threshold while allowing narrow equipment profiles');
 
 console.log('skin-assets: prim-source embedded weapon skins verified.');

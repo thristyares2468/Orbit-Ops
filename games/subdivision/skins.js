@@ -179,7 +179,7 @@ const FAMAS_VARIANTS = [
   }
 ];
 
-function equipmentPatternSkin({ id, weapon, displayName, rarity, texture, materialNames, patternZoom = 1 }) {
+function equipmentPatternSkin({ id, weapon, displayName, rarity, texture, textureFolder = 'imported/patterns', materialNames, patternZoom = 1 }) {
   const sourceModel = weapon === 'Breacher' ? 'breacher' : weapon.toLowerCase();
   return {
     id,
@@ -187,7 +187,8 @@ function equipmentPatternSkin({ id, weapon, displayName, rarity, texture, materi
     kind: 'skin',
     displayName,
     rarity: normalizeRarity(rarity),
-    texturePath: `/assets/skins/imported/patterns/${texture}.png`,
+    fixedRarity: true,
+    texturePath: `/assets/skins/${textureFolder}/${texture}.png`,
     modelPath: `/assets/weapons/${sourceModel}.glb`,
     baseModelPath: `/assets/weapons/${sourceModel}.glb`,
     textureApplication: 'pattern',
@@ -286,6 +287,38 @@ for (const [weapon, finishes] of Object.entries(EQUIPMENT_FINISHES)) {
     }));
   }
 }
+
+// A single authored texture ladder shared across the three new equipment
+// families. No Common skins are added: their existing libraries already cover
+// that tier, while Rare, Epic, and Legendary need the visual variety.
+const HEAVY_COLLECTION_FINISHES = Object.freeze([
+  ['field_issue', 'Field Issue', 'rare', 1.2],
+  ['worksite_grid', 'Worksite Grid', 'rare', 1.2],
+  ['tidal_circuit', 'Tidal Circuit', 'rare', 1.25],
+  ['ember_mesh', 'Ember Mesh', 'epic', 1.2],
+  ['verdant_alloy', 'Verdant Alloy', 'epic', 1.15],
+  ['arc_flash', 'Arc Flash', 'epic', 1.3],
+  ['molten_fault', 'Molten Fault', 'epic', 1.25],
+  ['spectral_bloom', 'Spectral Bloom', 'legendary', 1.18],
+  ['solar_regalia', 'Solar Regalia', 'legendary', 1.12],
+  ['void_crown', 'Void Crown', 'legendary', 1.2]
+]);
+for (const weapon of ['RPG', 'Shield', 'Breacher']) {
+  for (const [texture, title, rarity, patternZoom] of HEAVY_COLLECTION_FINISHES) {
+    NEW_EQUIPMENT_SKINS.push(equipmentPatternSkin({
+      id: `${weapon.toLowerCase()}_${texture}`,
+      weapon,
+      displayName: `${weapon} | ${title}`,
+      rarity,
+      texture,
+      textureFolder: 'equipment_collection',
+      patternZoom,
+      materialNames: weapon === 'RPG'
+        ? ['launcher', 'launcher_wooden_body', 'handles', 'handle_grips']
+        : weapon === 'Shield' ? ['Shield'] : ['Material.001']
+    }));
+  }
+}
 NEW_EQUIPMENT_SKINS.push({
   id: 'shield_rexton', weapon: 'Shield', kind: 'skin',
   displayName: 'Shield | Rexton', rarity: 'rare',
@@ -325,7 +358,7 @@ const KNIFE_VARIANTS = [
   weapon: 'Knife',
   kind: 'model',
   displayName,
-  rarity: DEFAULT_KNIFE_ITEM_IDS.includes(id) ? 'common' : 'mythic',
+  rarity: 'mythic',
   modelPath: `/assets/skins/knife/${relPath}`
 }));
 
@@ -445,7 +478,7 @@ function enrichCatalogItem(item) {
     // that did not set a rarity by hand silently became Common, because
     // normalizeRarity(null) is 'common'. A case entry still wins where it sets
     // one, so this only changes what an unset entry inherits.
-    rarity: normalizeRarity(item.rarity),
+    rarity: item?.weapon === 'Knife' ? 'mythic' : normalizeRarity(item.rarity),
     minimumFloat,
     maximumFloat,
     tradeUpEligible: item?.tradeUpEligible !== false && !DEFAULT_KNIFE_ITEM_IDS.includes(item?.id),

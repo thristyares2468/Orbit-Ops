@@ -60,11 +60,10 @@ test('mythic stays knife-only', () => {
   );
 });
 
-test('every knife is mythic except the two defaults', () => {
+test('every knife is mythic, including the two defaults', () => {
   const knives = CATALOG.filter((item) => item.weapon === 'Knife');
   for (const knife of knives) {
-    const expected = skins.DEFAULT_KNIFE_ITEM_IDS.includes(knife.id) ? 'common' : 'mythic';
-    assert.strictEqual(knife.rarity, expected, `${knife.id} should be ${expected}`);
+    assert.strictEqual(knife.rarity, 'mythic', `${knife.id} should be mythic`);
   }
 });
 

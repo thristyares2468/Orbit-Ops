@@ -48,6 +48,18 @@
     const rextonQa = new URLSearchParams(location.search).has('rexton');
     const minigunQa = new URLSearchParams(location.search).has('minigun');
     const dualQa = new URLSearchParams(location.search).has('dual');
+    const equipmentQa = new URLSearchParams(location.search).get('equipment');
+    const equipmentWeapon = ['RPG', 'Shield', 'Breacher'].includes(equipmentQa) ? equipmentQa : '';
+    const equipmentModel = equipmentWeapon === 'RPG' ? '/assets/weapons/rpg.glb'
+      : equipmentWeapon === 'Shield' ? '/assets/weapons/shield.glb'
+      : equipmentWeapon === 'Breacher' ? '/assets/weapons/breacher.glb' : '';
+    const equipmentMaterials = equipmentWeapon === 'RPG'
+      ? ['launcher', 'launcher_wooden_body', 'handles', 'handle_grips']
+      : equipmentWeapon === 'Shield' ? ['Shield'] : ['Material.001'];
+    if (equipmentWeapon) assets.splice(0, assets.length,
+      ...['field_issue', 'worksite_grid', 'tidal_circuit', 'ember_mesh', 'verdant_alloy',
+        'arc_flash', 'molten_fault', 'spectral_bloom', 'solar_regalia', 'void_crown']
+        .map(id => [id.replaceAll('_', ' '), `/assets/skins/equipment_collection/${id}.png`]));
     if (dualQa) assets.splice(0, assets.length,
       ['Carbon Service', '/assets/skins/dual_berettas/carbon_service.png'],
       ['Urban Signal', '/assets/skins/dual_berettas/urban_signal.png'],
@@ -131,7 +143,7 @@
       fill.position.set(-4, 2, 3);
       scene.add(fill);
       const holder = new THREE.Group();
-      holder.rotation.set(rextonQa || minigunQa ? 0 : -Math.PI / 2, yaw, 0);
+      holder.rotation.set(rextonQa || minigunQa || (equipmentWeapon && equipmentWeapon !== 'Breacher') ? 0 : -Math.PI / 2, yaw, 0);
       holder.add(model);
       scene.add(holder);
       renderer.clear();
@@ -150,7 +162,8 @@
 
     function recordMetric(name, path, view, visiblePixels) {
       window.skinRenderQaMetrics.push({ name, path, view, visiblePixels });
-      if (visiblePixels < 250) throw new Error(`${name} ${view} rendered too few visible pixels (${visiblePixels})`);
+      const minimumVisiblePixels = equipmentWeapon ? 100 : 250;
+      if (visiblePixels < minimumVisiblePixels) throw new Error(`${name} ${view} rendered too few visible pixels (${visiblePixels})`);
     }
 
     async function main() {
@@ -159,18 +172,18 @@
       ctx.fillRect(0, 0, sheet.width, sheet.height);
       ctx.font = 'bold 18px Arial';
       ctx.fillStyle = '#e8efe3';
-      ctx.fillText(dualQa ? 'Dual Berettas generated texture render QA' : 'AK/AWP regenerated skin GLB render QA', pad, 30);
+      ctx.fillText(equipmentWeapon ? `${equipmentWeapon} authored texture render QA` : (dualQa ? 'Dual Berettas generated texture render QA' : 'AK/AWP regenerated skin GLB render QA'), pad, 30);
       let minPixels = Infinity;
       for (let i = 0; i < assets.length; i++) {
         const [name, path] = assets[i];
         statusEl.textContent = `Rendering ${i + 1}/${assets.length}: ${name}`;
-        const gltf = await loadGltf(dualQa ? '/assets/weapons/dual_elite.glb' : path);
-        if (dualQa) {
+        const gltf = await loadGltf(equipmentWeapon ? equipmentModel : (dualQa ? '/assets/weapons/dual_elite.glb' : path));
+        if (dualQa || equipmentWeapon) {
           const texture = await loadTexture(path);
           gltf.scene.traverse(obj => {
             if (!obj.isMesh) return;
             for (const material of (Array.isArray(obj.material) ? obj.material : [obj.material])) {
-              if (material?.name !== 'weapon_pist_elite.001') continue;
+              if (dualQa ? material?.name !== 'weapon_pist_elite.001' : !equipmentMaterials.includes(material?.name)) continue;
               material.map = texture;
               material.color?.setHex(0xffffff);
               material.needsUpdate = true;
@@ -192,8 +205,8 @@
           const image = renderModel(model, yaw);
           const visiblePixels = countVisiblePixels();
           minPixels = Math.min(minPixels, visiblePixels);
-          recordMetric(name, path, view, visiblePixels);
           ctx.drawImage(image, pad + 190 + viewIndex * 290, y + 24, 256, 128);
+          recordMetric(name, path, view, visiblePixels);
           ctx.fillStyle = '#97a98f';
           ctx.fillText(`${view} ${visiblePixels}px`, pad + 190 + viewIndex * 290, y + 160);
         });
