@@ -605,7 +605,8 @@ const CASE_DESIGNS = Object.freeze([
   { id: 'mulch-case', displayName: 'Mulch Case' },
   { id: 'nuke-case', displayName: 'Nuke Case' },
   { id: 'warehouse-case', displayName: 'Warehouse Case' },
-  { id: 'curry-case', displayName: 'Curry Case' }
+  { id: 'curry-case', displayName: 'Curry Case' },
+  { id: 'foamstrike-case', displayName: 'Foamstrike Case' }
 ]);
 const CASE_DESIGN_IDS = new Set(CASE_DESIGNS.map(({ id }) => id));
 

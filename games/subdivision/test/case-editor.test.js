@@ -70,6 +70,10 @@ for (const id of ['gardener-case', 'lawn-care-case', 'mulch-case', 'nuke-case', 
 assert.ok(skins.CASE_DESIGNS.some(({ id }) => id === 'curry-case'), 'case designs should include the Curry Case');
 assert.ok(fs.existsSync(path.join(ROOT, 'assets/ui/cases/curry-case.jpg')), 'Curry Case artwork should ship with the game');
 assert.match(indexHtml, /\['curry-case', 'Curry Case'\]/, 'client fallback designs should include the Curry Case');
+assert.ok(skins.CASE_DESIGNS.some(({ id }) => id === 'foamstrike-case'), 'case designs should include the Foamstrike Case');
+assert.ok(fs.existsSync(path.join(ROOT, 'assets/ui/cases/foamstrike-case.jpg')), 'Foamstrike Case artwork should ship with the game');
+assert.match(indexHtml, /\['foamstrike-case', 'Foamstrike Case'\]/, 'client fallback designs should include the Foamstrike Case');
+assert.match(indexHtml, /\(nerf\|foam\[ -\]\?dart\|foamstrike\|retaliator\)/, 'foam-dart case names should automatically select the Foamstrike artwork');
 assert.match(indexHtml, /\/\(curry\|turmeric\|saffron\|spice\)\//, 'legacy Curry cases should resolve to the authored artwork');
 assert.strictEqual(customCase.discountPrice, 300, 'case sanitizer should preserve a bounded discount price');
 assert.strictEqual(customCase.finalDiscountMinutes, 120, 'case sanitizer should preserve final availability discount duration');
