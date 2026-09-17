@@ -134,6 +134,39 @@ test('the M4A1 models stay inside a sane download and draw budget', () => {
     `the mythic GLB is ${(fs.statSync(mythic).size / 1e6).toFixed(1)}MB; it belongs under 3MB`);
   assert.ok(glbTris(mythic) < glbTris(ak) * 2,
     `the mythic is ${glbTris(mythic)} tris against the AK's ${glbTris(ak)}`);
+
+  // The base rifle loads alongside the skin - for the viewmodel, the buy menu,
+  // dropped pickups and every other player holding one - so its download is
+  // part of what equipping the mythic actually costs. It shipped as 10.7MB,
+  // almost all of it lossless PNG for a model with no alpha anywhere.
+  const base = path.join(root, 'assets/weapons/m4a1.glb');
+  assert.ok(fs.statSync(base).size < 5 * 1024 * 1024,
+    `the base M4A1 GLB is ${(fs.statSync(base).size / 1e6).toFixed(1)}MB; it belongs under 5MB`);
+
+  // The dart is spawned per shot and several can be alive at once, so it has to
+  // stay far cheaper than a weapon.
+  const dart = path.join(root, 'assets/skins/m4a1/dart.glb');
+  assert.ok(fs.statSync(dart).size < 512 * 1024,
+    `the dart GLB is ${(fs.statSync(dart).size / 1024).toFixed(0)}KB; it belongs under 512KB`);
+});
+
+test('the Nerf or Nothing fires its dart from both the local and remote shot paths', () => {
+  // An opponent seeing the default streak while the shooter sees darts is the
+  // easy half of this to get wrong, so both spawn sites are pinned. The skin
+  // carries the path itself rather than the client keying off its id, so a
+  // later tracer skin needs no change here.
+  const skin = skins.getItem('m4a1_vanguard');
+  assert.strictEqual(skin.tracerModelPath, '/assets/skins/m4a1/dart.glb');
+
+  assert.match(client, /const bulletMesh = buildTracerMesh\(equippedSkinItem\(wp\.name\)/u,
+    'the local shot should build its tracer from the equipped skin');
+  assert.match(client, /const bulletMesh = buildTracerMesh\(remoteSkinItem/u,
+    'a remote shot should build its tracer from that player\'s synced skin');
+
+  // Tracers are removed from the scene without being disposed, so every instance
+  // has to share one geometry and material or firing leaks GPU memory.
+  assert.match(client, /if \(template\) return template\.clone\(\)/u,
+    'dart instances should be clones of a single template');
 });
 
 test('the M4A1 has its own sound, recoil and inspect entries', () => {

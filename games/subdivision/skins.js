@@ -375,6 +375,10 @@ const M4A1_MYTHIC_SKIN = Object.freeze({
   assetAxis: 'z',
   gameplayYaw: Math.PI,
   previewYaw: Math.PI,
+  // The tracer model rides with the skin rather than being keyed off the skin id
+  // in the client, so a later skin can bring its own round without touching the
+  // shot code. Its tip already points -Z, the direction tracers are aimed down.
+  tracerModelPath: '/assets/skins/m4a1/dart.glb',
   imported: false
 });
 

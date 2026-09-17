@@ -15876,11 +15876,9 @@
             soundImpact(surfaceHit?.point || target, surfaceHit);
             const dir = target.clone().sub(start).normalize();
             const distance = start.distanceTo(target);
-            const bulletMesh = new THREE.Group();
-            const trailGeo = new THREE.CylinderGeometry(0.035, 0.035, 8.0, 4);
-            trailGeo.rotateX(Math.PI / 2);
-            trailGeo.translate(0, 0, 4.0);
-            bulletMesh.add(new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ color: 0xffffee, transparent: true, opacity: 0.7 })));
+            const remoteSkinRef = remote?.userData.skinLoadout?.[weaponName];
+            const remoteSkinItem = skinCatalogItem(typeof remoteSkinRef === 'object' ? remoteSkinRef?.itemId : remoteSkinRef);
+            const bulletMesh = buildTracerMesh(remoteSkinItem, 0.035, 0.7);
             bulletMesh.position.copy(start);
             bulletMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
             scene.add(bulletMesh);
@@ -17995,6 +17993,9 @@
                 }
             }
             const equippedItem = equippedSkinItem(wp.name) || (wp.name === 'Knife' ? skinCatalogItem(defaultKnifeItemId()) : null);
+            // Warm the skin's tracer while the gun is being built, so the first
+            // shots after equipping already fire it instead of the fallback streak.
+            if (equippedItem?.tracerModelPath) loadTracerTemplate(equippedItem.tracerModelPath);
             // The C4 asset is the charge itself. Once one is planted the slot holds
             // the detonator, which is procedural, so the asset must not replace it.
             if (wp.kind === 'c4' && myLiveC4Charge()) return;
@@ -20229,6 +20230,9 @@
             clearObjectChildren(parent);
             const itemId = typeof skinItemRef === 'object' ? skinItemRef?.itemId : skinItemRef;
             const skinItem = skinItemWithInstance(skinCatalogItem(itemId || (weaponName === 'Knife' ? defaultKnifeItemId(parent.userData.defaultKnifeTeam) : null)), skinItemRef);
+            // Same warm-up as the first-person build, so an opponent's first
+            // shots with a tracer skin are not the default streak.
+            if (skinItem?.tracerModelPath) loadTracerTemplate(skinItem.tracerModelPath);
 
             if (parent.userData?.isAgentWeaponHolder) {
                 prepareAgentWeaponHolder(parent, weaponName);
@@ -22421,16 +22425,67 @@
             }
         }
 
+        // Some skins fire their own round instead of the default streak. The update
+        // loop removes tracers without disposing them, so every instance has to
+        // share one geometry and material - Object3D.clone() does exactly that,
+        // which is why the loaded model is kept as a template and cloned per shot.
+        const TRACER_LENGTH = 1.6;
+        const tracerTemplates = new Map();
+        const tracerTemplatePending = new Set();
+
+        function loadTracerTemplate(path) {
+            if (tracerTemplates.has(path) || tracerTemplatePending.has(path) || !THREE.GLTFLoader) return;
+            tracerTemplatePending.add(path);
+            configureGltfLoader(new THREE.GLTFLoader()).load(path, (gltf) => {
+                tracerTemplatePending.delete(path);
+                const root = gltf.scene;
+                const box = new THREE.Box3().setFromObject(root);
+                const size = box.getSize(new THREE.Vector3());
+                const center = box.getCenter(new THREE.Vector3());
+                // The source is a real-world 7cm dart, far too small to read at
+                // 1200 units a second, so it is normalised to a fixed length.
+                const scale = TRACER_LENGTH / Math.max(size.z, 1e-6);
+                root.scale.setScalar(scale);
+                // position is parent-space and unaffected by the scale above, so
+                // the centring offset has to be scaled by hand.
+                root.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+                const template = new THREE.Group();
+                template.add(root);
+                // At 1200 units a second the dart jumps about twenty units a frame,
+                // so on its own it strobes rather than reading as a shot. A faint
+                // trail behind it does the same job the default streak does.
+                const trailGeo = new THREE.CylinderGeometry(0.05, 0.02, 5.0, 5);
+                trailGeo.rotateX(Math.PI / 2);
+                trailGeo.translate(0, 0, 2.5 + TRACER_LENGTH * 0.4);
+                template.add(new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ color: 0xffa438, transparent: true, opacity: 0.4, depthWrite: false })));
+                template.traverse((child) => { if (child.isMesh) { child.castShadow = false; child.receiveShadow = false; } });
+                tracerTemplates.set(path, template);
+            }, undefined, () => {
+                tracerTemplatePending.delete(path);
+                tracerTemplates.set(path, null);
+            });
+        }
+
+        function buildTracerMesh(skinItem, radius, opacity) {
+            const path = skinItem?.tracerModelPath;
+            if (path) {
+                const template = tracerTemplates.get(path);
+                // Clone shares geometry and material, so nothing here needs disposing.
+                if (template) return template.clone();
+                loadTracerTemplate(path);
+            }
+            const mesh = new THREE.Group();
+            const trailGeo = new THREE.CylinderGeometry(radius, radius, 8.0, 4);
+            trailGeo.rotateX(Math.PI / 2);
+            trailGeo.translate(0, 0, 4.0);
+            mesh.add(new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ color: 0xffffee, transparent: true, opacity })));
+            return mesh;
+        }
+
         function spawnBullet(targetPoint, distance) {
             if (isZoomed) return;
             let wp = weapons[currentWeaponIndex];
-            const bulletMesh = new THREE.Group();
-
-            const trailGeo = new THREE.CylinderGeometry(0.04, 0.04, 8.0, 4);
-            trailGeo.rotateX(Math.PI / 2);
-            trailGeo.translate(0, 0, 4.0);
-            const trailMat = new THREE.MeshBasicMaterial({ color: 0xffffee, transparent: true, opacity: 0.8 });
-            bulletMesh.add(new THREE.Mesh(trailGeo, trailMat));
+            const bulletMesh = buildTracerMesh(equippedSkinItem(wp.name), 0.04, 0.8);
 
             weaponGroup.updateMatrixWorld(true);
             let startPos = currentWeaponMuzzleWorld(wp);
