@@ -7354,6 +7354,9 @@
         const SHIELD = window.GameCore.SHIELD;
         const SHIELD_GLOCK_RULES = window.GameCore.SHIELD_GLOCK;
         const weapons = [
+            // rangeMod is CS:GO's RangeModifier, kept as the provenance for the
+            // per-weapon falloff ordering in core.js. Nothing reads it directly -
+            // distance falloff is decided server-side by core.damageFalloffScale.
             { id: 1, name: 'Knife', type: 'melee', damage: 50, rangeMod: 1.0, firerate: 0.5, spreadBase: 0, spreadMove: 0, mag: '-', reserve: '-', auto: true, speedMult: 1.0, pellets: 1, reloadTime: 0, barrelOffset: new THREE.Vector3(0, 0, -1.2), muzzleOffset: new THREE.Vector3(0, 0, -1.2) },
 
             { id: 2, name: 'Glock', type: 'pistol', damage: 14, armorDamage: wdmg('Glock'), rangeMod: 0.85, firerate: 0.15, spreadBase: 0.01, spreadMove: 0.03, mag: 20, reserve: 120, auto: false, speedMult: 0.95, pellets: 1, reloadTime: 2.2, barrelOffset: new THREE.Vector3(0, 0.15, -0.6), muzzleOffset: new THREE.Vector3(0, 0.15, -0.65) },

@@ -5049,6 +5049,13 @@ function handlePlayerHit(client, room, player, data) {
       // never the slug.
       damage = (corr.shot?.load?.dmg || wdef.dmg)[part];
       killContext.headshot = part === 'head';
+      // Distance falloff, on the same `dist` the range check above already
+      // measured. Applied before the shield so the plate stops what actually
+      // arrives, and before the wallbang cut below so the two compound.
+      // `wdef.type` rather than the weapon name: a shield carrier's sidearm
+      // arrives here as SHIELD_GLOCK and has to fall off like the pistol it is.
+      const falloff = core.damageFalloffScale(weapon, wdef.type, dist);
+      if (falloff < 1) damage = Math.max(1, Math.round(damage * falloff));
     }
     // Shields cover direct fire only. A frag or a C4 goes straight through, so
     // utility stays the answer to someone hiding behind one.

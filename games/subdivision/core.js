@@ -302,6 +302,102 @@
       staggeredUntil: staggered ? Number(now) + SHIELD.staggerMs : 0
     };
   }
+
+  // ---------------------------------------------------------------------
+  // Damage falloff
+  //
+  // Distances here are in world units. The conversion is UNITS_PER_METRE
+  // below, derived three independent ways so the research distances mean
+  // something concrete:
+  //   - maps.js scales the imported map GLBs by 22, and those GLBs are
+  //     authored in metres;
+  //   - AC.MELEE_RANGE is 25.2 units, which at 22 u/m is a 1.15 m knife
+  //     reach - about right for a lunge;
+  //   - walkSpeed 35 / runSpeed 75 come out as 1.6 / 3.4 m/s, ordinary
+  //     human walking and jogging speeds.
+  // The player viewmodel is authored on a different, smaller scale (an 18
+  // unit eye height would be 0.82 m), but engagement distance is a property
+  // of the map, not of the arms on screen, so the map scale is the one that
+  // governs falloff.
+  //
+  // The model is piecewise linear with a floor - full damage out to `start`,
+  // a straight decay to `min` at `end`, and `min` from there on. That is the
+  // shape Battlefield, Apex, Call of Duty and Valorant all use. CS's own
+  // model is an unbounded exponential (damage x rangeMod^(d/500)), which the
+  // weapon table's rangeMod column was already carrying the constants for
+  // without anything ever reading them; those constants are still what ranks
+  // the weapons against each other here, but the curve is bounded so a
+  // long-range shotgun pellet lands on a floor instead of decaying to nothing.
+  const UNITS_PER_METRE = 22;
+  const m = (metres) => Math.round(metres * UNITS_PER_METRE);
+
+  // Class defaults, from the ranges those genres converge on:
+  //   shotguns  fall off almost immediately and bottom out by ~30 m
+  //   SMGs      hold to ~15-25 m, bottom out by ~45-60 m
+  //   rifles    hold to ~25-40 m, bottom out by ~75-100 m
+  //   snipers   effectively none
+  // Note the consequence on these maps, which are roughly 45-50 m across:
+  // a rifle never reaches its floor and gives up about 20% at the longest
+  // sightline, while a shotgun is on its floor well inside the map. That
+  // asymmetry is the point of the feature, and it is what the source games
+  // do too - it is not a curve that needed flattening to fit.
+  const DAMAGE_FALLOFF_CLASSES = Object.freeze({
+    shotgun: Object.freeze({ start: m(8),  end: m(30), min: 0.30 }),
+    smg:     Object.freeze({ start: m(16), end: m(45), min: 0.55 }),
+    pistol:  Object.freeze({ start: m(14), end: m(40), min: 0.60 }),
+    rifle:   Object.freeze({ start: m(28), end: m(75), min: 0.75 })
+    // sniper, melee, launcher, utility and shield: no falloff at all.
+  });
+
+  // Per-weapon departures from the class curve. Every one of these follows
+  // the ordering the rangeMod column already encodes, so a weapon that CS
+  // rates as holding up better holds up better here too.
+  const DAMAGE_FALLOFF_WEAPONS = Object.freeze({
+    // rangeMod 0.81, and the only pistol bought to win a long-range duel.
+    Deagle:          Object.freeze({ start: m(18), end: m(50), min: 0.70 }),
+    // rangeMod 0.90, the accurate pistols.
+    'USP-S':         Object.freeze({ start: m(16), end: m(42), min: 0.66 }),
+    'Five-SeveN':    Object.freeze({ start: m(16), end: m(42), min: 0.66 }),
+    // rangeMod 0.79/0.78/0.76 - spray pistols, worst of the class.
+    'Dual Berettas': Object.freeze({ start: m(10), end: m(36), min: 0.52 }),
+    'Tec-9':         Object.freeze({ start: m(10), end: m(36), min: 0.52 }),
+    'CZ75-Auto':     Object.freeze({ start: m(10), end: m(36), min: 0.52 }),
+    // rangeMod 0.86 vs the MAC10's 0.80.
+    P90:             Object.freeze({ start: m(18), end: m(48), min: 0.60 }),
+    MAC10:           Object.freeze({ start: m(13), end: m(42), min: 0.50 }),
+    // rangeMod 0.80, a slug/buckshot hybrid rather than a pure scattergun.
+    Breacher:        Object.freeze({ start: m(12), end: m(34), min: 0.42 }),
+    // rangeMod 0.96 vs the AK's 0.98.
+    FAMAS:           Object.freeze({ start: m(24), end: m(70), min: 0.62 })
+  });
+
+  function damageFalloffProfile(weaponName, type) {
+    const named = DAMAGE_FALLOFF_WEAPONS[weaponName];
+    if (named) return named;
+    const kind = type || WEAPONS[weaponName]?.type;
+    return DAMAGE_FALLOFF_CLASSES[kind] || null;
+  }
+
+  // Fraction of base damage a hit is worth at `distance` world units.
+  function damageFalloffScale(weaponName, type, distance) {
+    const profile = damageFalloffProfile(weaponName, type);
+    if (!profile) return 1;
+    const d = Number(distance);
+    if (!Number.isFinite(d) || d <= profile.start) return 1;
+    if (d >= profile.end) return profile.min;
+    const travelled = (d - profile.start) / (profile.end - profile.start);
+    return 1 - travelled * (1 - profile.min);
+  }
+
+  // A hit that connected is always worth at least a point. Rounding a
+  // long-range pellet down to nothing would read as the shot not registering,
+  // which is a worse lie than the one damage.
+  function applyDamageFalloff(damage, weaponName, type, distance) {
+    const raw = Number(damage) || 0;
+    if (raw <= 0) return 0;
+    return Math.max(1, Math.round(raw * damageFalloffScale(weaponName, type, distance)));
+  }
+
   WEAPONS.Shield = { type: 'shield', firerate: 0.5, pellets: 0, range: 0, dmg: { head: 0, body: 0, legs: 0 } };
   WEAPONS.RPG = { type: 'launcher', firerate: 1.1, pellets: 0, range: 0, dmg: { head: 0, body: 0, legs: 0 } };
   // Classic Legendary baseline: 20 damage, 12 shots/sec; requested half damage
@@ -409,6 +505,12 @@
     SHIELD_GLOCK,
     shieldBlockFraction,
     resolveShieldHit,
+    UNITS_PER_METRE,
+    DAMAGE_FALLOFF_CLASSES,
+    DAMAGE_FALLOFF_WEAPONS,
+    damageFalloffProfile,
+    damageFalloffScale,
+    applyDamageFalloff,
     SHOTGUN_ALT,
     WEAPON_NAMES,
     SNAPSHOT_FLAGS,
