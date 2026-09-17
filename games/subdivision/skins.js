@@ -12,7 +12,7 @@ const RARITIES = Object.freeze([
   // its own catalogue entry declares that tier, which sanitizeCaseDefinition
   // enforces - so the tier stays a short, hand-authored list rather than
   // something a case entry can promote an ordinary skin into. That list was
-  // every knife until the M4A1 Nerf or Nothing joined it.
+  // every knife until the M4A1 Elite Retaliator joined it.
   { id: 'mythic', displayName: 'Mythic', color: '#e6b63d', authoredOnly: true }
 ]);
 
@@ -369,7 +369,7 @@ const M4A1_MYTHIC_SKIN = Object.freeze({
   id: 'm4a1_vanguard',
   weapon: 'M4A1',
   kind: 'model',
-  displayName: 'M4A1 | Nerf or Nothing',
+  displayName: 'M4A1 | Elite Retaliator',
   rarity: 'mythic',
   modelPath: '/assets/skins/m4a1/vanguard.glb',
   assetAxis: 'z',
