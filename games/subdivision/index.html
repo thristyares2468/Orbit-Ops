@@ -20195,10 +20195,31 @@
         // information you could not otherwise have.
         const THERMAL_SCOPE_WEAPON = 'SSG 08';
         const THERMAL_LAYER = 3;
+        const THERMAL_SMOKE_LAYER = 4;
         // Lambert, not Basic: a single flat colour would erase the map. Lighting
         // is what keeps walls, crates and stairs readable as shapes.
         const thermalColdMaterial = new THREE.MeshLambertMaterial({ color: 0x2b3f55 });
-        const thermalHotMaterial = new THREE.MeshBasicMaterial({ color: 0xfff1cf, fog: false });
+        // A lit orange surface with a deep-red emissive floor keeps limbs,
+        // clothing folds and equipment readable instead of flattening every
+        // player into the old featureless white cut-out.
+        const thermalHotMaterial = new THREE.MeshPhongMaterial({
+            color: 0xe23800,
+            emissive: 0x790800,
+            emissiveIntensity: 0.38,
+            specular: 0xff7418,
+            shininess: 22,
+            fog: false
+        });
+        // Smoke is cool and only faintly visible to the optic. It is rendered
+        // before bodies without writing depth, so it still reads as smoke but
+        // cannot erase a warm target standing inside or behind the cloud.
+        const thermalSmokeMaterial = new THREE.MeshBasicMaterial({
+            color: 0x31506b,
+            transparent: true,
+            opacity: 0.14,
+            depthWrite: false,
+            fog: false
+        });
         const thermalBackground = new THREE.Color(0x060d16);
         const thermalFog = new THREE.Fog(0x0b1826, 300, 3000);
 
@@ -20216,13 +20237,43 @@
             return sources;
         }
 
+        function thermalSmokeSources() {
+            return smokeClouds.map(cloud => cloud?.group).filter(Boolean);
+        }
+
         function renderFrame() {
             if (!thermalScopeActive()) { renderer.render(scene, camera); return; }
             const sources = thermalHeatSources();
+            const smokeSources = thermalSmokeSources();
+            const savedLayerMasks = new Map();
+            const rememberNodeLayer = node => {
+                if (!savedLayerMasks.has(node)) savedLayerMasks.set(node, node.layers.mask);
+            };
+            const rememberLayers = group => group.traverse(node => {
+                rememberNodeLayer(node);
+            });
             // Re-marked every frame rather than at spawn: a character GLB that
             // finishes streaming in, or a model rebuilt on a skin change, arrives
             // with only the default layer and would otherwise render cold.
-            for (const group of sources) group.traverse(node => node.layers.enable(THERMAL_LAYER));
+            for (const group of sources) {
+                rememberLayers(group);
+                group.traverse(node => node.layers.enable(THERMAL_LAYER));
+            }
+            // The hot material is lit for surface detail, so the scene's own
+            // lights must join the otherwise isolated heat layer. Their exact
+            // masks are restored with every other temporary layer change.
+            scene.traverse(node => {
+                if (!node.isLight) return;
+                rememberNodeLayer(node);
+                node.layers.enable(THERMAL_LAYER);
+            });
+            // Override materials would otherwise turn transparent smoke into an
+            // opaque depth-writing wall during the cold pass. Move it onto a
+            // dedicated layer until the map and heat passes are complete.
+            for (const group of smokeSources) {
+                rememberLayers(group);
+                group.traverse(node => node.layers.set(THERMAL_SMOKE_LAYER));
+            }
             const prevOverride = scene.overrideMaterial;
             const prevBackground = scene.background;
             const prevFog = scene.fog;
@@ -20233,7 +20284,6 @@
             scene.fog = prevFog ? thermalFog : null;
             scene.overrideMaterial = thermalColdMaterial;
             renderer.render(scene, camera);
-            scene.overrideMaterial = thermalHotMaterial;
             // Keeping the depth buffer is the whole occlusion guarantee - and
             // autoClear alone does not keep it. A Color background makes three.js
             // force a clear of its own regardless of autoClear, which wipes the
@@ -20242,6 +20292,10 @@
             // is what actually preserves both.
             scene.background = null;
             renderer.autoClear = false;
+            scene.overrideMaterial = thermalSmokeMaterial;
+            camera.layers.set(THERMAL_SMOKE_LAYER);
+            renderer.render(scene, camera);
+            scene.overrideMaterial = thermalHotMaterial;
             camera.layers.set(THERMAL_LAYER);
             renderer.render(scene, camera);
             camera.layers.set(0);
@@ -20249,7 +20303,7 @@
             scene.overrideMaterial = prevOverride;
             scene.background = prevBackground;
             scene.fog = prevFog;
-            for (const group of sources) group.traverse(node => node.layers.disable(THERMAL_LAYER));
+            savedLayerMasks.forEach((mask, node) => { node.layers.mask = mask; });
         }
 
         function toggleZoom() {

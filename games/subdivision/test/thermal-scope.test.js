@@ -39,10 +39,12 @@ test('the cold pass keeps the map readable', () => {
   assert.match(client, /const thermalColdMaterial = new THREE\.MeshLambertMaterial\(/u,
     'the cold override must be lit, not flat');
   assert.doesNotMatch(client, /const thermalColdMaterial = new THREE\.MeshBasicMaterial\(/u);
-  // Heat does not dim with distance the way a lit surface does, and a hot body
-  // swallowed by fog is the one thing the sight exists to prevent.
-  assert.match(client, /const thermalHotMaterial = new THREE\.MeshBasicMaterial\(\{ color: 0x[0-9a-f]+, fog: false \}\)/u,
-    'the hot override must be unlit and unfogged');
+  // The hot pass stays unfogged, but uses lighting so limbs and clothing folds
+  // remain visible instead of becoming a flat white cut-out.
+  assert.match(client, /const thermalHotMaterial = new THREE\.MeshPhongMaterial\(\{/u,
+    'the hot override must retain surface detail');
+  assert.match(client, /color: 0xe23800,[\s\S]*?emissive: 0x790800,[\s\S]*?fog: false/u,
+    'players should read as emissive red-orange heat');
 });
 
 test('the hot pass is drawn over the cold one, not instead of it', () => {
@@ -54,17 +56,17 @@ test('the hot pass is drawn over the cold one, not instead of it', () => {
   const between = body.slice(coldAt, hotAt);
   assert.match(between, /renderer\.render\(scene, camera\);/u, 'the cold pass has to actually render');
 
-  const after = body.slice(hotAt);
+  const afterCold = body.slice(coldAt);
   // THE bug. autoClear = false is not enough on its own: three.js force-clears
   // whenever scene.background is a Color, regardless of autoClear, which wipes
   // the colour and depth the cold pass just wrote. Dropping the background for
   // the hot pass is what preserves both.
-  const nullAt = after.indexOf('scene.background = null;');
-  const renderAt = after.indexOf('renderer.render(scene, camera);');
-  assert.ok(nullAt > 0 && nullAt < renderAt,
+  const nullAt = afterCold.indexOf('scene.background = null;');
+  const hotRenderAt = afterCold.indexOf('renderer.render(scene, camera);', afterCold.indexOf('scene.overrideMaterial = thermalHotMaterial;'));
+  assert.ok(nullAt > 0 && hotRenderAt > nullAt,
     'the background must be cleared to null before the hot pass renders');
-  assert.match(after.slice(0, renderAt), /renderer\.autoClear = false;/u);
-  assert.match(after.slice(0, renderAt), /camera\.layers\.set\(THERMAL_LAYER\);/u);
+  assert.match(afterCold.slice(0, hotRenderAt), /renderer\.autoClear = false;/u);
+  assert.match(afterCold.slice(0, hotRenderAt), /camera\.layers\.set\(THERMAL_LAYER\);/u);
 });
 
 test('the optic does not see through walls', () => {
@@ -90,8 +92,29 @@ test('heat sources are bodies and fire, and are re-marked every frame', () => {
   // streaming in, or a model rebuilt on a skin change, arrives carrying only
   // the default layer and would otherwise render cold - invisible, in a sight
   // whose entire job is to show bodies.
-  assert.match(render, /for \(const group of sources\) group\.traverse\(node => node\.layers\.enable\(THERMAL_LAYER\)\);/u);
-  assert.match(render, /layers\.disable\(THERMAL_LAYER\)/u, 'and unmarked again so the state stays local');
+  assert.match(render, /group\.traverse\(node => node\.layers\.enable\(THERMAL_LAYER\)\);/u);
+  assert.match(render, /if \(!node\.isLight\) return;[\s\S]*?node\.layers\.enable\(THERMAL_LAYER\);/u,
+    'the lit hot material needs the existing scene lights on its isolated pass');
+  assert.match(render, /savedLayerMasks\.forEach\(\(mask, node\) => \{ node\.layers\.mask = mask; \}\);/u,
+    'and every original layer mask is restored so the state stays local');
+});
+
+test('thermal targets remain visible through smoke without becoming visible through walls', () => {
+  assert.match(client, /const THERMAL_SMOKE_LAYER = 4;/u);
+  assert.match(client, /const thermalSmokeMaterial = new THREE\.MeshBasicMaterial\(\{[\s\S]*?opacity: 0\.14,[\s\S]*?depthWrite: false,/u,
+    'thermal smoke should be a faint non-occluding cool overlay');
+  assert.match(fnBody('thermalSmokeSources'), /smokeClouds\.map/u);
+
+  const body = fnBody('renderFrame');
+  const coldAt = body.indexOf('scene.overrideMaterial = thermalColdMaterial;');
+  const hotAt = body.indexOf('scene.overrideMaterial = thermalHotMaterial;');
+  const smokeAt = body.indexOf('scene.overrideMaterial = thermalSmokeMaterial;');
+  assert.ok(coldAt > 0 && smokeAt > coldAt && hotAt > smokeAt,
+    'draw the map, then faint smoke, then hot targets clearly on top');
+  assert.match(body, /node\.layers\.set\(THERMAL_SMOKE_LAYER\)/u,
+    'smoke must leave the cold pass or the override would make it opaque');
+  assert.match(body, /camera\.layers\.set\(THERMAL_SMOKE_LAYER\);[\s\S]*?renderer\.render\(scene, camera\);/u);
+  assert.doesNotMatch(body, /clearDepth/u, 'wall depth must remain intact for every thermal pass');
 });
 
 test('a thermal frame leaves the scene exactly as it found it', () => {
