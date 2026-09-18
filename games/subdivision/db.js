@@ -2569,6 +2569,98 @@ async function grantCases(accountId, caseId, quantity = 1) {
   return rows[0] || null;
 }
 
+// Move one unopened case between accepted friends. The source row is locked
+// before it is decremented, so opening, listing, and gifting cannot race one
+// another into a negative quantity or a duplicated case.
+async function giftOwnedCase({ fromAccountId, toAccountId, caseId }) {
+  if (!pool) throw new Error('Database not configured (DATABASE_URL missing)');
+  const sourceId = String(fromAccountId || '');
+  const recipientId = String(toAccountId || '');
+  const safeCaseId = String(caseId || '').trim().slice(0, 80);
+  if (!/^\d+$/.test(sourceId) || !/^\d+$/.test(recipientId) || !safeCaseId) throw new Error('gift_invalid');
+  if (sourceId === recipientId) throw new Error('gift_recipient_is_sender');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const recipient = await client.query(
+      `SELECT id, username FROM accounts WHERE id = $1 AND status = 'active' FOR KEY SHARE`,
+      [recipientId]
+    );
+    if (!recipient.rows.length) throw new Error('gift_recipient_unavailable');
+    const [low, high] = friendPair(sourceId, recipientId);
+    const friendship = await client.query(
+      `SELECT 1 FROM friendships
+       WHERE account_low = $1 AND account_high = $2 AND status = 'accepted' LIMIT 1`,
+      [low, high]
+    );
+    if (!friendship.rows.length) throw new Error('gift_recipient_not_friend');
+    const owned = await client.query(
+      `SELECT quantity FROM case_inventory WHERE account_id = $1 AND case_id = $2 FOR UPDATE`,
+      [sourceId, safeCaseId]
+    );
+    if (Number(owned.rows[0]?.quantity || 0) <= 0) throw new Error('case_not_owned');
+    await client.query(
+      `UPDATE case_inventory SET quantity = quantity - 1, updated_at = now()
+       WHERE account_id = $1 AND case_id = $2`,
+      [sourceId, safeCaseId]
+    );
+    await client.query(
+      `DELETE FROM case_inventory WHERE account_id = $1 AND case_id = $2 AND quantity <= 0`,
+      [sourceId, safeCaseId]
+    );
+    await client.query(
+      `INSERT INTO case_inventory (account_id, case_id, quantity, updated_at)
+       VALUES ($1, $2, 1, now())
+       ON CONFLICT (account_id, case_id) DO UPDATE SET
+         quantity = case_inventory.quantity + 1, updated_at = now()`,
+      [recipientId, safeCaseId]
+    );
+    await client.query('COMMIT');
+    return { caseId: safeCaseId, recipient: recipient.rows[0] };
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// A giveaway intentionally mints rather than transfers: it is an admin event,
+// not a player purchase. Active accounts only keeps bans/deleted accounts out
+// and makes the reported recipient count exact.
+async function grantItemToAllActiveAccounts({ kind, itemId, rarityTier = null, caseId, quantity = 1 } = {}) {
+  if (!pool) throw new Error('Database not configured (DATABASE_URL missing)');
+  const { rows: recipientRows } = await query(`SELECT id FROM accounts WHERE status = 'active' ORDER BY id`);
+  const accountIds = recipientRows.map(row => Number(row.id)).filter(Number.isSafeInteger);
+  if (!accountIds.length) return { recipients: 0, accountIds: [] };
+  if (kind === 'case') {
+    const safeCaseId = String(caseId || '').trim().slice(0, 80);
+    const amount = Math.max(1, Math.min(1000, Math.floor(Number(quantity) || 1)));
+    if (!safeCaseId) throw new Error('giveaway_invalid');
+    await query(
+      `INSERT INTO case_inventory (account_id, case_id, quantity, updated_at)
+       SELECT id, $1, $2, now() FROM accounts WHERE status = 'active'
+       ON CONFLICT (account_id, case_id) DO UPDATE SET
+         quantity = case_inventory.quantity + EXCLUDED.quantity, updated_at = now()`,
+      [safeCaseId, amount]
+    );
+  } else if (kind === 'skin') {
+    const safeItemId = String(itemId || '').trim();
+    if (!safeItemId) throw new Error('giveaway_invalid');
+    // Each recipient gets their own rolled pattern and wear, like a case drop,
+    // in one statement so a large giveaway cannot stop half-way through.
+    await query(
+      `INSERT INTO skin_inventory (account_id, item_id, source, pattern_seed, rarity_tier, wear_value, wear_seed)
+       SELECT id, $1, 'admin', floor(random() * 1000)::int + 1, $2, random(), floor(random() * 1000000)::int
+       FROM accounts WHERE status = 'active'`,
+      [safeItemId, rarityTier]
+    );
+  } else {
+    throw new Error('giveaway_invalid');
+  }
+  return { recipients: accountIds.length, accountIds };
+}
+
 async function buyCase({ accountId, caseId, price }) {
   // Atomic case purchase: lock the player's stats row, debit Mowbucks, then add
   // exactly one case_inventory row quantity in the same transaction.
@@ -4389,6 +4481,8 @@ module.exports = {
   adminRemoveSkinInstance,
   adminRemoveCases,
   grantCases,
+  giftOwnedCase,
+  grantItemToAllActiveAccounts,
   buyCase,
   getCaseInventory,
   getCustomCases,

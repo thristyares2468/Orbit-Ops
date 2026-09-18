@@ -63,6 +63,9 @@ const MSG_LIMITS = {
   // is only a little looser than the write because it reloads after each edit.
   adminInventoryLookup: { ratePerSec: 1, burst: 4 },
   adminInventoryEdit: { ratePerSec: 0.5, burst: 3 },
+  // A giveaway may touch every active account, so it is deliberately slower
+  // than a one-account inventory edit.
+  adminDistributeItem: { ratePerSec: 0.05, burst: 1 },
   // Privilege escalation, so slower than the other owner tools even though it
   // only ever runs at human-click pace anyway.
   adminListRoles: { ratePerSec: 1, burst: 4 },
@@ -73,6 +76,7 @@ const MSG_LIMITS = {
   marketBuyListing: { ratePerSec: 0.35, burst: 2 },
   marketPlaceBid: { ratePerSec: 1, burst: 3 },
   marketCancelListing: { ratePerSec: 0.5, burst: 2 },
+  giftOwnedCase: { ratePerSec: 0.25, burst: 2 },
   tradeRequestCreate: { ratePerSec: 0.5, burst: 2 },
   tradeRespond: { ratePerSec: 0.5, burst: 2 },
   getStats: { ratePerSec: 1, burst: 4 },

@@ -1174,6 +1174,11 @@ function handleMessage(client, raw) {
     return;
   }
 
+  if (type === 'giftOwnedCase') {
+    handleGiftOwnedCase(client, data);
+    return;
+  }
+
   if (type === 'tradeRequestCreate') {
     handleTradeRequestCreate(client, data);
     return;
@@ -1340,6 +1345,12 @@ function handleMessage(client, raw) {
   if (type === 'adminInventoryEdit') {
     if (!isAdminUser(client)) return;
     handleAdminInventoryEdit(client, data);
+    return;
+  }
+
+  if (type === 'adminDistributeItem') {
+    if (!isAdminUser(client)) return;
+    handleAdminDistributeItem(client, data);
     return;
   }
 
@@ -3753,9 +3764,11 @@ function normalizeGiftRecipientId(data = {}) {
 function giftErrorMessage(error) {
   switch (error?.message) {
     case 'gift_recipient_not_friend': return 'You can only gift to players on your friends list.';
+    case 'gift_recipient_is_sender': return 'You already own that case.';
     case 'gift_recipient_is_seller': return 'That player is the one selling it.';
     case 'gift_recipient_unavailable': return 'That account is not available.';
     case 'gift_recipient_invalid': return 'Choose a friend to gift to.';
+    case 'case_not_owned': return 'You no longer own that case.';
     default: return null;
   }
 }
@@ -3774,6 +3787,41 @@ function notifyGiftRecipient(listing, buyerClient, message) {
     message: message || `${buyerClient?.accountName || 'A friend'} sent you a gift.`
   });
   sendSkinInventory(recipient);
+}
+
+function handleGiftOwnedCase(client, data = {}) {
+  if (!client.accountId || client.guest || !db.isEnabled()) {
+    send(client, 'caseGiftNotice', { ok: false, message: 'Log in to gift a case.' });
+    return;
+  }
+  const recipientId = normalizeGiftRecipientId(data);
+  const caseId = String(data?.caseId || '').trim();
+  if (!recipientId || !caseId) {
+    send(client, 'caseGiftNotice', { ok: false, message: 'Choose a friend and an owned case.' });
+    return;
+  }
+  (async () => {
+    const cases = await getCustomCaseDefinitions();
+    const caseDef = cases.find(row => row.id === caseId);
+    if (!caseDef) throw new Error('gift_invalid');
+    const result = await db.giftOwnedCase({
+      fromAccountId: client.accountId,
+      toAccountId: recipientId,
+      caseId: caseDef.id
+    });
+    console.log(`[case-gift] ${client.username} sent ${caseDef.id} to ${result.recipient.username}`);
+    try { db.logIpEvent({ event: 'case_gift', accountId: client.accountId, detail: `${caseDef.id}:${recipientId}` }); } catch {}
+    send(client, 'caseGiftNotice', { ok: true, message: `Sent ${caseDef.displayName || caseDef.id} to ${result.recipient.username}.` });
+    sendSkinInventory(client);
+    const recipient = findClientByAccountId(recipientId);
+    if (recipient) {
+      send(recipient, 'giftReceived', { message: `${client.accountName || client.username || 'A friend'} sent you ${caseDef.displayName || caseDef.id}.` });
+      sendSkinInventory(recipient);
+    }
+  })().catch(error => {
+    console.error('[case-gift]', error.message);
+    send(client, 'caseGiftNotice', { ok: false, message: giftErrorMessage(error) || 'Could not gift that case.' });
+  });
 }
 
 // --- Direct messages ---------------------------------------------------------
@@ -4697,6 +4745,47 @@ function handleAdminInventoryEdit(client, data = {}) {
   })().catch(error => {
     console.error('[admin-inventory] edit failed:', error.message);
     adminInventoryFail(client, 'That inventory edit failed.');
+  });
+}
+
+function handleAdminDistributeItem(client, data = {}) {
+  if (!db.isEnabled()) {
+    send(client, 'adminGiveawayStatus', { ok: false, message: 'Giveaways need the database.' });
+    return;
+  }
+  const kind = String(data.kind || '').trim();
+  (async () => {
+    let result;
+    let label;
+    if (kind === 'skin') {
+      const item = skins.getItem(String(data.itemId || '').trim());
+      if (!item) throw new Error('giveaway_invalid');
+      result = await db.grantItemToAllActiveAccounts({ kind: 'skin', itemId: item.id, rarityTier: item.rarity || null });
+      label = item.displayName || item.id;
+    } else if (kind === 'case') {
+      const caseId = String(data.caseId || '').trim();
+      const cases = await getCustomCaseDefinitions();
+      const caseDef = cases.find(row => row.id === caseId);
+      if (!caseDef) throw new Error('giveaway_invalid');
+      const quantity = Math.max(1, Math.min(1000, Math.floor(Number(data.quantity) || 1)));
+      result = await db.grantItemToAllActiveAccounts({ kind: 'case', caseId: caseDef.id, quantity });
+      label = `${quantity} × ${caseDef.displayName || caseDef.id}`;
+    } else {
+      throw new Error('giveaway_invalid');
+    }
+    console.log(`[admin-giveaway] ${client.username} distributed ${label} to ${result.recipients} active accounts`);
+    try { db.logIpEvent({ event: 'admin_item_giveaway', accountId: client.accountId, detail: `${kind}:${label}:${result.recipients}` }); } catch {}
+    send(client, 'adminGiveawayStatus', { ok: true, message: `Sent ${label} to ${result.recipients} active accounts.` });
+    for (const accountId of result.accountIds) {
+      const recipient = findClientByAccountId(String(accountId));
+      if (recipient) sendSkinInventory(recipient);
+    }
+  })().catch(error => {
+    console.error('[admin-giveaway]', error.message);
+    send(client, 'adminGiveawayStatus', {
+      ok: false,
+      message: error.message === 'giveaway_invalid' ? 'Choose a valid skin or case.' : 'Could not distribute that item.'
+    });
   });
 }
 
