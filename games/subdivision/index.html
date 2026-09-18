@@ -7832,6 +7832,7 @@
         const AGENT_HELD_WEAPON_ROTATE_Y = -Math.PI / 2;
         const AGENT_HELD_FIREARM_FORWARD_Z = -0.14;
         const AGENT_HELD_FIREARM_PITCH_Z = 0;
+        const AGENT_HELD_MINIGUN_PITCH_X = -Math.PI / 2;
         const AGENT_HELD_KNIFE_PITCH_Z = 0.15;
         const SNAPSHOT_FLAGS = window.GameCore?.SNAPSHOT_FLAGS || {
             CROUCHING: 1,
@@ -17424,6 +17425,14 @@
             while (parent.children.length > 0) parent.remove(parent.children[0]);
         }
 
+        function hideMinigunAuthoredArms(root) {
+            root?.traverse((obj) => {
+                if (!obj.isMesh || !obj.material) return;
+                const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+                if (materials.some(material => String(material?.name || '').toLowerCase() === 'arms')) obj.visible = false;
+            });
+        }
+
         function applyDefaultWeaponMaterialSelection(model, spec, skinItem = null) {
             if (!model || !Array.isArray(spec?.defaultMaterialNames) || (skinItem && !skinItem.isDefault)) return;
             const allowed = new Set(spec.defaultMaterialNames.map(name => String(name || '').toLowerCase()));
@@ -17578,9 +17587,7 @@
             const assetAxis = skinItem?.assetAxis || spec.axis;
 
             const model = weaponName === 'Minigun' ? THREE.SkeletonUtils.clone(template) : template.clone(true);
-            if (weaponName === 'Minigun' && view === 'thirdPerson') model.traverse(obj => {
-                if (obj.isSkinnedMesh) obj.visible = false; // authored FP arms are not a second remote player body
-            });
+            if (weaponName === 'Minigun' && view === 'thirdPerson') hideMinigunAuthoredArms(model);
             applyDefaultWeaponMaterialSelection(model, spec, skinItem);
             // Utility sources use +Z from cap to base. Flip the source model
             // end-over-end in first person; rolling the rig around Z only spun
@@ -17680,6 +17687,7 @@
             if (!template || !spec) return null;
             const assetAxis = skinItem?.assetAxis || spec.axis;
             const model = weaponName === 'Minigun' ? THREE.SkeletonUtils.clone(template) : template.clone(true);
+            if (weaponName === 'Minigun') hideMinigunAuthoredArms(model);
             applyDefaultWeaponMaterialSelection(model, spec, skinItem);
             model.traverse((obj) => {
                 if (!obj.isMesh) return;
@@ -17778,6 +17786,10 @@
                 return;
             }
             if (!AGENT_HELD_GRENADES.has(weaponName) && weaponName !== 'Knife') rig.rotation.y += AGENT_HELD_WEAPON_ROTATE_Y;
+            // The Minigun source is Z-long, but its authored hand rig leaves that
+            // axis vertical after the shared imported-agent grip correction.
+            // Pitch only this weapon into the forward firing line.
+            if (weaponName === 'Minigun') rig.rotateX(AGENT_HELD_MINIGUN_PITCH_X);
             if (weaponName === 'Knife') {
                 // Knife-specific: move forward in the holder above and roll the
                 // blade up instead of sharing the rifle's sideways grip correction.

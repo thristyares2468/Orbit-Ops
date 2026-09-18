@@ -32,6 +32,26 @@ test('shipped asset preserves animated rig and required frame range', () => {
   assert.ok(json.animations[0].channels.length > 0);
   const duration = Math.max(...json.animations[0].samplers.map(s => json.accessors[s.input].max[0]));
   assert.ok(duration >= 180 / 30);
+  assert.deepEqual(json.materials.map(material => material.name), ['minigun', 'arms'],
+    'the weapon and authored first-person arms must remain separate materials');
+});
+test('previews hide authored arms and remote players aim the Minigun forward', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  const hideStart = html.indexOf('function hideMinigunAuthoredArms');
+  const hideBody = html.slice(hideStart, html.indexOf('\n        function ', hideStart + 1));
+  assert.match(hideBody, /material\?\.name[\s\S]*?=== 'arms'[\s\S]*?obj\.visible = false/u,
+    'only the authored arms material should be hidden');
+  const previewStart = html.indexOf('function buildWeaponPreviewInstance');
+  const previewBody = html.slice(previewStart, html.indexOf('\n        function ', previewStart + 1));
+  assert.match(previewBody, /weaponName === 'Minigun'\) hideMinigunAuthoredArms\(model\)/u);
+  const instanceStart = html.indexOf('function buildWeaponAssetInstance');
+  const instanceBody = html.slice(instanceStart, previewStart);
+  assert.match(instanceBody, /weaponName === 'Minigun' && view === 'thirdPerson'\) hideMinigunAuthoredArms\(model\)/u);
+  assert.match(html, /const AGENT_HELD_MINIGUN_PITCH_X = -Math\.PI \/ 2;/u);
+  const heldStart = html.indexOf('function applyAgentHeldWeaponTransform');
+  const heldBody = html.slice(heldStart, html.indexOf('\n        function ', heldStart + 1));
+  assert.match(heldBody, /weaponName === 'Minigun'\) rig\.rotateX\(AGENT_HELD_MINIGUN_PITCH_X\)/u,
+    'the imported-agent hand needs the measured -90 degree Minigun pitch correction');
 });
 test('RPG weight increased and minigun uses shared ammo/thermal logic', () => {
   const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');

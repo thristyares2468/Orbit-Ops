@@ -150,7 +150,7 @@ const REFERENCE_FINISHES = Object.freeze({
 // their own stored values either way, so nothing live moves.
 const REFERENCE_EXCEPTIONS = Object.freeze(['graphite_tech', 'royal_camo']);
 
-const WEAPON_PREFIXES = ['dual_berettas', 'm4a1', 'ak47', 'awp', 'deagle', 'famas', 'glock',
+const WEAPON_PREFIXES = ['dual_berettas', 'minigun', 'm4a1', 'ak47', 'awp', 'deagle', 'famas', 'glock',
   'mac10', 'nova', 'p90', 'ssg08', 'xm1014', 'breacher', 'rpg', 'shield'];
 
 function finishOf(id) {

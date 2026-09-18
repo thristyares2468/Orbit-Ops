@@ -119,7 +119,7 @@ test('the update loop survives a thermal with no animation clips', () => {
   // anim.actions and anim.mixer it would throw every frame the fallback is
   // held, taking the whole render loop down with it.
   const loop = html.slice(html.indexOf('const anim = obj.minigunAnimation;'));
-  const block = loop.slice(0, 1_400);
+  const block = loop.slice(0, loop.indexOf("if (wp.name === 'Minigun')", 1));
   assert.match(block, /if \(anim\.actions && state !== anim\.current\)/u, 'clips are optional');
   assert.match(block, /anim\.mixer\?\.update\(delta\);/u, 'the mixer is optional');
   // The heat maths itself must NOT be behind that guard.

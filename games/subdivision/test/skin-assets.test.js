@@ -126,8 +126,21 @@ for (const item of m4a1PatternSkins) {
   assert.deepStrictEqual(item.textureMaterialNames, ['Body1'], `${item.id} should paint only the M4A1 body`);
   assert.match(item.texturePath, /^\/assets\/skins\/imported\/patterns\/.+\.png$/, `${item.id} should use a shared imported pattern`);
 }
+const minigunPatternSkins = ITEMS.filter(item => item.weapon === 'Minigun' && item.kind === 'skin');
+assert.strictEqual(minigunPatternSkins.length, 10, 'the Minigun should ship with ten reusable pattern finishes');
+assert.deepStrictEqual(
+  Object.fromEntries(['common', 'rare', 'epic', 'legendary'].map(rarity => [rarity, minigunPatternSkins.filter(item => item.rarity === rarity).length])),
+  { common: 3, rare: 3, epic: 2, legendary: 2 },
+  'the Minigun patterns should follow the M4A1 rarity distribution'
+);
+for (const item of minigunPatternSkins) {
+  assert.strictEqual(item.modelPath, '/assets/weapons/minigun.glb', `${item.id} should reuse the animated Minigun model`);
+  assert.strictEqual(item.textureApplication, 'pattern', `${item.id} should use the shared pattern pipeline`);
+  assert.deepStrictEqual(item.textureMaterialNames, ['minigun'], `${item.id} should paint only the weapon, never the arms`);
+  assert.match(item.texturePath, /^\/assets\/skins\/imported\/patterns\/.+\.png$/, `${item.id} should use a shared imported pattern`);
+}
 assert.ok(ITEMS.some(item => item.id === 'm4a1_vanguard' && item.weapon === 'AK47' && item.displayName === 'AK47 | Elite Retaliator' && item.rarity === 'mythic' && item.kind === 'model'), 'the authored Elite Retaliator should stay on the AK47');
-assert.ok(!ITEMS.some(item => item.weapon !== 'Knife' && item.weapon !== 'M4A1' && /\|\s*(Gamma Energy|Fade|Dual Energy)$/i.test(item.displayName)), 'the formerly knife-only finishes should only be shared with the M4A1');
+assert.ok(!ITEMS.some(item => !['Knife', 'M4A1', 'Minigun'].includes(item.weapon) && /\|\s*(Gamma Energy|Fade|Dual Energy)$/i.test(item.displayName)), 'the formerly knife-only finishes should only be shared with the M4A1 and Minigun');
 assert.ok(ITEMS.some(item => item.id === 'ak47_case_hardened' && item.overlayTexturePath?.endsWith('ak47_wooden_overlay.png')), 'AK Case Hardened should use the supplied wooden overlay');
 assert.ok(ITEMS.some(item => item.id === 'knife_karambit_case_hardened' && item.overlayTexturePath?.endsWith('karambit_handle_overlay.png')), 'knife patterns should expose their supplied handle overlay');
 for (const [id, type, texture] of [

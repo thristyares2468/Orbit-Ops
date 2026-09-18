@@ -351,6 +351,33 @@ for (const [texture, title, patternZoom] of M4A1_FINISHES) {
   }));
 }
 
+// The Minigun follows the same reusable-finish ladder as the M4A1. Its GLB has
+// a clean material split: `minigun` is every paintable weapon mesh and `arms`
+// is the authored first-person body, so patterns must never target the latter.
+const MINIGUN_FINISHES = Object.freeze([
+  ['arid_camo', 'Desert Siege', 1.3],
+  ['blue_steel', 'Cobalt Frame', 1.15],
+  ['urban_ddpat', 'Urban Suppression', 1.35],
+  ['afterimage', 'Echo Chamber', 1.15],
+  ['franklin', 'Franklin Fury', 1.2],
+  ['dual_energy', 'Twin Current', 1.18],
+  ['fade', 'Overdrive Fade', 1.1],
+  ['gamma_energy', 'Gamma Barrage', 1.2],
+  ['bad_trip', 'Bad Trip', 1.12],
+  ['case_hardened', 'Case Hardened', 1.3]
+]);
+for (const [texture, title, patternZoom] of MINIGUN_FINISHES) {
+  NEW_EQUIPMENT_SKINS.push(equipmentPatternSkin({
+    id: `minigun_${texture}`,
+    weapon: 'Minigun',
+    displayName: `Minigun | ${title}`,
+    rarity: FINISH_RARITY[texture],
+    texture,
+    materialNames: ['minigun'],
+    patternZoom
+  }));
+}
+
 // Every Nerf skin fires the dart rather than the default streak. The tracer
 // model rides with the skin rather than being keyed off the skin id in the
 // client, so a skin can bring its own round without touching the shot code.
