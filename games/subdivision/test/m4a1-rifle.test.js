@@ -91,21 +91,23 @@ test('the M4A1 has both a downloaded model and a procedural stand-in', () => {
 });
 
 test('the M4A1 mythic skin is a real, reachable model', () => {
-  const skin = skins.getItem('m4a1_vanguard');
+  // The rifle's mythic is the Nerf G36. The Elite Retaliator that first shipped
+  // here moved to the AK47 when it was renamed, so it is no longer this file's.
+  const skin = skins.getItem('m4a1_g36');
   assert.ok(skin, 'the mythic M4A1 should be in the catalogue');
   assert.strictEqual(skin.weapon, 'M4A1');
   assert.strictEqual(skin.rarity, 'mythic');
   assert.strictEqual(skin.kind, 'model', 'it replaces the rifle rather than texturing it');
   assert.ok(fs.existsSync(path.join(root, skin.modelPath.replace(/^\//u, ''))),
     `${skin.modelPath} should exist on disk`);
-  // Its source runs +X toward the stock, the opposite of the base M4A1 GLB, so
-  // it needs a half turn on top of the quarter turn in the weapon's asset spec.
-  // Gameplay and inventory preview normalise assetAxis 'z' separately and so
-  // each need their own. Pinned because the failure is invisible to a bounds
-  // check - a 180deg yaw leaves size and centre identical - and an earlier pass
-  // dropped these on exactly that evidence and shipped the rifle backwards.
+  // The GLB is stored aimed down -Z, so the gameplay yaw exists only to cancel
+  // the quarter turn the M4A1's own asset spec adds. The preview path does not
+  // apply that spec rot at all and needs the guns' usual half turn instead.
+  // Both are pinned because the failure is invisible to a bounds check - a
+  // 180deg yaw leaves size and centre identical - and an earlier pass dropped a
+  // yaw on exactly that evidence and shipped the rifle backwards.
   assert.strictEqual(skin.assetAxis, 'z');
-  assert.strictEqual(skin.gameplayYaw, Math.PI, 'the model points backwards without this');
+  assert.strictEqual(skin.gameplayYaw, -Math.PI / 2, 'the model points sideways without this');
   assert.strictEqual(skin.previewYaw, Math.PI, 'the preview points backwards without this');
 });
 
@@ -128,7 +130,7 @@ test('the M4A1 models stay inside a sane download and draw budget', () => {
       return n + acc.count / 3;
     }, 0), 0);
   };
-  const mythic = path.join(root, 'assets/skins/m4a1/vanguard.glb');
+  const mythic = path.join(root, 'assets/skins/m4a1/g36.glb');
   const ak = path.join(root, 'assets/weapons/ak47.glb');
   assert.ok(fs.statSync(mythic).size < 3 * 1024 * 1024,
     `the mythic GLB is ${(fs.statSync(mythic).size / 1e6).toFixed(1)}MB; it belongs under 3MB`);
@@ -145,7 +147,7 @@ test('the M4A1 models stay inside a sane download and draw budget', () => {
 
   // The dart is spawned per shot and several can be alive at once, so it has to
   // stay far cheaper than a weapon.
-  const dart = path.join(root, 'assets/skins/m4a1/dart.glb');
+  const dart = path.join(root, 'assets/skins/shared/nerf_dart.glb');
   assert.ok(fs.statSync(dart).size < 512 * 1024,
     `the dart GLB is ${(fs.statSync(dart).size / 1024).toFixed(0)}KB; it belongs under 512KB`);
 });
@@ -174,13 +176,13 @@ test('the inventory showroom fit survives a source authored at millimetre scale'
     'each pass must recentre by the scaled offset, or it measures the model off-axis');
 });
 
-test('the Nerf or Nothing fires its dart from both the local and remote shot paths', () => {
+test('the Nerf mythics fire their dart from both the local and remote shot paths', () => {
   // An opponent seeing the default streak while the shooter sees darts is the
   // easy half of this to get wrong, so both spawn sites are pinned. The skin
   // carries the path itself rather than the client keying off its id, so a
   // later tracer skin needs no change here.
-  const skin = skins.getItem('m4a1_vanguard');
-  assert.strictEqual(skin.tracerModelPath, '/assets/skins/m4a1/dart.glb');
+  const skin = skins.getItem('m4a1_g36');
+  assert.strictEqual(skin.tracerModelPath, '/assets/skins/shared/nerf_dart.glb');
 
   assert.match(client, /const bulletMesh = buildTracerMesh\(equippedSkinItem\(wp\.name\)/u,
     'the local shot should build its tracer from the equipped skin');

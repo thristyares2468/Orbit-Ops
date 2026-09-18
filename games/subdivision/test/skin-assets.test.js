@@ -80,11 +80,21 @@ assert.ok(awpSkins.some(item => item.id === 'awp_sovereign_flame' && item.textur
 assert.ok(ITEMS.every(item => RARITY_IDS.has(item.rarity)),
   'every catalog skin should carry a valid rarity');
 // Mythic is no longer "knife", it is "authored as Mythic in the catalogue" -
-// the M4A1 Elite Retaliator is the one firearm on that list. What still has to hold is
+// the Nerf models are the firearms on that list. What still has to hold is
 // that the list is short and deliberate rather than open to every firearm.
 assert.deepStrictEqual(
   ITEMS.filter(item => item.weapon !== 'Knife' && item.rarity === 'mythic').map(item => item.id).sort(),
-  ['m4a1_vanguard'],
+  [
+    'awp_heavy_sniper',
+    'deagle_firestrike_elite',
+    'dual_berettas_doublestrike',
+    'glock_jolt',
+    'm4a1_g36',
+    'm4a1_vanguard',
+    'mac10_retaliator',
+    'p90_delete',
+    'ssg08_super_soaker'
+  ],
   'mythic should stay an authored allowlist');
 assert.ok(ITEMS.filter(item => item.weapon === 'Knife').every(item => item.rarity === 'mythic'),
   'every knife, including defaults, should be Mythic');
@@ -116,7 +126,7 @@ for (const item of m4a1PatternSkins) {
   assert.deepStrictEqual(item.textureMaterialNames, ['Body1'], `${item.id} should paint only the M4A1 body`);
   assert.match(item.texturePath, /^\/assets\/skins\/imported\/patterns\/.+\.png$/, `${item.id} should use a shared imported pattern`);
 }
-assert.ok(ITEMS.some(item => item.id === 'm4a1_vanguard' && item.displayName === 'M4A1 | Elite Retaliator' && item.rarity === 'mythic' && item.kind === 'model'), 'the authored M4A1 Elite Retaliator should remain untouched');
+assert.ok(ITEMS.some(item => item.id === 'm4a1_vanguard' && item.weapon === 'AK47' && item.displayName === 'AK47 | Elite Retaliator' && item.rarity === 'mythic' && item.kind === 'model'), 'the authored Elite Retaliator should stay on the AK47');
 assert.ok(!ITEMS.some(item => item.weapon !== 'Knife' && item.weapon !== 'M4A1' && /\|\s*(Gamma Energy|Fade|Dual Energy)$/i.test(item.displayName)), 'the formerly knife-only finishes should only be shared with the M4A1');
 assert.ok(ITEMS.some(item => item.id === 'ak47_case_hardened' && item.overlayTexturePath?.endsWith('ak47_wooden_overlay.png')), 'AK Case Hardened should use the supplied wooden overlay');
 assert.ok(ITEMS.some(item => item.id === 'knife_karambit_case_hardened' && item.overlayTexturePath?.endsWith('karambit_handle_overlay.png')), 'knife patterns should expose their supplied handle overlay');

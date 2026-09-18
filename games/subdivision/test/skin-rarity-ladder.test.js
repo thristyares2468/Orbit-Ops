@@ -52,7 +52,17 @@ test('an entry with no rarity inherits the catalog tier, not Common', () => {
 // Mythic is now an authored per-item allowlist, so a case entry can confirm the
 // tier but can never promote an ordinary skin into it. This pins the allowlist
 // itself, so widening it again has to be a decision rather than an accident.
-const MYTHIC_NON_KNIVES = ['m4a1_vanguard'];
+const MYTHIC_NON_KNIVES = [
+  'awp_heavy_sniper',
+  'deagle_firestrike_elite',
+  'dual_berettas_doublestrike',
+  'glock_jolt',
+  'm4a1_g36',
+  'm4a1_vanguard',
+  'mac10_retaliator',
+  'p90_delete',
+  'ssg08_super_soaker'
+];
 
 test('mythic is an authored allowlist, not a tier a case entry can hand out', () => {
   const mythicNonKnives = skins.ITEMS
@@ -99,7 +109,7 @@ test('an authored mythic never drops from the ordinary pull pool', () => {
       continue;
     }
     assert.notStrictEqual(result.tier, 'mythic', `${result.item.id} dropped as an ordinary pull`);
-    assert.notStrictEqual(result.item.id, 'm4a1_vanguard', 'the mythic M4A1 must not be an ordinary pull');
+    assert.ok(!MYTHIC_NON_KNIVES.includes(result.item.id), `${result.item.id} must not be an ordinary pull`);
   }
 });
 

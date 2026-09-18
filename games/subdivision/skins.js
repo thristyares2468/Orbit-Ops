@@ -351,36 +351,75 @@ for (const [texture, title, patternZoom] of M4A1_FINISHES) {
   }));
 }
 
-// The M4A1's Mythic. Unlike every other firearm skin this is not a texture over
-// the weapon's own GLB - it is a different rifle entirely, so it declares kind
-// 'model' and its own path, the way the Mythic knives do.
+// Every Nerf skin fires the dart rather than the default streak. The tracer
+// model rides with the skin rather than being keyed off the skin id in the
+// client, so a skin can bring its own round without touching the shot code.
+// The dart's tip already points -Z, the direction tracers are aimed down.
+const NERF_DART_TRACER = '/assets/skins/shared/nerf_dart.glb';
+
+// The Nerf Mythics. Unlike the texture skins these are not a wrap over the
+// weapon's own GLB - each is a different gun entirely, so they declare kind
+// 'model' and their own path, the way the Mythic knives do.
 //
-// Its source is +X toward the STOCK, the opposite of the base M4A1 GLB, so it
-// needs a half turn on top of the quarter turn the M4A1 asset spec already
-// applies. Both view paths need their own: gameplay and inventory preview
-// normalise assetAxis 'z' separately.
+// Every GLB below is stored already aimed down -Z with +Y up, with whatever
+// turn its source needed baked into the asset rather than carried here. That
+// leaves the two yaws meaning one thing each, which is what makes them
+// checkable:
 //
-// Measure, do not reason, if this is ever touched again. A bare Box3 cannot see
-// this bug - a 180deg yaw leaves size and centre identical - and an earlier pass
-// removed the yaw entirely on that evidence and shipped the rifle pointing
-// backwards. Render it with a marker on the -Z end and check the barrel is at
-// that end.
-const M4A1_MYTHIC_SKIN = Object.freeze({
-  id: 'm4a1_vanguard',
-  weapon: 'M4A1',
-  kind: 'model',
-  displayName: 'M4A1 | Elite Retaliator',
-  rarity: 'mythic',
-  modelPath: '/assets/skins/m4a1/vanguard.glb',
-  assetAxis: 'z',
-  gameplayYaw: Math.PI,
-  previewYaw: Math.PI,
-  // The tracer model rides with the skin rather than being keyed off the skin id
-  // in the client, so a later skin can bring its own round without touching the
-  // shot code. Its tip already points -Z, the direction tracers are aimed down.
-  tracerModelPath: '/assets/skins/m4a1/dart.glb',
-  imported: false
-});
+//   gameplayYaw - cancels the yaw the weapon's own asset spec adds, and
+//                 nothing else. Math.PI for the Knife and Dual Berettas,
+//                 -Math.PI/2 for the M4A1, zero for every other weapon.
+//   previewYaw  - Math.PI for guns. The preview path does NOT apply the spec
+//                 rot and turns assetAxis 'z' by -Math.PI/2 on its own, which
+//                 lands the muzzle pointing right; the half turn puts it left,
+//                 matching how every base weapon frames in the showroom.
+//
+// The one exception is the Deagle's Firestrike Elite: its source uses
+// KHR_materials_pbrSpecularGlossiness, which three r135 still renders but the
+// glTF tooling here refuses to read, so its rotation could not be baked and it
+// carries the turn in its yaws instead.
+//
+// Measure, do not reason, if any of this is ever touched. A bare Box3 cannot
+// see a backwards model - a 180deg yaw leaves size and centre identical - and
+// an earlier pass removed a yaw on that evidence and shipped a rifle pointing
+// backwards. Render it against an arrow drawn down -Z and check the muzzle
+// follows the arrow.
+function nerfMythic({ id, weapon, displayName, modelPath, gameplayYaw = 0, previewYaw = Math.PI }) {
+  return Object.freeze({
+    id,
+    weapon,
+    kind: 'model',
+    displayName,
+    rarity: 'mythic',
+    modelPath,
+    assetAxis: 'z',
+    gameplayYaw,
+    previewYaw,
+    tracerModelPath: NERF_DART_TRACER,
+    imported: false
+  });
+}
+
+const NERF_MYTHIC_SKINS = Object.freeze([
+  // Renamed off the M4A1 and onto the AK47, which adds no yaw of its own.
+  nerfMythic({ id: 'm4a1_vanguard', weapon: 'AK47', displayName: 'AK47 | Elite Retaliator', modelPath: '/assets/skins/ak47/vanguard.glb' }),
+  nerfMythic({ id: 'glock_jolt', weapon: 'Glock', displayName: 'Glock | Jolt', modelPath: '/assets/skins/glock/jolt.glb' }),
+  nerfMythic({ id: 'mac10_retaliator', weapon: 'MAC10', displayName: 'MAC10 | Retaliator', modelPath: '/assets/skins/mac10/retaliator.glb' }),
+  // The unbakeable one - see the note above. Its source aims down +X.
+  nerfMythic({ id: 'deagle_firestrike_elite', weapon: 'Deagle', displayName: 'Deagle | Firestrike Elite', modelPath: '/assets/skins/deagle/firestrike.glb', gameplayYaw: -Math.PI / 2, previewYaw: Math.PI / 2 }),
+  nerfMythic({ id: 'p90_delete', weapon: 'P90', displayName: 'P90 | Delete', modelPath: '/assets/skins/p90/delete.glb' }),
+  nerfMythic({ id: 'awp_heavy_sniper', weapon: 'AWP', displayName: 'AWP | Heavy Sniper', modelPath: '/assets/skins/awp/heavy_sniper.glb' }),
+  // The dual-pistol splitter cuts the template at its world-X midpoint and
+  // hands one half to each hand, so this GLB ships two pistols side by side
+  // along X the way dual_elite.glb does. A single pistol would be halved.
+  nerfMythic({ id: 'dual_berettas_doublestrike', weapon: 'Dual Berettas', displayName: 'Dual Berettas | Doublestrike', modelPath: '/assets/skins/dual_berettas/doublestrike.glb', gameplayYaw: Math.PI }),
+  // Under /knife/toy/ so knifeTypeForItem reports the type as "Toy". The
+  // preview path has its own knife branch, which already frames a blade the
+  // way the base knives frame, so this one takes no preview turn.
+  nerfMythic({ id: 'knife_toy_nerf', weapon: 'Knife', displayName: 'Knife | Toy Knife', modelPath: '/assets/skins/knife/toy/toy.glb', gameplayYaw: Math.PI, previewYaw: 0 }),
+  nerfMythic({ id: 'm4a1_g36', weapon: 'M4A1', displayName: 'M4A1 | G36', modelPath: '/assets/skins/m4a1/g36.glb', gameplayYaw: -Math.PI / 2 }),
+  nerfMythic({ id: 'ssg08_super_soaker', weapon: 'SSG 08', displayName: 'SSG 08 | Super Soaker 50', modelPath: '/assets/skins/ssg08/super_soaker.glb' })
+]);
 
 NEW_EQUIPMENT_SKINS.push({
   id: 'shield_rexton', weapon: 'Shield', kind: 'skin',
@@ -565,7 +604,7 @@ const ITEMS = Object.freeze(uniqueCatalogItems([
   ...AWP_SKINS,
   ...DUAL_BERETTAS_SKINS,
   SOVEREIGN_FLAME,
-  M4A1_MYTHIC_SKIN,
+  ...NERF_MYTHIC_SKINS,
   ...FAMAS_VARIANTS,
   ...NEW_EQUIPMENT_SKINS,
   ...ALL_KNIFE_ITEMS,
