@@ -1948,6 +1948,15 @@
                 <button class="menu-btn" id="btn-inv-editor-load" type="button">Load</button>
             </div>
 
+            <div class="host-menu-note">Giveaway — sends a new item to every active registered account</div>
+            <div class="inv-editor-row">
+                <select id="inv-editor-giveaway-kind" class="host-mode-select"><option value="case">Case</option><option value="skin">Skin</option></select>
+                <select id="inv-editor-giveaway-item" class="host-mode-select" style="flex:1;"></select>
+                <input id="inv-editor-giveaway-qty" type="number" min="1" max="1000" value="1" class="inv-editor-num" aria-label="Cases per account">
+                <button class="menu-btn" id="btn-inv-editor-giveaway" type="button">Give to Everyone</button>
+            </div>
+            <div class="menu-status" id="inv-editor-giveaway-status"></div>
+
             <div id="inv-editor-body" style="display:none;">
                 <div class="host-menu-note">Add a case</div>
                 <div class="inv-editor-row">
@@ -2522,7 +2531,7 @@
                 <h2 id="market-gift-title">Send as Gift</h2>
                 <div class="market-dialog-summary" id="market-gift-summary"></div>
                 <div class="friends-list" id="market-gift-friends" style="max-height:240px;overflow-y:auto;"></div>
-                <div class="market-dialog-note">You pay; the item goes straight to their inventory. This cannot be undone.</div>
+                <div class="market-dialog-note" id="market-gift-note">You pay; the item goes straight to their inventory. This cannot be undone.</div>
                 <div class="market-dialog-actions"><button id="btn-cancel-market-gift" type="button">Cancel</button></div>
             </div>
         </aside>
@@ -2779,6 +2788,7 @@
                         <button id="btn-list-owned-case" type="button">Sell Case</button>
                     </div>
                     <button class="panel-primary" id="btn-open-owned-case" type="button">Open</button>
+                    <button id="btn-gift-owned-case" type="button">Gift to Friend</button>
                 </div>
             </div>
         </aside>
@@ -4223,6 +4233,7 @@
         });
         document.getElementById('btn-close-case-inspect').addEventListener('click', closeCaseInspect);
         document.getElementById('btn-open-owned-case').addEventListener('click', openOwnedCase);
+        document.getElementById('btn-gift-owned-case').addEventListener('click', openOwnedCaseGift);
         document.getElementById('btn-list-owned-case').addEventListener('click', listOwnedCaseForSale);
         document.getElementById('case-inspect-contents').addEventListener('click', (event) => {
             const card = event.target.closest('[data-case-content-inspect]');
@@ -4521,6 +4532,8 @@
             const quantity = Number(document.getElementById('inv-editor-case-qty').value) || 1;
             if (caseId) invEditorSend('grantCase', { caseId, quantity });
         });
+        document.getElementById('inv-editor-giveaway-kind').addEventListener('change', renderInventoryGiveawayPicker);
+        document.getElementById('btn-inv-editor-giveaway').addEventListener('click', sendInventoryGiveaway);
         document.getElementById('btn-owner-balances').addEventListener('click', () => showBalances('title'));
         document.getElementById('btn-owner-player-roles').addEventListener('click', () => showPlayerRoles('title'));
         document.getElementById('btn-player-roles-back').addEventListener('click', closeOverlayPanel);
@@ -7924,6 +7937,254 @@
         let caseRewardInspectActive = false;
         const localTestParams = new URLSearchParams(location.search);
         const localTestHost = ['localhost', '127.0.0.1'].includes(location.hostname);
+
+        // ---- Dev command console ----------------------------------------------
+        // Testing a weapon model means holding it, which otherwise costs a round
+        // of buying and a saved loadout per skin. This gives the same thing in one
+        // line - `skin knife_toy_nerf` equips the skin and switches to its weapon -
+        // so a model can be checked from every angle in the time it took to open
+        // the buy menu once.
+        //
+        // Everything here is client-side dressing over state the client already
+        // owns; it grants nothing the server would not have sent anyway, and the
+        // whole thing is inert off localhost so it can never be a live cheat.
+        const devConsole = {
+            enabled: localTestHost,
+            open: false,
+            root: null,
+            input: null,
+            log: null,
+            history: [],
+            historyIndex: -1
+        };
+
+        function devConsoleCatalog() {
+            return skinInventoryState.catalog?.items || [];
+        }
+
+        function devConsolePrint(text, tone = '') {
+            if (!devConsole.log) return;
+            const line = document.createElement('div');
+            line.textContent = text;
+            if (tone) line.style.color = tone === 'bad' ? '#ff8a7a' : '#8ef2a4';
+            devConsole.log.appendChild(line);
+            while (devConsole.log.childElementCount > 120) devConsole.log.removeChild(devConsole.log.firstChild);
+            devConsole.log.scrollTop = devConsole.log.scrollHeight;
+        }
+
+        // Weapon names carry spaces and capitals ("Dual Berettas", "SSG 08"), so
+        // match loosely on the letters and digits rather than making the tester
+        // reproduce the exact string.
+        function devConsoleWeaponIndex(query) {
+            const want = String(query || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (!want) return -1;
+            const names = weapons.map(w => String(w.name).toLowerCase().replace(/[^a-z0-9]/g, ''));
+            const exact = names.indexOf(want);
+            return exact >= 0 ? exact : names.findIndex(name => name.startsWith(want));
+        }
+
+        const DEV_CONSOLE_COMMANDS = {
+            help() {
+                devConsolePrint('skins [text]      list catalogue skins, optionally filtered');
+                devConsolePrint('skin <id|none>    equip a skin and switch to its weapon');
+                devConsolePrint('weapon <name>     switch to a weapon');
+                devConsolePrint('reset             drop every test skin back to the saved loadout');
+                devConsolePrint('preview <id>      inspect a catalogue skin in the showroom');
+                devConsolePrint('yaw <deg>         turn the held skin in first person');
+                devConsolePrint('off <x> <y> <z>   nudge the held skin in first person');
+                devConsolePrint('mscale <n>        resize the held skin in first person');
+                devConsolePrint('rest / gscale     move or resize the viewmodel itself');
+                devConsolePrint('pos               print the camera position and facing');
+            },
+            skins(rest) {
+                const filter = rest.toLowerCase();
+                const matches = devConsoleCatalog().filter(item =>
+                    !filter || `${item.id} ${item.displayName} ${item.weapon}`.toLowerCase().includes(filter));
+                if (!matches.length) return devConsolePrint(`no skin matches "${rest}"`, 'bad');
+                for (const item of matches.slice(0, 40)) devConsolePrint(`${item.id}  -  ${item.displayName} [${item.rarity}]`);
+                if (matches.length > 40) devConsolePrint(`...and ${matches.length - 40} more`);
+            },
+            skin(rest) {
+                const held = weapons[currentWeaponIndex]?.name || '';
+                if (!rest || rest === 'none' || rest === 'default') {
+                    if (!held) return devConsolePrint('not holding anything', 'bad');
+                    adminTestSkinOverrides.set(held, null);
+                    buildGunModel();
+                    return devConsolePrint(`${held} back to its default model`);
+                }
+                const item = devConsoleCatalog().find(entry => entry.id === rest)
+                    || devConsoleCatalog().find(entry => entry.id.includes(rest));
+                if (!item) return devConsolePrint(`no skin "${rest}" - try: skins ${rest}`, 'bad');
+                adminTestSkinOverrides.set(item.weapon, skinItemWithInstance(item));
+                const index = devConsoleWeaponIndex(item.weapon);
+                if (index >= 0 && index !== currentWeaponIndex) switchWeapon(index, true);
+                else buildGunModel();
+                devConsolePrint(`holding ${item.displayName}`);
+            },
+            weapon(rest) {
+                const index = devConsoleWeaponIndex(rest);
+                if (index < 0) return devConsolePrint(`no weapon "${rest}"`, 'bad');
+                switchWeapon(index, true);
+                devConsolePrint(`switched to ${weapons[index].name}`);
+            },
+            reset() {
+                adminTestSkinOverrides.clear();
+                buildGunModel();
+                devConsolePrint('test skins cleared');
+            },
+            // The showroom is the other half of a model skin, and it takes a
+            // different path with a different yaw - so checking one tells you
+            // nothing about the other. Inspecting from the inventory only shows
+            // whatever random instance happens to be owned; this inspects the
+            // catalogue entry itself, which is what the two yaws are set against.
+            preview(rest) {
+                const query = String(rest || '').trim().toLowerCase();
+                if (!query) return devConsolePrint('preview <skin id or name>', 'bad');
+                const item = devConsoleCatalog().find(entry => entry.id === query)
+                    || devConsoleCatalog().find(entry => entry.id.includes(query)
+                        || String(entry.displayName || '').toLowerCase().includes(query));
+                if (!item) return devConsolePrint(`no skin matching "${rest}"`, 'bad');
+                // The showroom modal lives inside #blocker, which is hidden
+                // while a round is running - leaving the preview canvas sized
+                // 0x0 and rendering nothing. Show the blocker first so the
+                // command works from in game as well as from the menu.
+                const blocker = document.getElementById('blocker');
+                if (blocker && blocker.style.display === 'none') blocker.style.display = 'flex';
+                openCaseEditorSkinInspect(item.id);
+                devConsolePrint(`inspecting ${item.displayName}`);
+            },
+            // A model skin's whole orientation is two yaws, and which pair is right
+            // is a question for the eye rather than a bounds check - a half turn
+            // leaves a Box3 identical. This dials the held skin's gameplay yaw live
+            // so the four candidates can be compared in four keystrokes.
+            yaw(rest) {
+                const held = weapons[currentWeaponIndex]?.name || '';
+                const item = adminTestSkinOverrides.get(held);
+                if (!item) return devConsolePrint('equip a model skin first', 'bad');
+                const degrees = Number(rest);
+                if (!Number.isFinite(degrees)) return devConsolePrint(`gameplayYaw is ${(item.gameplayYaw || 0) * 180 / Math.PI}deg`);
+                adminTestSkinOverrides.set(held, { ...item, gameplayYaw: degrees * Math.PI / 180 });
+                buildGunModel();
+                devConsolePrint(`${held} gameplayYaw ${degrees}deg`);
+            },
+            // The companions to yaw: nudge and resize the held skin live so its
+            // framing can be matched against the weapon it replaces.
+            off(rest) {
+                const held = weapons[currentWeaponIndex]?.name || '';
+                const item = adminTestSkinOverrides.get(held);
+                if (!item) return devConsolePrint('equip a model skin first', 'bad');
+                const parts = rest.split(/\s+/).map(Number);
+                if (parts.length !== 3 || parts.some(n => !Number.isFinite(n))) {
+                    return devConsolePrint(`gameplayOffset is ${(item.gameplayOffset || [0, 0, 0]).join(' ')}`);
+                }
+                adminTestSkinOverrides.set(held, { ...item, gameplayOffset: parts });
+                buildGunModel();
+                devConsolePrint(`${held} gameplayOffset ${parts.join(' ')}`);
+            },
+            mscale(rest) {
+                const held = weapons[currentWeaponIndex]?.name || '';
+                const item = adminTestSkinOverrides.get(held);
+                if (!item) return devConsolePrint('equip a model skin first', 'bad');
+                const value = Number(rest);
+                if (!Number.isFinite(value) || value <= 0) return devConsolePrint(`gameplayScale is ${item.gameplayScale || 1}`);
+                adminTestSkinOverrides.set(held, { ...item, gameplayScale: value });
+                buildGunModel();
+                devConsolePrint(`${held} gameplayScale ${value}`);
+            },
+            // Judging whether a muzzle points forward needs the model bigger and
+            // more central than the hip-held rest pose puts it. These two move the
+            // viewmodel without touching the tuning the weapon actually ships with.
+            rest(rest) {
+                const parts = rest.split(/\s+/).map(Number);
+                if (parts.length !== 3 || parts.some(n => !Number.isFinite(n))) {
+                    return devConsolePrint(`rest is ${WEAPON_REST_POS.x} ${WEAPON_REST_POS.y} ${WEAPON_REST_POS.z} - pass three numbers to move it`);
+                }
+                WEAPON_REST_POS.set(parts[0], parts[1], parts[2]);
+                devConsolePrint(`viewmodel rest moved to ${parts.join(' ')}`);
+            },
+            gscale(rest) {
+                const value = Number(rest);
+                if (!Number.isFinite(value) || value <= 0) return devConsolePrint('gscale takes a positive number', 'bad');
+                weaponGroup.scale.setScalar(value);
+                devConsolePrint(`viewmodel scaled ${value}x`);
+            },
+            pos() {
+                const dir = camera.getWorldDirection(new THREE.Vector3());
+                devConsolePrint(`pos ${camera.position.x.toFixed(1)} ${camera.position.y.toFixed(1)} ${camera.position.z.toFixed(1)}`
+                    + `  facing ${dir.x.toFixed(2)} ${dir.y.toFixed(2)} ${dir.z.toFixed(2)}`);
+            }
+        };
+
+        function devConsoleRun(line) {
+            const trimmed = String(line || '').trim();
+            if (!trimmed) return;
+            devConsolePrint(`> ${trimmed}`);
+            const [name, ...rest] = trimmed.split(/\s+/);
+            const command = DEV_CONSOLE_COMMANDS[name.toLowerCase()];
+            if (!command) return devConsolePrint(`unknown command "${name}" - try help`, 'bad');
+            try {
+                command(rest.join(' '));
+            } catch (err) {
+                devConsolePrint(String(err?.message || err), 'bad');
+            }
+        }
+
+        function devConsoleBuild() {
+            if (devConsole.root) return;
+            const root = document.createElement('div');
+            root.id = 'dev-console';
+            root.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;display:none;'
+                + 'background:rgba(6,10,8,0.92);border-bottom:1px solid #2f6b46;font:12px ui-monospace,Menlo,monospace;color:#cfe8d8;';
+            const log = document.createElement('div');
+            log.style.cssText = 'max-height:38vh;overflow-y:auto;padding:8px 10px;white-space:pre-wrap;';
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.autocomplete = 'off';
+            input.spellcheck = false;
+            input.placeholder = 'command (help)';
+            input.style.cssText = 'width:100%;box-sizing:border-box;background:#0b1410;border:0;border-top:1px solid #2f6b46;'
+                + 'color:#8ef2a4;font:inherit;padding:7px 10px;outline:none;';
+            input.addEventListener('keydown', (event) => {
+                event.stopPropagation();
+                if (event.key === 'Enter') {
+                    const line = input.value;
+                    input.value = '';
+                    if (line.trim()) devConsole.history.push(line.trim());
+                    devConsole.historyIndex = devConsole.history.length;
+                    devConsoleRun(line);
+                } else if (event.key === 'Escape') {
+                    devConsoleToggle(false);
+                } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    if (!devConsole.history.length) return;
+                    const step = event.key === 'ArrowUp' ? -1 : 1;
+                    devConsole.historyIndex = Math.max(0, Math.min(devConsole.history.length, devConsole.historyIndex + step));
+                    input.value = devConsole.history[devConsole.historyIndex] || '';
+                }
+            });
+            root.appendChild(log);
+            root.appendChild(input);
+            document.body.appendChild(root);
+            devConsole.root = root;
+            devConsole.input = input;
+            devConsole.log = log;
+            devConsolePrint('dev console - localhost only. type help');
+        }
+
+        function devConsoleToggle(next) {
+            if (!devConsole.enabled) return;
+            devConsoleBuild();
+            devConsole.open = next === undefined ? !devConsole.open : !!next;
+            devConsole.root.style.display = devConsole.open ? 'block' : 'none';
+            // Pointer lock swallows keystrokes, so the console has to release it
+            // to be typed into at all.
+            if (devConsole.open) {
+                if (document.pointerLockElement) document.exitPointerLock();
+                devConsole.input.focus();
+            } else {
+                devConsole.input.blur();
+            }
+        }
         const localTradeUpTest = localTestHost && localTestParams.get('tradeUpTest') === '1';
         const localTradeUpRewardTest = localTestHost && localTestParams.get('tradeUpRewardTest') === '1';
         const localMarketTest = localTestHost && localTestParams.get('marketTest') === '1';
@@ -8945,6 +9206,11 @@
             }
 
             const onKeyDown = function (event) {
+                if (devConsole.enabled && event.code === 'Backquote' && !pendingKeybind) {
+                    event.preventDefault();
+                    devConsoleToggle();
+                    return;
+                }
                 if (pendingKeybind) {
                     event.preventDefault();
                     if (event.code !== 'Escape') {
@@ -10249,8 +10515,45 @@
             if (!accountIsAdmin && !accountIsOwnerAdmin) return;
             showExperimentalPanel(document.getElementById('inventory-editor-menu'), 'btn-account-menu', from === 'pause' ? 'pause' : 'title');
             document.getElementById('inv-editor-status').textContent = '';
+            document.getElementById('inv-editor-giveaway-status').textContent = '';
             document.getElementById('inv-editor-body').style.display = 'none';
             invEditorState = { account: null, skins: [], cases: [], caseCatalog: [] };
+            renderInventoryGiveawayPicker();
+        }
+
+        function renderInventoryGiveawayPicker() {
+            const kind = document.getElementById('inv-editor-giveaway-kind').value;
+            const select = document.getElementById('inv-editor-giveaway-item');
+            const quantity = document.getElementById('inv-editor-giveaway-qty');
+            const catalog = skinInventoryState.catalog || {};
+            const rows = kind === 'case'
+                ? (catalog.cases || []).map(row => ({ id: row.id, label: row.displayName || row.id }))
+                : (catalog.items || []).map(row => ({ id: row.id, label: row.displayName || row.name || row.id }));
+            const previous = select.value;
+            select.replaceChildren();
+            for (const row of rows) {
+                const option = document.createElement('option');
+                option.value = row.id;
+                option.textContent = row.label;
+                select.append(option);
+            }
+            if (previous && rows.some(row => row.id === previous)) select.value = previous;
+            quantity.hidden = kind !== 'case';
+            quantity.setAttribute('aria-hidden', String(kind !== 'case'));
+        }
+
+        function sendInventoryGiveaway() {
+            const kind = document.getElementById('inv-editor-giveaway-kind').value;
+            const itemId = document.getElementById('inv-editor-giveaway-item').value;
+            const quantity = Number(document.getElementById('inv-editor-giveaway-qty').value) || 1;
+            const status = document.getElementById('inv-editor-giveaway-status');
+            if (!itemId) { status.textContent = 'The catalogue has not loaded yet.'; return; }
+            const label = document.getElementById('inv-editor-giveaway-item').selectedOptions[0]?.textContent || itemId;
+            if (!confirm(`Give ${kind === 'case' ? `${quantity} × ` : ''}${label} to every active account? This cannot be undone.`)) return;
+            status.textContent = 'Distributing…';
+            sendPacket('adminDistributeItem', kind === 'case'
+                ? { kind, caseId: itemId, quantity }
+                : { kind, itemId });
         }
 
         function invEditorUsername() {
@@ -11292,6 +11595,9 @@
             const friends = (friendsData.friends || []);
             marketGiftDraft = { kind, listingId: String(listingId) };
             document.getElementById('market-gift-summary').textContent = summary || '';
+            document.getElementById('market-gift-note').textContent = kind === 'ownedCase'
+                ? 'One case leaves your inventory and goes straight to your friend. This cannot be undone.'
+                : 'You pay; the item goes straight to their inventory. This cannot be undone.';
             document.getElementById('market-gift-friends').innerHTML = friends.length ? friends.map(player => `
                 <div class="friend-row ${player.status === 'offline' ? 'offline' : ''}">
                     <div class="friend-dot"></div>
@@ -11313,9 +11619,14 @@
         function confirmMarketGift(accountId, username) {
             if (!marketGiftDraft) return;
             const { kind, listingId } = marketGiftDraft;
-            const packet = kind === 'case' ? 'marketBuyCaseListing' : 'marketBuyListing';
-            sendPacket(packet, { listingId: Number(listingId), giftToAccountId: String(accountId) });
-            document.getElementById('marketplace-status').textContent = `Sending gift to ${username || 'your friend'}...`;
+            if (kind === 'ownedCase') {
+                sendPacket('giftOwnedCase', { caseId: String(listingId), giftToAccountId: String(accountId) });
+                document.getElementById('case-inspect-status').textContent = `Sending gift to ${username || 'your friend'}...`;
+            } else {
+                const packet = kind === 'case' ? 'marketBuyCaseListing' : 'marketBuyListing';
+                sendPacket(packet, { listingId: Number(listingId), giftToAccountId: String(accountId) });
+                document.getElementById('marketplace-status').textContent = `Sending gift to ${username || 'your friend'}...`;
+            }
             closeMarketGiftDialog();
         }
 
@@ -13386,6 +13697,8 @@
                 : (caseDef.marketVisible === false ? 'Find a player listing in the marketplace.' : 'Buy this case from the marketplace first.');
             const openButton = document.getElementById('btn-open-owned-case');
             if (openButton) openButton.disabled = ownedQty <= 0;
+            const giftButton = document.getElementById('btn-gift-owned-case');
+            if (giftButton) giftButton.disabled = ownedQty <= 0;
             const resaleControls = document.getElementById('case-resale-controls');
             if (resaleControls) resaleControls.hidden = !canResell;
             const resalePrice = document.getElementById('case-resale-price');
@@ -13416,6 +13729,16 @@
             const modal = document.getElementById('case-inspect-modal');
             modal.classList.remove('open');
             modal.setAttribute('aria-hidden', 'true');
+        }
+
+        function openOwnedCaseGift() {
+            const caseDef = caseCatalogById().get(caseInspectSelectedId);
+            const owned = (skinInventoryState.cases || []).find(entry => String(entry.case_id || entry.caseId) === String(caseDef?.id));
+            if (!caseDef || (Number(owned?.quantity) || 0) <= 0) {
+                document.getElementById('case-inspect-status').textContent = 'You no longer own that case.';
+                return;
+            }
+            openMarketGiftDialog('ownedCase', caseDef.id, `Send one ${caseDef.displayName || caseDef.id} from your inventory.`);
         }
 
         function listOwnedCaseForSale() {
@@ -14897,6 +15220,8 @@
                 applyInventoryEditorData(data || {});
             } else if (type === 'adminInventoryStatus') {
                 document.getElementById('inv-editor-status').textContent = data?.message || '';
+            } else if (type === 'adminGiveawayStatus') {
+                document.getElementById('inv-editor-giveaway-status').textContent = data?.message || '';
             } else if (type === 'adminRoles') {
                 renderPlayerRoles(data?.accounts || []);
             } else if (type === 'adminRoleUpdated') {
@@ -15507,6 +15832,7 @@
                 if (tradeUpMenu.style.display === 'block') renderTradeUp();
                 renderMarketplaceCases();
                 renderFeaturedMarketListing();
+                if (document.getElementById('inventory-editor-menu').style.display !== 'none') renderInventoryGiveawayPicker();
                 if (weaponGroup && weapons[currentWeaponIndex]) buildGunModel();
             } else if (type === 'tradeUpState') {
                 applyTradeUpState(data);
@@ -15559,6 +15885,8 @@
                     sendPacket('getSkinInventory', {});
                     sendPacket('getStats', {});
                 }
+            } else if (type === 'caseGiftNotice') {
+                document.getElementById('case-inspect-status').textContent = data.message || (data.ok ? 'Case sent.' : 'Could not gift that case.');
             } else if (type === 'utilityGranted') {
                 if (Number.isFinite(data.money)) myMoney = data.money;
                 syncUtilityLifeCounts(data.utilityPurchasedThisLife);
@@ -16346,7 +16674,10 @@
         }
 
         function equippedSkinItem(weaponName) {
-            if (isAdminRoom && adminTestSkinOverrides.has(weaponName)) {
+            // The override map is filled either by the admin room's picker, which
+            // the server validates, or by the dev console, which only exists on
+            // localhost - so honouring it needs no further gate of its own.
+            if ((isAdminRoom || devConsole.enabled) && adminTestSkinOverrides.has(weaponName)) {
                 return adminTestSkinOverrides.get(weaponName);
             }
             const loadout = (skinInventoryState.loadouts || []).find(entry => entry.weapon === weaponName);
@@ -17666,6 +17997,21 @@
             // Per-skin gameplay transform. FAMAS Underground currently needs this
             // independently of previewYaw because its GLB axes are unusual.
             if (Number.isFinite(skinItem?.gameplayYaw)) rig.rotateY(skinItem.gameplayYaw);
+            // A model skin swaps the whole gun, and the builder only normalises
+            // length - so a source carrying its bulk well above or below its barrel
+            // line ends up hanging off the bottom of the screen or covering half of
+            // it, even though the base weapon it replaces framed fine. These put the
+            // swapped model back on the base weapon's framing. Note the pair branch
+            // above sets each pistol's x itself, so duals can only be nudged in y/z.
+            const skinOffset = skinItem?.gameplayOffset;
+            if (Array.isArray(skinOffset)) {
+                rig.position.x += Number(skinOffset[0]) || 0;
+                rig.position.y += Number(skinOffset[1]) || 0;
+                rig.position.z += Number(skinOffset[2]) || 0;
+            }
+            if (Number.isFinite(skinItem?.gameplayScale) && skinItem.gameplayScale > 0) {
+                rig.scale.multiplyScalar(skinItem.gameplayScale);
+            }
             if (view === 'firstPerson') {
                 const tune = fpTuneValueFor(weaponName);
                 const scale = Number(tune.scale);

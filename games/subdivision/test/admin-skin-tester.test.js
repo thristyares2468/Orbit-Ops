@@ -17,7 +17,13 @@ test('admin room exposes a catalogue-backed skin tester', () => {
 
 test('selected test skins override rendering without changing inventory loadouts', () => {
   assert.match(client, /const adminTestSkinOverrides = new Map\(\)/);
-  assert.match(client, /function equippedSkinItem\(weaponName\) \{\s*if \(isAdminRoom && adminTestSkinOverrides\.has\(weaponName\)\)/);
+  // The same override map also backs the localhost dev console, so the gate is
+  // "admin room OR dev console" rather than the admin room alone. What matters
+  // is that it stays gated - an ungated read here would let any client render
+  // any skin - so the assertion pins both halves instead of the exact spelling.
+  assert.match(client, /function equippedSkinItem\(weaponName\) \{[\s\S]{0,400}?if \(\(isAdminRoom \|\| devConsole\.enabled\) && adminTestSkinOverrides\.has\(weaponName\)\)/);
+  assert.match(client, /const devConsole = \{\s*enabled: localTestHost,/,
+    'the dev console half of that gate should be localhost-only');
   assert.match(client, /adminTestSkinOverrides\.clear\(\)/);
   assert.doesNotMatch(client.match(/function applyAdminTestSkin\(\)[\s\S]*?\n        \}/)?.[0] || '', /equipSkin|inventoryId/);
 });

@@ -396,22 +396,32 @@ const NERF_DART_TRACER = '/assets/skins/shared/nerf_dart.glb';
 //   gameplayYaw - cancels the yaw the weapon's own asset spec adds, and
 //                 nothing else. Math.PI for the Knife and Dual Berettas,
 //                 -Math.PI/2 for the M4A1, zero for every other weapon.
-//   previewYaw  - Math.PI for guns. The preview path does NOT apply the spec
-//                 rot and turns assetAxis 'z' by -Math.PI/2 on its own, which
-//                 lands the muzzle pointing right; the half turn puts it left,
-//                 matching how every base weapon frames in the showroom.
+//   previewYaw  - the showroom frames every weapon muzzle-left and every knife
+//                 blade-left, and the preview path does NOT apply the spec rot,
+//                 so this is whatever turn lands the swapped model that way. It
+//                 is zero for most of them and spelled out per skin where it is
+//                 not; it does not follow from gameplayYaw, and the two have to
+//                 be checked separately because they are different code paths.
 //
-// The one exception is the Deagle's Firestrike Elite: its source uses
-// KHR_materials_pbrSpecularGlossiness, which three r135 still renders but the
-// glTF tooling here refuses to read, so its rotation could not be baked and it
-// carries the turn in its yaws instead.
+// The one exception to the baking is the Deagle's Firestrike Elite: its source
+// uses KHR_materials_pbrSpecularGlossiness, which three r135 still renders but
+// the glTF tooling here refuses to read, so its rotation could not be baked and
+// it carries the turn in its yaws instead - a +Math.PI/2 in both.
+//
+// gameplayOffset / gameplayScale exist because the builder normalises a swapped
+// model's length only. A source carrying its bulk above or below its barrel
+// line frames nothing like the gun it replaces - most of these sit low enough
+// that the viewmodel's rest pose leaves only a sliver of them on screen - so
+// the offset lifts them back into frame without letting them cover it. Every
+// value below was read off a first-person screenshot at the shipped rest pose
+// (1.2, -1.0, -2.0), not guessed; only the SSG 08's needed a scale with it.
 //
 // Measure, do not reason, if any of this is ever touched. A bare Box3 cannot
 // see a backwards model - a 180deg yaw leaves size and centre identical - and
 // an earlier pass removed a yaw on that evidence and shipped a rifle pointing
 // backwards. Render it against an arrow drawn down -Z and check the muzzle
 // follows the arrow.
-function nerfMythic({ id, weapon, displayName, modelPath, gameplayYaw = 0, previewYaw = Math.PI }) {
+function nerfMythic({ id, weapon, displayName, modelPath, gameplayYaw = 0, previewYaw = 0, gameplayOffset, gameplayScale }) {
   return Object.freeze({
     id,
     weapon,
@@ -422,6 +432,9 @@ function nerfMythic({ id, weapon, displayName, modelPath, gameplayYaw = 0, previ
     assetAxis: 'z',
     gameplayYaw,
     previewYaw,
+    // Only set where the swapped model does not frame like the gun it replaces.
+    ...(gameplayOffset ? { gameplayOffset: Object.freeze(gameplayOffset) } : {}),
+    ...(Number.isFinite(gameplayScale) ? { gameplayScale } : {}),
     tracerModelPath: NERF_DART_TRACER,
     imported: false
   });
@@ -429,23 +442,28 @@ function nerfMythic({ id, weapon, displayName, modelPath, gameplayYaw = 0, previ
 
 const NERF_MYTHIC_SKINS = Object.freeze([
   // Renamed off the M4A1 and onto the AK47, which adds no yaw of its own.
-  nerfMythic({ id: 'm4a1_vanguard', weapon: 'AK47', displayName: 'AK47 | Elite Retaliator', modelPath: '/assets/skins/ak47/vanguard.glb' }),
+  nerfMythic({ id: 'm4a1_vanguard', weapon: 'AK47', displayName: 'AK47 | Elite Retaliator', modelPath: '/assets/skins/ak47/vanguard.glb', gameplayOffset: [0, 0.4, 0] }),
   nerfMythic({ id: 'glock_jolt', weapon: 'Glock', displayName: 'Glock | Jolt', modelPath: '/assets/skins/glock/jolt.glb' }),
   nerfMythic({ id: 'mac10_retaliator', weapon: 'MAC10', displayName: 'MAC10 | Retaliator', modelPath: '/assets/skins/mac10/retaliator.glb' }),
-  // The unbakeable one - see the note above. Its source aims down +X.
-  nerfMythic({ id: 'deagle_firestrike_elite', weapon: 'Deagle', displayName: 'Deagle | Firestrike Elite', modelPath: '/assets/skins/deagle/firestrike.glb', gameplayYaw: -Math.PI / 2, previewYaw: Math.PI / 2 }),
-  nerfMythic({ id: 'p90_delete', weapon: 'P90', displayName: 'P90 | Delete', modelPath: '/assets/skins/p90/delete.glb' }),
+  // The unbakeable one - see the note above. Its source aims down -X, so its
+  // quarter turn is the one correction that still has to live in the skin.
+  nerfMythic({ id: 'deagle_firestrike_elite', weapon: 'Deagle', displayName: 'Deagle | Firestrike Elite', modelPath: '/assets/skins/deagle/firestrike.glb', gameplayYaw: Math.PI / 2, previewYaw: Math.PI / 2, gameplayOffset: [0, 0.55, 0] }),
+  nerfMythic({ id: 'p90_delete', weapon: 'P90', displayName: 'P90 | Delete', modelPath: '/assets/skins/p90/delete.glb', gameplayOffset: [0, 0.35, 0] }),
   nerfMythic({ id: 'awp_heavy_sniper', weapon: 'AWP', displayName: 'AWP | Heavy Sniper', modelPath: '/assets/skins/awp/heavy_sniper.glb' }),
   // The dual-pistol splitter cuts the template at its world-X midpoint and
   // hands one half to each hand, so this GLB ships two pistols side by side
   // along X the way dual_elite.glb does. A single pistol would be halved.
-  nerfMythic({ id: 'dual_berettas_doublestrike', weapon: 'Dual Berettas', displayName: 'Dual Berettas | Doublestrike', modelPath: '/assets/skins/dual_berettas/doublestrike.glb', gameplayYaw: Math.PI }),
-  // Under /knife/toy/ so knifeTypeForItem reports the type as "Toy". The
-  // preview path has its own knife branch, which already frames a blade the
-  // way the base knives frame, so this one takes no preview turn.
-  nerfMythic({ id: 'knife_toy_nerf', weapon: 'Knife', displayName: 'Knife | Toy Knife', modelPath: '/assets/skins/knife/toy/toy.glb', gameplayYaw: Math.PI, previewYaw: 0 }),
-  nerfMythic({ id: 'm4a1_g36', weapon: 'M4A1', displayName: 'M4A1 | G36', modelPath: '/assets/skins/m4a1/g36.glb', gameplayYaw: -Math.PI / 2 }),
-  nerfMythic({ id: 'ssg08_super_soaker', weapon: 'SSG 08', displayName: 'SSG 08 | Super Soaker 50', modelPath: '/assets/skins/ssg08/super_soaker.glb' })
+  // The showroom frames the base Dual Berettas muzzle-right rather than
+  // muzzle-left, but taking that half turn here drops this pair into a small
+  // skewed pose the auto-fit cannot read, so it keeps the showroom's usual
+  // muzzle-left instead.
+  nerfMythic({ id: 'dual_berettas_doublestrike', weapon: 'Dual Berettas', displayName: 'Dual Berettas | Doublestrike', modelPath: '/assets/skins/dual_berettas/doublestrike.glb', gameplayYaw: Math.PI, gameplayOffset: [0, 0.55, 0] }),
+  // Under /knife/toy/ so knifeTypeForItem reports the type as "Toy".
+  nerfMythic({ id: 'knife_toy_nerf', weapon: 'Knife', displayName: 'Knife | Toy Knife', modelPath: '/assets/skins/knife/toy/toy.glb', gameplayYaw: Math.PI, previewYaw: Math.PI, gameplayOffset: [0, 0.45, 0] }),
+  nerfMythic({ id: 'm4a1_g36', weapon: 'M4A1', displayName: 'M4A1 | G36', modelPath: '/assets/skins/m4a1/g36.glb', gameplayYaw: -Math.PI / 2, gameplayOffset: [0, 0.35, 0] }),
+  // The only source that needed taking down as well as lifting: at full size the
+  // soaker's tank fills the right third of the screen.
+  nerfMythic({ id: 'ssg08_super_soaker', weapon: 'SSG 08', displayName: 'SSG 08 | Super Soaker 50', modelPath: '/assets/skins/ssg08/super_soaker.glb', gameplayOffset: [0, 0.55, 0], gameplayScale: 0.8 })
 ]);
 
 NEW_EQUIPMENT_SKINS.push({

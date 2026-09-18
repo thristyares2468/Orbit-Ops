@@ -102,13 +102,13 @@ test('the M4A1 mythic skin is a real, reachable model', () => {
     `${skin.modelPath} should exist on disk`);
   // The GLB is stored aimed down -Z, so the gameplay yaw exists only to cancel
   // the quarter turn the M4A1's own asset spec adds. The preview path does not
-  // apply that spec rot at all and needs the guns' usual half turn instead.
+  // apply that spec rot at all, and this model already reads muzzle-left there.
   // Both are pinned because the failure is invisible to a bounds check - a
   // 180deg yaw leaves size and centre identical - and an earlier pass dropped a
   // yaw on exactly that evidence and shipped the rifle backwards.
   assert.strictEqual(skin.assetAxis, 'z');
   assert.strictEqual(skin.gameplayYaw, -Math.PI / 2, 'the model points sideways without this');
-  assert.strictEqual(skin.previewYaw, Math.PI, 'the preview points backwards without this');
+  assert.strictEqual(skin.previewYaw, 0, 'the showroom frames it muzzle-left with no turn of its own');
 });
 
 test('the M4A1 models stay inside a sane download and draw budget', () => {
