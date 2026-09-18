@@ -677,7 +677,7 @@ function sanitizeCaseId(id) {
 function sanitizeCaseDefinition(input = {}, { requireItems = true } = {}) {
   // One sanitizer is shared by the admin editor, server handlers, and DB reads.
   // It keeps case ids URL-safe, prevents duplicate drops, and enforces the
-  // product rule that Mythic rewards are knives only.
+  // product rule that Mythic rewards must be explicitly authored in the catalogue.
   const id = sanitizeCaseId(input.id);
   if (!id) throw new Error('case_id_required');
   const displayName = String(input.displayName || input.name || id)
@@ -733,8 +733,7 @@ function sanitizeCaseDefinition(input = {}, { requireItems = true } = {}) {
     const rarity = normalizeRarity(rawEntry?.rarity || rawEntry?.tier || item.rarity);
     // A case entry can set any tier it likes EXCEPT Mythic, which it can only
     // confirm: the item has to already be authored Mythic in the catalogue.
-    // Error id unchanged so existing callers and messages still match.
-    if (rarity === 'mythic' && item.rarity !== 'mythic') throw new Error('mythic_requires_knife');
+    if (rarity === 'mythic' && item.rarity !== 'mythic') throw new Error('mythic_requires_authored_item');
     const weight = Math.max(1, Math.min(100000, Math.floor(Number(rawEntry?.weight) || 0)));
     seen.add(item.id);
     items.push({ itemId: item.id, weight, rarity });
@@ -921,8 +920,8 @@ function buildCaseReel(result, randomInt, { length = 40, winningIndex = 34, case
   } catch {
     fillerEntries = [];
   }
-  // Mythics are a reveal, not reel filler. A knife only appears in the final
-  // winning slot when the authoritative roll actually awarded that knife.
+  // Mythics are a reveal, not reel filler. A Mythic item only appears in the
+  // final winning slot when the authoritative roll actually awarded it.
   fillerEntries = fillerEntries.filter((entry) => normalizeRarity(entry.rarity || entry.item?.rarity) !== 'mythic');
   if (!fillerEntries.length) {
     fillerEntries = STANDARD_CASE_ITEM_IDS.map((itemId) => {

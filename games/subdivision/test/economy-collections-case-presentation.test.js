@@ -76,14 +76,14 @@ assert.match(html, /texture\.offset\.set[\s\S]*?texture\.rotation[\s\S]*?pattern
 assert.match(html, /inventoryThumbnailKey[\s\S]*?@pattern:/, 'thumbnail identity should include the pattern instance seed');
 assert.match(html, /WEAPON_REFLECTION_TEXTURE_PATH = '\/assets\/environments\/dust2-reflection\.png'[\s\S]*?scene\.environment = texture[\s\S]*?metadataNeedsReflection/, 'all scene and weapon reflections should use the exact supplied environment image');
 assert.ok(html.includes("url('/assets/ui/case-gold.jpeg')"), 'mythic reel cards should use the supplied gold art');
-assert.match(html, /function caseInspectDisplayEntries\(caseDef\)[\s\S]*?item\.weapon !== 'Knife'[\s\S]*?special: true, rarity: 'mythic'/, 'case inspect should collapse all knife rewards into one gold special entry');
-assert.match(html, /Rare Special Item[\s\S]*?Knife · Mythic/, 'case inspect should label the collapsed gold entry as Rare Special Item');
+assert.match(html, /function caseInspectDisplayEntries\(caseDef\)[\s\S]*?rarity[^\n]*!== 'mythic'[\s\S]*?special: true, rarity: 'mythic'/, 'case inspect should collapse all Mythic rewards into one gold special entry');
+assert.match(html, /Rare Special Item[\s\S]*?Mythic Reward/, 'case inspect should use weapon-neutral wording for the collapsed Mythic entry');
 for (const functionName of ['caseItemsWithCatalog', 'openCaseInspect', 'closeCaseInspect', 'buildLocalCaseRoll', 'openOwnedCase']) {
   assert.strictEqual((html.match(new RegExp(`function ${functionName}\\(`, 'g')) || []).length, 1, `${functionName} should have one implementation so stale declarations cannot override case presentation`);
 }
 assert.ok(html.includes('data-case-content-inspect="${escapeHtml(item.id)}"'), 'non-knife case contents should render an inspect command');
 assert.ok(html.includes("openCaseEditorSkinInspect(card.dataset.caseContentInspect || '')"), 'non-knife case contents should open the live skin inspector');
-assert.ok(html.includes('if (special) return `<div class="case-content-card rare-special rarity-mythic">'), 'the collapsed knife special entry should remain a non-interactive card');
+assert.ok(html.includes('if (special) return `<div class="case-content-card rare-special rarity-mythic">'), 'the collapsed Mythic special entry should remain a non-interactive card');
 assert.match(html, /function sortCaseEntriesByRarity\(entries\)[\s\S]*?caseRarityRank[\s\S]*?localeCompare/, 'case contents should sort by rarity and then by item name');
 assert.match(html, /const LOBBY_MUSIC_MAX_SCALE = 0\.3;/, 'lobby music should peak at half its previous 0.6 scale');
 assert.match(html, /fadeLobbyMusicForCase[\s\S]*?resumeLobbyMusicAfterCase[\s\S]*?openCaseRewardInspect/, 'case opening should duck music until the full-screen reward inspect closes');

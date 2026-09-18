@@ -2843,7 +2843,7 @@ async function handleSaveCaseDefinition(client, data = {}) {
       case_final_discount_too_long: 'Final discount hours must fit inside the case availability period.',
       case_discount_outside_availability: 'The discount window must stay inside the case availability period.'
     };
-    const message = scheduleMessages[error.message] || (error.message === 'mythic_requires_knife'
+    const message = scheduleMessages[error.message] || (error.message === 'mythic_requires_authored_item'
       ? 'Mythic can only be set on a skin that is already authored as Mythic.'
       : (error.message === 'case_items_required' ? 'Add at least one skin to the case.' : 'Could not save that case.'));
     send(client, 'caseEditorNotice', { ok: false, message });

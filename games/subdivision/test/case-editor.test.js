@@ -5,7 +5,7 @@ const path = require('path');
 const skins = require('../skins');
 
 // Case editor and rarity rules are mostly static contracts, so this test locks
-// the catalog shape, Mythic knife-only rule, and admin UI/server packet wiring.
+// the catalog shape, authored-Mythic rule, and admin UI/server packet wiring.
 const ROOT = path.resolve(__dirname, '..');
 const dbJs = fs.readFileSync(path.join(ROOT, 'db.js'), 'utf8');
 const serverJs = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
@@ -29,14 +29,19 @@ assert.ok(nonDefaultKnives.length > 0, 'catalog should include non-default knife
 assert.ok(nonDefaultKnives.every(item => item.rarity === 'mythic'), 'non-default knife rewards should be Mythic');
 assert.ok(!skins.STARTER_ITEM_IDS.some(itemId => nonDefaultKnives.some(item => item.id === itemId)), 'starter inventory should not grant extra knife variants');
 
-const rifle = skins.ITEMS.find(item => item.weapon !== 'Knife');
+const rifle = skins.ITEMS.find(item => item.weapon !== 'Knife' && item.rarity !== 'mythic');
+const mythicFirearm = skins.ITEMS.find(item => item.weapon !== 'Knife' && item.rarity === 'mythic');
+assert.ok(mythicFirearm, 'catalog should include an authored Mythic firearm');
 assert.throws(
   () => skins.sanitizeCaseDefinition({ id: 'bad_case', items: [{ itemId: rifle.id, rarity: 'mythic', weight: 1 }] }),
-  /mythic_requires_knife/,
-  'Mythic rarity should be rejected for non-knife items'
+  /mythic_requires_authored_item/,
+  'ordinary items must not be promoted to Mythic by a case entry'
+);
+assert.doesNotThrow(
+  () => skins.sanitizeCaseDefinition({ id: 'mythic_weapon_case', items: [{ itemId: mythicFirearm.id, rarity: 'mythic', weight: 1 }] }),
+  'catalogue-authored Mythic firearms should be allowed in cases'
 );
 
-const knife = nonDefaultKnives[0];
 const customCase = skins.sanitizeCaseDefinition({
   id: 'Admin Test Case',
   displayName: 'Admin Test Case',
@@ -52,7 +57,7 @@ const customCase = skins.sanitizeCaseDefinition({
   rarityWeights: { common: 75, mythic: 25 },
   items: [
     { itemId: rifle.id, rarity: 'common', weight: 3 },
-    { itemId: knife.id, rarity: 'mythic', weight: 1 }
+    { itemId: mythicFirearm.id, rarity: 'mythic', weight: 1 }
   ]
 });
 assert.strictEqual(customCase.id, 'admin_test_case', 'case ids should be URL/server safe');
@@ -90,7 +95,7 @@ const roll = skins.rollCaseDefinition(customCase, (max) => {
   assert.ok(value >= 0 && value < max, `deterministic class roll ${value} must be below ${max}`);
   return value;
 });
-assert.strictEqual(roll.item.id, knife.id, 'weighted custom case rolls should return catalog items');
+assert.strictEqual(roll.item.id, mythicFirearm.id, 'weighted custom case rolls should return authored Mythic firearms');
 assert.strictEqual(roll.tier, 'mythic', 'custom case rolls should preserve the selected rarity');
 assert.strictEqual(roll.gold, true, 'Mythic case rolls should drive the gold/mythic animation branch');
 const commonRolls = [0, 0];
@@ -100,7 +105,7 @@ assert.strictEqual(
   'per-class mode should choose the configured class before choosing a skin within it'
 );
 const reel = skins.buildCaseReel(roll, () => 0, { caseDef: customCase });
-assert.ok(reel && reel.reel[reel.winningIndex].itemId === knife.id, 'custom case reels should put the awarded item at the winning index');
+assert.ok(reel && reel.reel[reel.winningIndex].itemId === mythicFirearm.id, 'custom case reels should put the Mythic firearm at the winning index');
 assert.strictEqual(skins.CASES.length, 0, 'default cases should not ship in the game catalog');
 assert.deepStrictEqual(skins.publicCatalog([]).cases, [], 'public catalog should have no cases until admins create custom ones');
 assert.ok(skins.publicCatalog([customCase]).cases.some(caseDef => caseDef.id === customCase.id), 'public catalog should include sanitized custom cases');
@@ -172,6 +177,6 @@ assert.ok(indexHtml.includes('function showCaseEditor(from = '), 'case editor me
 assert.ok(indexHtml.includes("sendPacket('saveCaseDefinition'"), 'case editor should save through the server');
 assert.ok(indexHtml.includes("sendPacket('openCaseTest', { case: draft })"), 'case editor should test the current unsaved draft through the server');
 assert.match(serverJs, /!consume && data\.case[\s\S]*?skins\.sanitizeCaseDefinition\(data\.case\)/, 'server should sanitize an unsaved admin draft before a test open');
-assert.ok(indexHtml.includes('Mythic can only be used for knives.'), 'case editor should explain the Mythic knife-only rule');
+assert.ok(indexHtml.includes('Only catalogue-authored Mythic items can use Mythic rarity.'), 'case editor should explain the authored-Mythic rule');
 
 console.log('case-editor: three-pane custom case editor, probability tooling, rarity names, and Mythic rules verified.');

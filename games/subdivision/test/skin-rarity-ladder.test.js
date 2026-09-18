@@ -81,7 +81,7 @@ test('mythic is an authored allowlist, not a tier a case entry can hand out', ()
       id: 'probe3', displayName: 'Probe 3',
       items: [{ itemId: ordinary.id, rarity: 'mythic', weight: 1 }]
     }),
-    /mythic_requires_knife/
+    /mythic_requires_authored_item/
   );
   // The allowlisted one is accepted, so the guard is discriminating rather than
   // simply still rejecting everything.

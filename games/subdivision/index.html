@@ -6239,7 +6239,7 @@
                 const item = caseEditorItems().find(candidate => candidate.id === itemId);
                 if (!item) return;
                 const rarity = normalizedRarityId(row.querySelector('[data-case-rarity]')?.value || item.rarity || 'common');
-                if (rarity === 'mythic' && item.weapon !== 'Knife') throw new Error('mythic_requires_knife');
+                if (rarity === 'mythic' && normalizedRarityId(item.rarity) !== 'mythic') throw new Error('mythic_requires_authored_item');
                 const weight = Math.max(1, Math.min(100000, Math.floor(Number(row.querySelector('[data-case-weight]')?.value) || 1)));
                 items.push({ itemId, rarity, weight });
             });
@@ -6278,8 +6278,8 @@
                     case_final_discount_too_long: 'Final discount hours must fit inside the case availability period.',
                     case_discount_outside_availability: 'The discount window must stay inside the case availability period.'
                 };
-                document.getElementById('case-editor-status').textContent = scheduleMessages[error.message] || (error.message === 'mythic_requires_knife'
-                    ? 'Mythic can only be used for knives.'
+                document.getElementById('case-editor-status').textContent = scheduleMessages[error.message] || (error.message === 'mythic_requires_authored_item'
+                    ? 'Only catalogue-authored Mythic items can use Mythic rarity.'
                     : (error.message === 'case_class_chance_total' ? 'Rarity class chances must total 100%.' : 'Add a case ID and at least one skin.'));
             }
         }
@@ -6299,8 +6299,8 @@
                 setCaseEditorDirty(caseEditorDirty, 'Testing unsaved draft...');
                 sendPacket('openCaseTest', { case: draft });
             } catch (error) {
-                document.getElementById('case-editor-status').textContent = error.message === 'mythic_requires_knife'
-                    ? 'Mythic can only be used for knives.'
+                document.getElementById('case-editor-status').textContent = error.message === 'mythic_requires_authored_item'
+                    ? 'Only catalogue-authored Mythic items can use Mythic rarity.'
                     : (error.message === 'case_class_chance_total' ? 'Rarity class chances must total 100%.' : 'Add a case ID and at least one skin before testing.');
             }
         }
@@ -13376,7 +13376,7 @@
                 if (special) return `<div class="case-content-card rare-special rarity-mythic">
                     <span class="inventory-item-preview" aria-label="Gold rare special item icon"></span>
                     <strong>Rare Special Item</strong>
-                    <small>Knife · Mythic</small>
+                    <small>Mythic Reward</small>
                 </div>`;
                 const rarityId = normalizedRarityId(rarity || item.rarity || 'common');
                 return `<button type="button" class="case-content-card rarity-${escapeHtml(rarityId)}" data-case-content-inspect="${escapeHtml(item.id)}" aria-label="Inspect ${escapeHtml(item.displayName || item.id)}">
@@ -14138,7 +14138,7 @@
             track.innerHTML = reel.map((entry, index) => `<div class="case-roll-card rarity-${escapeHtml(normalizedRarityId(entry.rarity || (entry.gold ? 'mythic' : 'common')))}${entry.gold ? ' gold' : ''}">
                 <div class="case-roll-card-media">${inventoryThumbnailMarkup(reelItems[index].item, entry.weapon || 'Weapon')}</div>
                 <div class="case-roll-card-label">${escapeHtml(entry.displayName || 'Item')}</div>
-                <div class="case-roll-rarity">${escapeHtml(entry.gold ? 'Mythic · Knife' : rarityDisplayName(entry.rarity || 'common'))}</div>
+                <div class="case-roll-rarity">${escapeHtml(entry.gold ? 'Mythic · Special Item' : rarityDisplayName(entry.rarity || 'common'))}</div>
             </div>`).join('');
             hydrateInventoryThumbnails(reelItems);
             result.textContent = 'Opening case';
