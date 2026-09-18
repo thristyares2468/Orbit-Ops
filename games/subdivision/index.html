@@ -33,15 +33,31 @@
 
         .menu-container { background: rgba(30, 35, 31, 0.96); padding: 40px; border: 1px solid #505851; border-radius: 8px; width: 400px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.72); }
         .menu-title { font-size: 32px; font-weight: bold; margin-bottom: 30px; color: #ffaa00; font-family: 'Courier New', Courier, monospace; letter-spacing: 2px; }
-        /* Inventory editor. Rows are a label plus its controls, so they stay
-           readable when an item id is long enough to wrap. */
+        /* Inventory editor. Keep the item identity in a real column and group
+           multi-action controls vertically; full-width .menu-btn defaults used
+           to squeeze long skin ids down to a few characters per line. */
         .inv-editor-row { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
         .inv-editor-row > .username-input { flex: 1; }
         .inv-editor-num { width: 84px; box-sizing: border-box; padding: 10px; background: #101010; border: 1px solid #555; color: #fff; border-radius: 4px; font: 14px 'Courier New', monospace; text-align: center; }
-        .inv-editor-item { display: flex; gap: 6px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #3a3f3b; }
-        .inv-editor-item .inv-editor-name { flex: 1; text-align: left; font: 13px 'Courier New', monospace; color: #dfe8e2; overflow-wrap: anywhere; }
-        .inv-editor-item .inv-editor-num { width: 72px; padding: 6px; }
-        .inv-editor-item button { padding: 6px 10px; font-size: 12px; }
+        #inventory-editor-menu { width: min(760px, calc(100vw - 32px)); box-sizing: border-box; }
+        #inventory-editor-menu.hub-embedded-view > .inv-editor-row,
+        #inventory-editor-menu.hub-embedded-view > #inv-editor-body,
+        #inventory-editor-menu.hub-embedded-view > #inv-editor-status { width: min(900px, 100%); margin-left: auto; margin-right: auto; }
+        .inv-editor-item { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 8px; align-items: center; padding: 8px; border-bottom: 1px solid #3a3f3b; }
+        .inv-editor-item .inv-editor-name { min-width: 0; text-align: left; font: 13px/1.35 'Courier New', monospace; color: #dfe8e2; overflow-wrap: anywhere; }
+        .inv-editor-item .inv-editor-num { width: 84px; padding: 8px 6px; }
+        .inv-editor-item > button,
+        .inv-editor-actions button { width: auto; min-width: 92px; margin: 0; padding: 8px 12px; font-size: 12px; }
+        .inv-editor-actions { display: grid; gap: 6px; width: 112px; }
+        .inv-editor-actions button { width: 100%; }
+        @media (max-width: 620px) {
+            #inventory-editor-menu { width: calc(100vw - 20px); padding: 30px 16px 20px; }
+            .inv-editor-row { align-items: stretch; flex-wrap: wrap; }
+            .inv-editor-row > .username-input, .inv-editor-row > .host-mode-select { flex: 1 1 180px; min-width: 0; }
+            .inv-editor-item { grid-template-columns: minmax(0, 1fr) auto; }
+            .inv-editor-item .inv-editor-name { grid-column: 1 / -1; }
+            .inv-editor-actions { grid-column: 2; }
+        }
         /* A locked item is still shown - knowing it exists is the point - but
            the controls that would break the commitment are disabled. */
         .inv-editor-lock { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 3px; background: #4a3410; color: #ffc46a; font-size: 11px; letter-spacing: .04em; }
@@ -10363,7 +10379,10 @@
                 remove.addEventListener('click', () => {
                     invEditorSend('removeSkin', { inventoryId: row.id });
                 });
-                item.append(name, wear, save, remove);
+                const actions = document.createElement('div');
+                actions.className = 'inv-editor-actions';
+                actions.append(save, remove);
+                item.append(name, wear, actions);
                 skins.append(item);
             }
 

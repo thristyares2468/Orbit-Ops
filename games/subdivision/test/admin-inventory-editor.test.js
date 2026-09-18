@@ -180,6 +180,12 @@ test('locked items are shown but not editable, with the reason visible', () => {
   assert.match(html, /remove\.textContent = 'Remove';[\s\S]*?invEditorSend\('removeSkin', \{ inventoryId: row\.id \}\)/u);
 });
 
+test('skin actions stay grouped without crushing the item name', () => {
+  assert.match(html, /\.inv-editor-item \{ display: grid; grid-template-columns: minmax\(180px, 1fr\) auto auto;/u);
+  assert.match(html, /\.inv-editor-actions \{ display: grid; gap: 6px; width: 112px; \}/u);
+  assert.match(html, /actions\.className = 'inv-editor-actions';[\s\S]*?actions\.append\(save, remove\);[\s\S]*?item\.append\(name, wear, actions\);/u);
+});
+
 test('a blank wear box means roll it, not zero', () => {
   // Number('') is 0, which would silently make every added skin factory new.
   assert.match(html, /raw === ''\s*\n\s*\? \{ itemId: entry\.id \}\s*\n\s*: \{ itemId: entry\.id, wear: Number\(raw\) \}/u);
